@@ -1,0 +1,176 @@
+/**
+ * IndexedDB persistence for Fish Logger V1.
+ * @module db
+ */
+
+const DB_NAME = "FishLoggerV1";
+const DB_VERSION = 1;
+
+/** @typedef {{ id: string, displayName: string }} Angler */
+/** @typedef {{ id: string, startTime: number, endTime: number | null }} Session */
+/** @typedef {{ id: string, sessionId: string, anglerId: string, isActive: boolean, joinedAt: number, leftAt: number | null }} SessionAngler */
+/** @typedef {{ lat: number | null, lon: number | null }} Gps */
+/** @typedef {{ depth: number | null, waterTemp: number | null }} Telemetry */
+/** @typedef {{ id: string, sessionId: string | null, anglerId: string, timestamp: number, species: string, length: number | null, weight: number | null, notes: string, gps: Gps, telemetry: Telemetry }} CatchRecord */
+
+/**
+ * @returns {Promise<IDBDatabase>}
+ */
+function openDb() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onerror = () => reject(req.error);
+    req.onsuccess = () => resolve(req.result);
+    req.onupgradeneeded = (e) => {
+      const db = /** @type {IDBDatabase} */ (e.target.result);
+
+      if (!db.objectStoreNames.contains("anglers")) {
+        db.createObjectStore("anglers", { keyPath: "id" });
+      }
+      if (!db.objectStoreNames.contains("sessions")) {
+        db.createObjectStore("sessions", { keyPath: "id" });
+      }
+      if (!db.objectStoreNames.contains("sessionAnglers")) {
+        const sa = db.createObjectStore("sessionAnglers", { keyPath: "id" });
+        sa.createIndex("bySession", "sessionId", { unique: false });
+        sa.createIndex("byAngler", "anglerId", { unique: false });
+      }
+      if (!db.objectStoreNames.contains("catches")) {
+        const c = db.createObjectStore("catches", { keyPath: "id" });
+        c.createIndex("bySession", "sessionId", { unique: false });
+      }
+    };
+  });
+}
+
+/**
+ * @returns {Promise<Angler[]>}
+ */
+export async function getAllAnglers() {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const r = db.transaction("anglers", "readonly").objectStore("anglers").getAll();
+    r.onerror = () => reject(r.error);
+    r.onsuccess = () => resolve(r.result || []);
+  });
+}
+
+/**
+ * @param {Angler} a
+ */
+export async function putAngler(a) {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const r = db.transaction("anglers", "readwrite").objectStore("anglers").put(a);
+    r.onerror = () => reject(r.error);
+    r.onsuccess = () => resolve();
+  });
+}
+
+/**
+ * @param {Session} s
+ */
+export async function putSession(s) {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const r = db.transaction("sessions", "readwrite").objectStore("sessions").put(s);
+    r.onerror = () => reject(r.error);
+    r.onsuccess = () => resolve();
+  });
+}
+
+/**
+ * @param {SessionAngler} sa
+ */
+export async function putSessionAngler(sa) {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const r = db.transaction("sessionAnglers", "readwrite").objectStore("sessionAnglers").put(sa);
+    r.onerror = () => reject(r.error);
+    r.onsuccess = () => resolve();
+  });
+}
+
+/**
+ * @param {CatchRecord} c
+ */
+export async function putCatch(c) {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const r = db.transaction("catches", "readwrite").objectStore("catches").put(c);
+    r.onerror = () => reject(r.error);
+    r.onsuccess = () => resolve();
+  });
+}
+
+/**
+ * All catches for a session, newest first.
+ * @param {string} sessionId
+ * @returns {Promise<CatchRecord[]>}
+ */
+export async function getCatchesForSession(sessionId) {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const idx = db.transaction("catches", "readonly").objectStore("catches").index("bySession");
+    const r = idx.getAll(sessionId);
+    r.onerror = () => reject(r.error);
+    r.onsuccess = () => {
+      const list = /** @type {CatchRecord[]} */ (r.result || []);
+      list.sort((a, b) => b.timestamp - a.timestamp);
+      resolve(list);
+    };
+  });
+}
+
+/**
+ * Active session: endTime === null. At most one should exist.
+ * @returns {Promise<Session | null>}
+ */
+export async function getActiveSession() {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const r = db.transaction("sessions", "readonly").objectStore("sessions").getAll();
+    r.onerror = () => reject(r.error);
+    r.onsuccess = () => {
+      const list = r.result || [];
+      const active = list.find((s) => s.endTime === null);
+      resolve(active || null);
+    };
+  });
+}
+
+/**
+ * @param {string} sessionId
+ * @returns {Promise<SessionAngler[]>}
+ */
+export async function getSessionAnglersForSession(sessionId) {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const idx = db.transaction("sessionAnglers", "readonly").objectStore("sessionAnglers").index("bySession");
+    const r = idx.getAll(sessionId);
+    r.onerror = () => reject(r.error);
+    r.onsuccess = () => resolve(r.result || []);
+  });
+}
+
+/**
+ * @param {string} anglerId
+ * @returns {Promise<boolean>}
+ */
+export async function isAnglerInAnyActiveSession(anglerId) {
+  const active = await getActiveSession();
+  if (!active) return false;
+  const list = await getSessionAnglersForSession(active.id);
+  return list.some((sa) => sa.anglerId === anglerId && sa.isActive);
+}
+
+/**
+ * @param {string} sessionId
+ * @param {string} anglerId
+ * @returns {Promise<SessionAngler | undefined>}
+ */
+export async function findSessionAngler(sessionId, anglerId) {
+  const all = await getSessionAnglersForSession(sessionId);
+  return all.find((sa) => sa.anglerId === anglerId);
+}
+

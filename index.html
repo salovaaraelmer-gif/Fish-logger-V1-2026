@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="fi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#0d1117" />
+    <!-- Suositeltu: paikallinen HTTP-palvelin (ES-moduulit + sijainti). Esim. VS Code Live Server tai: npx serve -->
+    <title>Kalapäivä — saalisvahti</title>
+    <link rel="stylesheet" href="css/app.css" />
+  </head>
+  <body>
+    <div id="app">
+      <header>
+        <h1>Kalapäivä</h1>
+        <p class="meta" id="session-meta">Ladataan…</p>
+      </header>
+
+      <section id="screen-home" class="screen is-visible">
+        <div id="block-no-session" class="stack hidden">
+          <p class="pill">Ei aktiivista sessiota</p>
+          <button type="button" class="btn btn-primary" id="btn-open-start">Aloita kalastussessio</button>
+        </div>
+
+        <div id="block-active-session" class="stack hidden">
+          <p class="session-timer" id="session-timer" aria-live="polite"></p>
+          <button type="button" class="btn btn-primary" id="btn-log-catch">Kirjaa saalis</button>
+          <button type="button" class="btn" id="btn-show-catches">Näytä saaliit</button>
+          <button type="button" class="btn btn-danger" id="btn-end-session">Lopeta sessio</button>
+          <button type="button" class="btn" id="btn-edit-anglers" aria-expanded="false">Muokkaa kalastajia</button>
+        </div>
+
+        <div id="angler-edit-panel" class="stack angler-edit-panel">
+          <h2>Kalastajat</h2>
+          <div id="angler-list" class="stack"></div>
+          <div class="stack" style="margin-top: 1rem">
+            <div class="field-label">Lisää kalastaja</div>
+            <input type="text" id="new-angler-name" placeholder="Nimi" autocomplete="name" />
+            <button type="button" class="btn" id="btn-add-angler">Tallenna kalastaja</button>
+          </div>
+
+          <div id="session-roster" class="hidden" style="margin-top: 1.5rem">
+            <h2>Sessiossa nyt</h2>
+            <div id="session-angler-rows" class="stack"></div>
+            <h2>Lisää sessioon</h2>
+            <div id="add-to-session" class="stack"></div>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <!-- Fish entry overlay -->
+    <div id="fish-overlay" class="hidden">
+      <div class="fish-inner">
+        <div class="row-actions" style="margin-bottom: 1rem">
+          <button type="button" class="btn btn-ghost" id="fish-close">Sulje</button>
+        </div>
+
+        <div id="fish-step-1" class="fish-step">
+          <h2>1. Valitse kalastaja</h2>
+          <div id="fish-angler-buttons" class="stack"></div>
+        </div>
+
+        <div id="fish-step-2" class="fish-step hidden">
+          <h2>2. Saalis</h2>
+          <div class="field-label">Laji (pakollinen)</div>
+          <div class="grid-2" id="species-buttons"></div>
+          <div style="margin-top: 1rem">
+            <div class="field-label">Pituus (cm), valinnainen</div>
+            <input
+              type="text"
+              id="fish-input-length"
+              inputmode="numeric"
+              pattern="[0-9]*"
+              autocomplete="off"
+              aria-label="Pituus senttimetreinä"
+            />
+          </div>
+          <div style="margin-top: 0.75rem">
+            <div class="field-label">Paino (g), valinnainen</div>
+            <input
+              type="text"
+              id="fish-input-weight"
+              inputmode="numeric"
+              pattern="[0-9]*"
+              autocomplete="off"
+              aria-label="Paino grammoina"
+            />
+          </div>
+          <div class="row-actions">
+            <button type="button" class="btn" id="fish-back-2">Takaisin</button>
+            <button type="button" class="btn btn-primary" id="fish-next-2" disabled>Seuraava</button>
+          </div>
+        </div>
+
+        <div id="fish-step-3" class="fish-step hidden">
+          <h2>3. Muistiinpanot</h2>
+          <textarea id="fish-notes" placeholder="Valinnainen"></textarea>
+          <div class="row-actions">
+            <button type="button" class="btn" id="fish-back-3">Takaisin</button>
+            <button type="button" class="btn btn-primary" id="fish-save">Tallenna</button>
+          </div>
+        </div>
+
+        <div id="fish-step-4" class="fish-step hidden">
+          <div class="success-panel">
+            <div class="icon" aria-hidden="true">✓</div>
+            <h2>Saalis tallennettu</h2>
+            <p class="meta">Aikaleima ja sijainti (jos sallittu) tallentuivat automaattisesti.</p>
+            <div class="stack" style="margin-top: 1.5rem">
+              <button type="button" class="btn btn-primary" id="fish-add-another">Kirjaa uusi saalis</button>
+              <button type="button" class="btn" id="fish-back-home">Takaisin valikkoon</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Session catches table -->
+    <div id="catches-overlay" class="hidden">
+      <div class="catches-inner">
+        <div class="row-actions" style="margin-bottom: 1rem">
+          <button type="button" class="btn btn-ghost" id="catches-close">Sulje</button>
+        </div>
+        <h2 id="catches-overlay-title">Saaliit tässä sessiossa</h2>
+        <p class="meta hidden" id="catches-empty">Ei kirjattuja saaliita.</p>
+        <div class="catches-table-wrap" id="catches-table-wrap">
+          <table class="catches-table" id="catches-table" aria-label="Saaliit">
+            <thead>
+              <tr>
+                <th>Aika</th>
+                <th>Kalastaja</th>
+                <th>Laji</th>
+                <th>Pituus (cm)</th>
+                <th>Paino (g)</th>
+                <th>Muistiinpanot</th>
+              </tr>
+            </thead>
+            <tbody id="catches-table-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Start session modal -->
+    <div id="start-overlay" class="hidden">
+      <div class="start-modal-inner">
+        <h2>Aloita sessio</h2>
+        <p class="meta">Valitse vähintään yksi kalastaja.</p>
+        <div id="start-angler-picks" class="stack" style="margin-bottom: 1rem"></div>
+        <div class="row-actions">
+          <button type="button" class="btn btn-ghost" id="start-cancel">Peruuta</button>
+          <button type="button" class="btn btn-primary" id="start-confirm" disabled>Aloita</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- End session confirmation -->
+    <div id="end-session-overlay" class="hidden">
+      <div class="start-modal-inner">
+        <h2>Lopeta sessio?</h2>
+        <p class="meta">Oletko varma, että haluat lopettaa?</p>
+        <div class="row-actions">
+          <button type="button" class="btn btn-ghost" id="end-session-cancel">Peruuta</button>
+          <button type="button" class="btn btn-danger" id="end-session-confirm">Lopeta sessio</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="error-toast" class="error-toast" role="alert"></div>
+
+    <script type="module" src="js/app.js"></script>
+  </body>
+</html>
