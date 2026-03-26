@@ -4,14 +4,84 @@
  */
 
 const DB_NAME = "FishLoggerV1";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 /** @typedef {{ id: string, displayName: string }} Angler */
-/** @typedef {{ id: string, startTime: number, endTime: number | null }} Session */
+/**
+ * @typedef {{
+ *   id: string,
+ *   startTime: number,
+ *   endTime: number | null,
+ *   initialLocationLat?: number | null,
+ *   initialLocationLng?: number | null,
+ *   initialLocationAccuracyM?: number | null,
+ *   initialLocationTimestamp?: number | null,
+ * }} Session
+ */
 /** @typedef {{ id: string, sessionId: string, anglerId: string, isActive: boolean, joinedAt: number, leftAt: number | null }} SessionAngler */
-/** @typedef {{ lat: number | null, lon: number | null }} Gps */
-/** @typedef {{ depth: number | null, waterTemp: number | null }} Telemetry */
-/** @typedef {{ id: string, sessionId: string | null, anglerId: string, timestamp: number, species: string, length: number | null, weight: number | null, notes: string, gps: Gps, telemetry: Telemetry }} CatchRecord */
+/**
+ * @typedef {{
+ *   id: string,
+ *   sessionId: string | null,
+ *   anglerId: string,
+ *   timestamp: number,
+ *   species: string,
+ *   length: number | null,
+ *   weight: number | null,
+ *   notes: string,
+ *   depth_m: number | null,
+ *   water_temp_c: number | null,
+ *   location_lat: number | null,
+ *   location_lng: number | null,
+ *   location_accuracy_m: number | null,
+ *   location_timestamp: number | null,
+ *   depth_source: string | null,
+ *   water_temp_source: string | null,
+ *   location_source: string | null,
+ *   weather_summary: string | null,
+ *   air_temp_c: number | null,
+ *   wind_speed_ms: number | null,
+ *   wind_direction_deg: number | null,
+ * }} CatchRecord
+ */
+
+/**
+ * @param {any} c
+ * @returns {CatchRecord}
+ */
+function migrateCatchV1ToV2(c) {
+  if (c && typeof c.depth_m !== "undefined") {
+    return /** @type {CatchRecord} */ (c);
+  }
+  const lat = c.gps?.lat ?? null;
+  const lon = c.gps?.lon ?? null;
+  const hasGps = typeof lat === "number" && typeof lon === "number";
+  const depth = c.telemetry?.depth ?? null;
+  const wtemp = c.telemetry?.waterTemp ?? null;
+  return {
+    id: c.id,
+    sessionId: c.sessionId,
+    anglerId: c.anglerId,
+    timestamp: c.timestamp,
+    species: c.species,
+    length: c.length ?? null,
+    weight: c.weight ?? null,
+    notes: c.notes ?? "",
+    depth_m: typeof depth === "number" ? depth : null,
+    water_temp_c: typeof wtemp === "number" ? wtemp : null,
+    location_lat: hasGps ? lat : null,
+    location_lng: hasGps ? lon : null,
+    location_accuracy_m: null,
+    location_timestamp: hasGps ? c.timestamp : null,
+    depth_source: typeof depth === "number" ? "manual" : null,
+    water_temp_source: typeof wtemp === "number" ? "manual" : null,
+    location_source: hasGps ? "device" : null,
+    weather_summary: null,
+    air_temp_c: null,
+    wind_speed_ms: null,
+    wind_direction_deg: null,
+  };
+}
 
 /**
  * @returns {Promise<IDBDatabase>}
@@ -23,6 +93,7 @@ function openDb() {
     req.onsuccess = () => resolve(req.result);
     req.onupgradeneeded = (e) => {
       const db = /** @type {IDBDatabase} */ (e.target.result);
+      const oldVersion = e.oldVersion;
 
       if (!db.objectStoreNames.contains("anglers")) {
         db.createObjectStore("anglers", { keyPath: "id" });
@@ -38,6 +109,19 @@ function openDb() {
       if (!db.objectStoreNames.contains("catches")) {
         const c = db.createObjectStore("catches", { keyPath: "id" });
         c.createIndex("bySession", "sessionId", { unique: false });
+      }
+
+      if (oldVersion < 2 && db.objectStoreNames.contains("catches")) {
+        const tx = /** @type {IDBTransaction} */ (e.target.transaction);
+        const store = tx.objectStore("catches");
+        const curReq = store.openCursor();
+        curReq.onsuccess = (ev) => {
+          const cursor = /** @type {IDBCursorWithValue | null} */ (ev.target.result);
+          if (!cursor) return;
+          const migrated = migrateCatchV1ToV2(cursor.value);
+          cursor.update(migrated);
+          cursor.continue();
+        };
       }
     };
   });
@@ -117,7 +201,7 @@ export async function getCatchesForSession(sessionId) {
     r.onsuccess = () => {
       const list = /** @type {CatchRecord[]} */ (r.result || []);
       list.sort((a, b) => b.timestamp - a.timestamp);
-      resolve(list);
+      resolve(list.map((row) => migrateCatchV1ToV2(row)));
     };
   });
 }
@@ -173,4 +257,3 @@ export async function findSessionAngler(sessionId, anglerId) {
   const all = await getSessionAnglersForSession(sessionId);
   return all.find((sa) => sa.anglerId === anglerId);
 }
-

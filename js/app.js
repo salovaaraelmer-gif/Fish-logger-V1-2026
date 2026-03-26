@@ -19,8 +19,10 @@ import {
 import {
   SPECIES_OPTIONS,
   saveCatch,
-  fetchGpsBestEffort,
+  fetchDeviceLocationBestEffort,
   parseOptionalPositiveInt,
+  parseOptionalDepthM,
+  parseOptionalWaterTempC,
 } from "./catchService.js";
 
 /** @type {Record<string, string>} */
@@ -32,7 +34,18 @@ const SPECIES_LABELS = {
   other: "Muu",
 };
 
-/** @type {{ step: number, anglerId: string | null, species: string | null, lengthStr: string, weightStr: string, notes: string }} */
+/**
+ * @type {{
+ *   step: number,
+ *   anglerId: string | null,
+ *   species: string | null,
+ *   lengthStr: string,
+ *   weightStr: string,
+ *   depthStr: string,
+ *   waterTempStr: string,
+ *   notes: string,
+ * }}
+ */
 let fishState = freshFishState();
 
 /** When a session is active, angler list / roster is hidden until user opens this panel. */
@@ -101,6 +114,8 @@ function freshFishState() {
     species: null,
     lengthStr: "",
     weightStr: "",
+    depthStr: "",
+    waterTempStr: "",
     notes: "",
   };
 }
@@ -111,6 +126,8 @@ function freshFishState() {
 function syncFishStateFromMeasurementInputs() {
   const len = /** @type {HTMLInputElement | null} */ (document.getElementById("fish-input-length"));
   const w = /** @type {HTMLInputElement | null} */ (document.getElementById("fish-input-weight"));
+  const depth = /** @type {HTMLInputElement | null} */ (document.getElementById("fish-input-depth"));
+  const wt = /** @type {HTMLInputElement | null} */ (document.getElementById("fish-input-water-temp"));
   if (len) {
     const v = (len.value || "").replace(/\D/g, "").slice(0, 6);
     if (len.value !== v) len.value = v;
@@ -121,13 +138,45 @@ function syncFishStateFromMeasurementInputs() {
     if (w.value !== v) w.value = v;
     fishState.weightStr = v;
   }
+  if (depth) {
+    let v = (depth.value || "").replace(/,/g, ".");
+    v = v.replace(/[^\d.]/g, "");
+    const dot = v.indexOf(".");
+    if (dot !== -1) {
+      v = v.slice(0, dot + 1) + v.slice(dot + 1).replace(/\./g, "");
+    }
+    v = v.slice(0, 12);
+    if (depth.value !== v) depth.value = v;
+    fishState.depthStr = v;
+  }
+  if (wt) {
+    let v = (wt.value || "").replace(/,/g, ".");
+    v = v.replace(/[^\d.-]/g, "");
+    if (v.length > 1 && v.startsWith("-")) {
+      const rest = v.slice(1).replace(/-/g, "");
+      const parts = rest.split(".");
+      const norm =
+        parts.length > 2 ? parts[0] + "." + parts.slice(1).join("") : rest;
+      v = "-" + norm.slice(0, 12);
+    } else {
+      const parts = v.split(".");
+      v = parts.length > 2 ? parts[0] + "." + parts.slice(1).join("") : v;
+      v = v.slice(0, 12);
+    }
+    if (wt.value !== v) wt.value = v;
+    fishState.waterTempStr = v;
+  }
 }
 
 function clearFishMeasurementInputs() {
   const len = /** @type {HTMLInputElement | null} */ (document.getElementById("fish-input-length"));
   const w = /** @type {HTMLInputElement | null} */ (document.getElementById("fish-input-weight"));
+  const depth = /** @type {HTMLInputElement | null} */ (document.getElementById("fish-input-depth"));
+  const wt = /** @type {HTMLInputElement | null} */ (document.getElementById("fish-input-water-temp"));
   if (len) len.value = "";
   if (w) w.value = "";
+  if (depth) depth.value = "";
+  if (wt) wt.value = "";
 }
 
 /**
@@ -143,6 +192,53 @@ function showError(msg) {
 
 function closeCatchesOverlay() {
   document.getElementById("catches-overlay")?.classList.add("hidden");
+}
+
+/**
+ * @param {import('./db.js').CatchRecord} c
+ */
+function formatCatchLocationCell(c) {
+  const lat = c.location_lat;
+  const lng = c.location_lng;
+  if (typeof lat !== "number" || typeof lng !== "number") return "—";
+  const acc =
+    typeof c.location_accuracy_m === "number" ? ` ±${Math.round(c.location_accuracy_m)}m` : "";
+  return `${lat.toFixed(4)}, ${lng.toFixed(4)}${acc}`;
+}
+
+/**
+ * @param {import('./db.js').CatchRecord} c
+ */
+function formatCatchWeatherCell(c) {
+  if (c.weather_summary && typeof c.air_temp_c === "number") {
+    const w =
+      typeof c.wind_speed_ms === "number" && typeof c.wind_direction_deg === "number"
+        ? ` ${Math.round(c.wind_speed_ms)} m/s ${Math.round(c.wind_direction_deg)}°`
+        : "";
+    return `${c.weather_summary}, ${c.air_temp_c.toFixed(1)}°C${w}`;
+  }
+  return "—";
+}
+
+/**
+ * @param {import('./catchService.js').DeviceLocation} loc
+ * @param {import('./db.js').CatchRecord} saved
+ */
+function formatSaveSuccessSummary(loc, saved) {
+  const parts = [];
+  if (loc.lat != null && loc.lng != null) {
+    const acc =
+      typeof loc.accuracyM === "number" ? ` (±${Math.round(loc.accuracyM)} m)` : "";
+    parts.push(`Sijainti: ${loc.lat.toFixed(5)}, ${loc.lng.toFixed(5)}${acc}.`);
+  } else {
+    parts.push("Sijaintia ei tallennettu.");
+  }
+  if (saved.weather_summary != null && typeof saved.air_temp_c === "number") {
+    parts.push(`Sää: ${saved.weather_summary}, ilma ${saved.air_temp_c.toFixed(1)} °C.`);
+  } else if (loc.lat != null && loc.lng != null) {
+    parts.push("Säätietoja ei saatu.");
+  }
+  return parts.join(" ");
 }
 
 /**
@@ -208,10 +304,24 @@ async function populateCatchesTable(sessionIdOverride) {
     tdLen.textContent = c.length != null ? String(c.length) : "—";
     const tdWeight = document.createElement("td");
     tdWeight.textContent = c.weight != null ? String(c.weight) : "—";
+    const tdDepth = document.createElement("td");
+    tdDepth.textContent =
+      c.depth_m != null && typeof c.depth_m === "number" ? String(c.depth_m) : "—";
+    const tdWat = document.createElement("td");
+    tdWat.textContent =
+      c.water_temp_c != null && typeof c.water_temp_c === "number"
+        ? `${c.water_temp_c}`
+        : "—";
+    const tdLoc = document.createElement("td");
+    tdLoc.className = "catches-notes-cell";
+    tdLoc.textContent = formatCatchLocationCell(c);
+    const tdWx = document.createElement("td");
+    tdWx.className = "catches-notes-cell";
+    tdWx.textContent = formatCatchWeatherCell(c);
     const tdNotes = document.createElement("td");
     tdNotes.textContent = (c.notes || "").trim() || "—";
     tdNotes.className = "catches-notes-cell";
-    tr.append(tdTime, tdAngler, tdSpecies, tdLen, tdWeight, tdNotes);
+    tr.append(tdTime, tdAngler, tdSpecies, tdLen, tdWeight, tdDepth, tdWat, tdLoc, tdWx, tdNotes);
     tbody.appendChild(tr);
   }
 }
@@ -250,7 +360,18 @@ async function renderHome() {
     btnEditAnglers?.classList.remove("is-active");
   } else {
     const start = new Date(session.startTime);
-    meta.textContent = `Sessio käynnissä (alkoi ${start.toLocaleString("fi-FI")}).`;
+    let line = `Sessio käynnissä (alkoi ${start.toLocaleString("fi-FI")}).`;
+    if (
+      typeof session.initialLocationLat === "number" &&
+      typeof session.initialLocationLng === "number"
+    ) {
+      const acc =
+        typeof session.initialLocationAccuracyM === "number"
+          ? ` ±${Math.round(session.initialLocationAccuracyM)} m`
+          : "";
+      line += ` Alkupiste: ${session.initialLocationLat.toFixed(4)}, ${session.initialLocationLng.toFixed(4)}${acc}.`;
+    }
+    meta.textContent = line;
     noS.classList.add("hidden");
     act.classList.remove("hidden");
     roster.classList.remove("hidden");
@@ -376,7 +497,26 @@ function buildStartAnglerPicks(anglers) {
   }
 
   confirm.onclick = async () => {
-    const r = await startSession([...selected]);
+    const btn = /** @type {HTMLButtonElement | null} */ (document.getElementById("start-confirm"));
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = "Haetaan sijaintia…";
+    }
+    const loc = await fetchDeviceLocationBestEffort();
+    const initialLocation =
+      loc.lat != null && loc.lng != null
+        ? {
+            lat: loc.lat,
+            lng: loc.lng,
+            accuracyM: loc.accuracyM,
+            timestamp: loc.timestamp ?? Date.now(),
+          }
+        : null;
+    const r = await startSession([...selected], initialLocation);
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = "Aloita";
+    }
     if (!r.ok) {
       showError(r.reason);
       return;
@@ -425,8 +565,12 @@ function wireSpeciesButtons() {
 function wireFishMeasurementInputs() {
   const len = document.getElementById("fish-input-length");
   const w = document.getElementById("fish-input-weight");
+  const depth = document.getElementById("fish-input-depth");
+  const wt = document.getElementById("fish-input-water-temp");
   len?.addEventListener("input", () => syncFishStateFromMeasurementInputs());
   w?.addEventListener("input", () => syncFishStateFromMeasurementInputs());
+  depth?.addEventListener("input", () => syncFishStateFromMeasurementInputs());
+  wt?.addEventListener("input", () => syncFishStateFromMeasurementInputs());
 }
 
 function showFishStep(n) {
@@ -448,6 +592,10 @@ function openFishOverlay() {
   clearFishMeasurementInputs();
   fishState.lengthStr = "";
   fishState.weightStr = "";
+  fishState.depthStr = "";
+  fishState.waterTempStr = "";
+  const sumEl = document.getElementById("fish-save-summary");
+  if (sumEl) sumEl.textContent = "";
   wireSpeciesButtons();
   populateFishAnglers();
   showFishStep(1);
@@ -568,12 +716,38 @@ function init() {
     syncFishStateFromMeasurementInputs();
     const notesEl = /** @type {HTMLTextAreaElement | null} */ (document.getElementById("fish-notes"));
     fishState.notes = notesEl?.value || "";
-    const gps = await fetchGpsBestEffort();
+    const depthP = parseOptionalDepthM(fishState.depthStr);
+    if (!depthP.ok) {
+      showError(depthP.reason);
+      return;
+    }
+    const wtP = parseOptionalWaterTempC(fishState.waterTempStr);
+    if (!wtP.ok) {
+      showError(wtP.reason);
+      return;
+    }
     const len = parseOptionalPositiveInt(fishState.lengthStr);
     const w = parseOptionalPositiveInt(fishState.weightStr);
     if (!fishState.anglerId) {
       showError("Valitse kalastaja.");
       return;
+    }
+    const btn = /** @type {HTMLButtonElement | null} */ (document.getElementById("fish-save"));
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = "Tallennetaan…";
+    }
+    let loc = {
+      lat: /** @type {number | null} */ (null),
+      lng: /** @type {number | null} */ (null),
+      accuracyM: /** @type {number | null} */ (null),
+      timestamp: /** @type {number | null} */ (null),
+      source: /** @type {string | null} */ (null),
+    };
+    try {
+      loc = await fetchDeviceLocationBestEffort();
+    } catch {
+      /* save without location */
     }
     const result = await saveCatch(
       {
@@ -582,13 +756,22 @@ function init() {
         length: len,
         weight: w,
         notes: fishState.notes,
+        depth_m: depthP.value,
+        water_temp_c: wtP.value,
       },
-      gps,
-      { depth: null, waterTemp: null }
+      loc
     );
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = "Tallenna";
+    }
     if (!result.ok) {
       showError(result.reason);
       return;
+    }
+    const summaryEl = document.getElementById("fish-save-summary");
+    if (summaryEl) {
+      summaryEl.textContent = formatSaveSuccessSummary(loc, result.record);
     }
     showFishStep(4);
     await refreshCatchesTableIfOpen();

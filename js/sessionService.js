@@ -18,10 +18,15 @@ function newId() {
 }
 
 /**
+ * @typedef {{ lat: number | null, lng: number | null, accuracyM: number | null, timestamp: number | null }} InitialLocation
+ */
+
+/**
  * @param {string[]} anglerIds
+ * @param {InitialLocation | null} [initialLocation]
  * @returns {Promise<{ ok: true, sessionId: string } | { ok: false, reason: string }>}
  */
-export async function startSession(anglerIds) {
+export async function startSession(anglerIds, initialLocation) {
   const unique = [...new Set(anglerIds)].filter(Boolean);
   if (unique.length === 0) {
     return { ok: false, reason: "Valitse vähintään yksi kalastaja." };
@@ -49,10 +54,20 @@ export async function startSession(anglerIds) {
 
   const sessionId = newId();
   const now = Date.now();
+  const hasLoc =
+    initialLocation &&
+    typeof initialLocation.lat === "number" &&
+    typeof initialLocation.lng === "number";
   await putSession({
     id: sessionId,
     startTime: now,
     endTime: null,
+    initialLocationLat: hasLoc ? initialLocation.lat : null,
+    initialLocationLng: hasLoc ? initialLocation.lng : null,
+    initialLocationAccuracyM:
+      hasLoc && initialLocation.accuracyM != null ? initialLocation.accuracyM : null,
+    initialLocationTimestamp:
+      hasLoc && initialLocation.timestamp != null ? initialLocation.timestamp : null,
   });
 
   for (const aid of unique) {

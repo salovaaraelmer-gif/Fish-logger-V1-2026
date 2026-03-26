@@ -86,6 +86,28 @@
               aria-label="Paino grammoina"
             />
           </div>
+          <div style="margin-top: 0.75rem">
+            <div class="field-label">Syvyys (m), valinnainen</div>
+            <input
+              type="text"
+              id="fish-input-depth"
+              inputmode="decimal"
+              autocomplete="off"
+              aria-label="Syvyys metreinä"
+              placeholder="Esim. 3,5"
+            />
+          </div>
+          <div style="margin-top: 0.75rem">
+            <div class="field-label">Veden lämpötila (°C), valinnainen</div>
+            <input
+              type="text"
+              id="fish-input-water-temp"
+              inputmode="decimal"
+              autocomplete="off"
+              aria-label="Veden lämpötila celsiuksina"
+              placeholder="Esim. 12"
+            />
+          </div>
           <div class="row-actions">
             <button type="button" class="btn" id="fish-back-2">Takaisin</button>
             <button type="button" class="btn btn-primary" id="fish-next-2" disabled>Seuraava</button>
@@ -94,6 +116,9 @@
 
         <div id="fish-step-3" class="fish-step hidden">
           <h2>3. Muistiinpanot</h2>
+          <p class="meta" id="fish-location-hint">
+            Sijainti ja sää haetaan automaattisesti tallennuksessa, jos sijainti on käytettävissä.
+          </p>
           <textarea id="fish-notes" placeholder="Valinnainen"></textarea>
           <div class="row-actions">
             <button type="button" class="btn" id="fish-back-3">Takaisin</button>
@@ -105,7 +130,7 @@
           <div class="success-panel">
             <div class="icon" aria-hidden="true">✓</div>
             <h2>Saalis tallennettu</h2>
-            <p class="meta">Aikaleima ja sijainti (jos sallittu) tallentuivat automaattisesti.</p>
+            <p class="meta" id="fish-save-summary"></p>
             <div class="stack" style="margin-top: 1.5rem">
               <button type="button" class="btn btn-primary" id="fish-add-another">Kirjaa uusi saalis</button>
               <button type="button" class="btn" id="fish-back-home">Takaisin valikkoon</button>
@@ -130,8 +155,12 @@
                 <th>Aika</th>
                 <th>Kalastaja</th>
                 <th>Laji</th>
-                <th>Pituus (cm)</th>
-                <th>Paino (g)</th>
+                <th>Pituus</th>
+                <th>Paino</th>
+                <th>Syvyys</th>
+                <th>Vesi</th>
+                <th>Sijainti</th>
+                <th>Sää</th>
                 <th>Muistiinpanot</th>
               </tr>
             </thead>

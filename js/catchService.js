@@ -6,6 +6,7 @@
 import { putCatch, getActiveSession } from "./db.js";
 import { anglerBelongsToActiveSession } from "./sessionService.js";
 import { newId } from "./sessionService.js";
+import { fetchOpenMeteoCurrent } from "./weatherService.js";
 
 /** @type {readonly string[]} */
 export const SPECIES_OPTIONS = ["pike", "perch", "zander", "trout", "other"];
@@ -23,12 +24,71 @@ export function parseOptionalPositiveInt(raw) {
 }
 
 /**
- * @param {{ anglerId: string, species: string, length: number | null, weight: number | null, notes: string }} input
- * @param {{ lat: number | null, lon: number | null }} gps
- * @param {{ depth: number | null, waterTemp: number | null }} telemetry
- * @returns {Promise<{ ok: true } | { ok: false, reason: string }>}
+ * Depth (m): positive number if entered, decimals allowed.
+ * @param {string} raw
+ * @returns {{ ok: true, value: number | null } | { ok: false, reason: string }}
  */
-export async function saveCatch(input, gps, telemetry) {
+export function parseOptionalDepthM(raw) {
+  const s = (raw || "").trim().replace(",", ".");
+  if (s === "") return { ok: true, value: null };
+  const n = Number(s);
+  if (!Number.isFinite(n) || n <= 0) {
+    return { ok: false, reason: "Syvyys: anna positiivinen luku (m) tai jätä tyhjäksi." };
+  }
+  return { ok: true, value: n };
+}
+
+/**
+ * Water temperature (°C): any finite number if entered.
+ * @param {string} raw
+ * @returns {{ ok: true, value: number | null } | { ok: false, reason: string }}
+ */
+export function parseOptionalWaterTempC(raw) {
+  const s = (raw || "").trim().replace(",", ".");
+  if (s === "") return { ok: true, value: null };
+  const n = Number(s);
+  if (!Number.isFinite(n)) {
+    return { ok: false, reason: "Veden lämpötila: anna kelvollinen luku (°C) tai jätä tyhjäksi." };
+  }
+  return { ok: true, value: n };
+}
+
+/**
+ * @typedef {{
+ *   lat: number | null,
+ *   lng: number | null,
+ *   accuracyM: number | null,
+ *   timestamp: number | null,
+ *   source: string | null,
+ * }} DeviceLocation
+ */
+
+/**
+ * @param {import('./db.js').CatchRecord} partial
+ * @param {DeviceLocation} loc
+ */
+function applyLocationFields(partial, loc) {
+  partial.location_lat = loc.lat;
+  partial.location_lng = loc.lng;
+  partial.location_accuracy_m = loc.accuracyM;
+  partial.location_timestamp = loc.timestamp;
+  partial.location_source = loc.source;
+}
+
+/**
+ * @param {{
+ *   anglerId: string,
+ *   species: string,
+ *   length: number | null,
+ *   weight: number | null,
+ *   notes: string,
+ *   depth_m: number | null,
+ *   water_temp_c: number | null,
+ * }} input
+ * @param {DeviceLocation} deviceLoc
+ * @returns {Promise<{ ok: true, record: import('./db.js').CatchRecord } | { ok: false, reason: string }>}
+ */
+export async function saveCatch(input, deviceLoc) {
   const session = await getActiveSession();
   if (!session) {
     return { ok: false, reason: "Ei aktiivista sessiota — saalisvahti ei käytössä." };
@@ -59,7 +119,8 @@ export async function saveCatch(input, gps, telemetry) {
 
   const timestamp = Date.now();
 
-  await putCatch({
+  /** @type {import('./db.js').CatchRecord} */
+  const record = {
     id: newId(),
     sessionId: session.id,
     anglerId: input.anglerId,
@@ -68,31 +129,84 @@ export async function saveCatch(input, gps, telemetry) {
     length,
     weight,
     notes: (input.notes || "").trim(),
-    gps: { lat: gps.lat, lon: gps.lon },
-    telemetry: { depth: telemetry.depth, waterTemp: telemetry.waterTemp },
-  });
+    depth_m: input.depth_m,
+    water_temp_c: input.water_temp_c,
+    location_lat: null,
+    location_lng: null,
+    location_accuracy_m: null,
+    location_timestamp: null,
+    depth_source: input.depth_m != null ? "manual" : null,
+    water_temp_source: input.water_temp_c != null ? "manual" : null,
+    location_source: null,
+    weather_summary: null,
+    air_temp_c: null,
+    wind_speed_ms: null,
+    wind_direction_deg: null,
+  };
 
-  return { ok: true };
+  applyLocationFields(record, deviceLoc);
+
+  let weather = null;
+  if (
+    record.location_lat != null &&
+    record.location_lng != null &&
+    typeof record.location_lat === "number" &&
+    typeof record.location_lng === "number"
+  ) {
+    try {
+      weather = await fetchOpenMeteoCurrent(record.location_lat, record.location_lng);
+    } catch {
+      weather = null;
+    }
+  }
+  if (weather) {
+    record.weather_summary = weather.weather_summary;
+    record.air_temp_c = weather.air_temp_c;
+    record.wind_speed_ms = weather.wind_speed_ms;
+    record.wind_direction_deg = weather.wind_direction_deg;
+  }
+
+  await putCatch(record);
+
+  return { ok: true, record };
 }
 
 /**
- * @returns {Promise<{ lat: number | null, lon: number | null }>}
+ * Best-effort device location for a catch (no extra permission prompt if already decided).
+ * @returns {Promise<DeviceLocation>}
  */
-export function fetchGpsBestEffort() {
+export function fetchDeviceLocationBestEffort() {
   return new Promise((resolve) => {
     if (!navigator.geolocation) {
-      resolve({ lat: null, lon: null });
+      resolve({
+        lat: null,
+        lng: null,
+        accuracyM: null,
+        timestamp: null,
+        source: null,
+      });
       return;
     }
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         resolve({
           lat: pos.coords.latitude,
-          lon: pos.coords.longitude,
+          lng: pos.coords.longitude,
+          accuracyM: typeof pos.coords.accuracy === "number" ? pos.coords.accuracy : null,
+          timestamp: pos.timestamp != null ? pos.timestamp : Date.now(),
+          source: "device",
         });
       },
-      () => resolve({ lat: null, lon: null }),
-      { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 }
+      () =>
+        resolve({
+          lat: null,
+          lng: null,
+          accuracyM: null,
+          timestamp: null,
+          source: null,
+        }),
+      { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
     );
   });
 }
+

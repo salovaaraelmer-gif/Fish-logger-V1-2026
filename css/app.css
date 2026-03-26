@@ -327,7 +327,7 @@ textarea {
 }
 
 .catches-inner {
-  max-width: 720px;
+  max-width: min(1100px, 100%);
   margin: 0 auto;
 }
 
