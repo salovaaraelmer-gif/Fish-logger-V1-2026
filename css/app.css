@@ -271,6 +271,26 @@ textarea {
   display: block;
 }
 
+.success-toast {
+  position: fixed;
+  bottom: 1rem;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: min(92vw, 480px);
+  padding: 0.75rem 1rem;
+  background: #0d2b16;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-weight: 600;
+  z-index: 100;
+  display: none;
+}
+
+.success-toast.is-visible {
+  display: block;
+}
+
 .hidden {
   display: none !important;
 }
@@ -284,8 +304,7 @@ textarea {
   padding: 1rem;
 }
 
-#start-overlay,
-#end-session-overlay {
+#start-overlay {
   position: fixed;
   inset: 0;
   background: rgba(0, 0, 0, 0.75);
@@ -296,9 +315,37 @@ textarea {
   padding: 1rem;
 }
 
-#start-overlay.hidden,
-#end-session-overlay.hidden {
+#start-overlay.hidden {
   display: none !important;
+}
+
+#session-end-overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--bg);
+  z-index: 55;
+  overflow: auto;
+  padding: 1rem;
+}
+
+#session-end-overlay.hidden {
+  display: none !important;
+}
+
+.session-end-inner {
+  max-width: min(1100px, 100%);
+  margin: 0 auto;
+}
+
+.session-end-csv-status {
+  margin: 0.5rem 0 0.75rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.session-end-actions {
+  flex-wrap: wrap;
+  gap: 0.5rem;
 }
 
 .start-modal-inner {

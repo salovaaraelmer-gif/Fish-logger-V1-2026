@@ -4,7 +4,7 @@
  */
 
 const DB_NAME = "FishLoggerV1";
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 
 /** @typedef {{ id: string, displayName: string }} Angler */
 /**
@@ -16,6 +16,8 @@ const DB_VERSION = 2;
  *   initialLocationLng?: number | null,
  *   initialLocationAccuracyM?: number | null,
  *   initialLocationTimestamp?: number | null,
+ *   csv_exported?: boolean,
+ *   csv_exported_at?: string | null,
  * }} Session
  */
 /** @typedef {{ id: string, sessionId: string, anglerId: string, isActive: boolean, joinedAt: number, leftAt: number | null }} SessionAngler */
@@ -27,7 +29,7 @@ const DB_VERSION = 2;
  *   timestamp: number,
  *   species: string,
  *   length: number | null,
- *   weight: number | null,
+ *   weight_kg: number | null,
  *   notes: string,
  *   depth_m: number | null,
  *   water_temp_c: number | null,
@@ -51,7 +53,12 @@ const DB_VERSION = 2;
  */
 function migrateCatchV1ToV2(c) {
   if (c && typeof c.depth_m !== "undefined") {
-    return /** @type {CatchRecord} */ (c);
+    const raw = /** @type {Record<string, unknown>} */ (c);
+    const { weight: _w, ...rest } = raw;
+    return /** @type {CatchRecord} */ ({
+      ...rest,
+      weight_kg: typeof raw.weight_kg === "number" ? raw.weight_kg : null,
+    });
   }
   const lat = c.gps?.lat ?? null;
   const lon = c.gps?.lon ?? null;
@@ -65,7 +72,7 @@ function migrateCatchV1ToV2(c) {
     timestamp: c.timestamp,
     species: c.species,
     length: c.length ?? null,
-    weight: c.weight ?? null,
+    weight_kg: null,
     notes: c.notes ?? "",
     depth_m: typeof depth === "number" ? depth : null,
     water_temp_c: typeof wtemp === "number" ? wtemp : null,
@@ -120,6 +127,23 @@ function openDb() {
           if (!cursor) return;
           const migrated = migrateCatchV1ToV2(cursor.value);
           cursor.update(migrated);
+          cursor.continue();
+        };
+      }
+
+      if (oldVersion < 3 && db.objectStoreNames.contains("sessions")) {
+        const tx = /** @type {IDBTransaction} */ (e.target.transaction);
+        const store = tx.objectStore("sessions");
+        const curReq = store.openCursor();
+        curReq.onsuccess = (ev) => {
+          const cursor = /** @type {IDBCursorWithValue | null} */ (ev.target.result);
+          if (!cursor) return;
+          const s = /** @type {Record<string, unknown>} */ (cursor.value);
+          if (typeof s.csv_exported === "undefined") {
+            s.csv_exported = false;
+            s.csv_exported_at = null;
+            cursor.update(s);
+          }
           cursor.continue();
         };
       }

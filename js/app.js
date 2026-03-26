@@ -14,8 +14,14 @@ import {
   endActiveSession,
   addAnglerToSession,
   markAnglerInactive,
+  markActiveSessionCsvExported,
   newId,
 } from "./sessionService.js";
+import {
+  buildSessionCatchesCsv,
+  defaultFishLogFilename,
+  triggerCsvDownload,
+} from "./csvExport.js";
 import {
   SPECIES_OPTIONS,
   saveCatch,
@@ -23,6 +29,7 @@ import {
   parseOptionalPositiveInt,
   parseOptionalDepthM,
   parseOptionalWaterTempC,
+  parseOptionalWeightKg,
 } from "./catchService.js";
 
 /** @type {Record<string, string>} */
@@ -121,7 +128,7 @@ function freshFishState() {
 }
 
 /**
- * Keep measurement inputs and fishState in sync (digits only, max 6).
+ * Keep measurement inputs and fishState in sync (length: digits; weight: raw, no auto-format).
  */
 function syncFishStateFromMeasurementInputs() {
   const len = /** @type {HTMLInputElement | null} */ (document.getElementById("fish-input-length"));
@@ -134,9 +141,7 @@ function syncFishStateFromMeasurementInputs() {
     fishState.lengthStr = v;
   }
   if (w) {
-    const v = (w.value || "").replace(/\D/g, "").slice(0, 6);
-    if (w.value !== v) w.value = v;
-    fishState.weightStr = v;
+    fishState.weightStr = w.value ?? "";
   }
   if (depth) {
     let v = (depth.value || "").replace(/,/g, ".");
@@ -184,6 +189,17 @@ function clearFishMeasurementInputs() {
  */
 function showError(msg) {
   const el = document.getElementById("error-toast");
+  if (!el) return;
+  el.textContent = msg;
+  el.classList.add("is-visible");
+  setTimeout(() => el.classList.remove("is-visible"), 4200);
+}
+
+/**
+ * @param {string} msg
+ */
+function showSuccess(msg) {
+  const el = document.getElementById("success-toast");
   if (!el) return;
   el.textContent = msg;
   el.classList.add("is-visible");
@@ -242,6 +258,78 @@ function formatSaveSuccessSummary(loc, saved) {
 }
 
 /**
+ * @param {HTMLTableSectionElement | null} tbody
+ * @param {string} sessionId
+ * @param {boolean} emptyPlaceholderRow
+ * @returns {Promise<number>} number of catches rendered
+ */
+async function renderCatchesIntoTbody(tbody, sessionId, emptyPlaceholderRow) {
+  if (!tbody) return 0;
+  const [catches, anglers] = await Promise.all([getCatchesForSession(sessionId), getAllAnglers()]);
+  const nameById = Object.fromEntries(anglers.map((a) => [a.id, a.displayName]));
+  tbody.innerHTML = "";
+  if (catches.length === 0) {
+    if (emptyPlaceholderRow) {
+      const tr = document.createElement("tr");
+      const td = document.createElement("td");
+      td.colSpan = 10;
+      td.textContent = "Ei kirjattuja saaliita.";
+      td.className = "meta";
+      tr.appendChild(td);
+      tbody.appendChild(tr);
+    }
+    return 0;
+  }
+  for (const c of catches) {
+    const tr = document.createElement("tr");
+    const tdTime = document.createElement("td");
+    tdTime.textContent = new Date(c.timestamp).toLocaleString("fi-FI");
+    const tdAngler = document.createElement("td");
+    tdAngler.textContent = nameById[c.anglerId] || c.anglerId;
+    const tdSpecies = document.createElement("td");
+    tdSpecies.textContent = SPECIES_LABELS[c.species] || c.species;
+    const tdLen = document.createElement("td");
+    tdLen.textContent = c.length != null ? String(c.length) : "—";
+    const tdWeight = document.createElement("td");
+    tdWeight.textContent =
+      c.weight_kg != null && typeof c.weight_kg === "number" ? String(c.weight_kg) : "—";
+    const tdDepth = document.createElement("td");
+    tdDepth.textContent =
+      c.depth_m != null && typeof c.depth_m === "number" ? String(c.depth_m) : "—";
+    const tdWat = document.createElement("td");
+    tdWat.textContent =
+      c.water_temp_c != null && typeof c.water_temp_c === "number"
+        ? `${c.water_temp_c}`
+        : "—";
+    const tdLoc = document.createElement("td");
+    tdLoc.className = "catches-notes-cell";
+    tdLoc.textContent = formatCatchLocationCell(c);
+    const tdWx = document.createElement("td");
+    tdWx.className = "catches-notes-cell";
+    tdWx.textContent = formatCatchWeatherCell(c);
+    const tdNotes = document.createElement("td");
+    tdNotes.textContent = (c.notes || "").trim() || "—";
+    tdNotes.className = "catches-notes-cell";
+    tr.append(tdTime, tdAngler, tdSpecies, tdLen, tdWeight, tdDepth, tdWat, tdLoc, tdWx, tdNotes);
+    tbody.appendChild(tr);
+  }
+  return catches.length;
+}
+
+/**
+ * @param {import('./db.js').Session | null | undefined} session
+ */
+function updateSessionEndCsvStatus(session) {
+  const el = document.getElementById("session-end-csv-status");
+  if (!el) return;
+  if (session && session.csv_exported === true) {
+    el.textContent = "CSV saved";
+  } else {
+    el.textContent = "CSV not saved";
+  }
+}
+
+/**
  * Fills the session catches table from IndexedDB.
  * @param {string | undefined} sessionIdOverride - if set, load this session (e.g. just ended).
  */
@@ -278,11 +366,8 @@ async function populateCatchesTable(sessionIdOverride) {
     if (tableEl) tableEl.setAttribute("aria-label", overlayTitle);
   }
 
-  const [catches, anglers] = await Promise.all([getCatchesForSession(sessionId), getAllAnglers()]);
-  const nameById = Object.fromEntries(anglers.map((a) => [a.id, a.displayName]));
-
-  tbody.innerHTML = "";
-  if (catches.length === 0) {
+  const count = await renderCatchesIntoTbody(tbody, sessionId, false);
+  if (count === 0) {
     if (emptyEl) emptyEl.textContent = emptyMsg;
     emptyEl?.classList.remove("hidden");
     wrap?.classList.add("hidden");
@@ -291,45 +376,42 @@ async function populateCatchesTable(sessionIdOverride) {
 
   emptyEl?.classList.add("hidden");
   wrap?.classList.remove("hidden");
+}
 
-  for (const c of catches) {
-    const tr = document.createElement("tr");
-    const tdTime = document.createElement("td");
-    tdTime.textContent = new Date(c.timestamp).toLocaleString("fi-FI");
-    const tdAngler = document.createElement("td");
-    tdAngler.textContent = nameById[c.anglerId] || c.anglerId;
-    const tdSpecies = document.createElement("td");
-    tdSpecies.textContent = SPECIES_LABELS[c.species] || c.species;
-    const tdLen = document.createElement("td");
-    tdLen.textContent = c.length != null ? String(c.length) : "—";
-    const tdWeight = document.createElement("td");
-    tdWeight.textContent = c.weight != null ? String(c.weight) : "—";
-    const tdDepth = document.createElement("td");
-    tdDepth.textContent =
-      c.depth_m != null && typeof c.depth_m === "number" ? String(c.depth_m) : "—";
-    const tdWat = document.createElement("td");
-    tdWat.textContent =
-      c.water_temp_c != null && typeof c.water_temp_c === "number"
-        ? `${c.water_temp_c}`
-        : "—";
-    const tdLoc = document.createElement("td");
-    tdLoc.className = "catches-notes-cell";
-    tdLoc.textContent = formatCatchLocationCell(c);
-    const tdWx = document.createElement("td");
-    tdWx.className = "catches-notes-cell";
-    tdWx.textContent = formatCatchWeatherCell(c);
-    const tdNotes = document.createElement("td");
-    tdNotes.textContent = (c.notes || "").trim() || "—";
-    tdNotes.className = "catches-notes-cell";
-    tr.append(tdTime, tdAngler, tdSpecies, tdLen, tdWeight, tdDepth, tdWat, tdLoc, tdWx, tdNotes);
-    tbody.appendChild(tr);
-  }
+async function populateSessionEndCatchesTable() {
+  const session = await getActiveSession();
+  const tbody = document.getElementById("session-end-table-body");
+  const wrap = document.getElementById("session-end-table-wrap");
+  if (!session || !tbody) return;
+  await renderCatchesIntoTbody(tbody, session.id, true);
+  wrap?.classList.remove("hidden");
+}
+
+async function openSessionEndOverlay() {
+  const session = await getActiveSession();
+  if (!session) return;
+  closeCatchesOverlay();
+  await populateSessionEndCatchesTable();
+  const s2 = await getActiveSession();
+  updateSessionEndCsvStatus(s2);
+  document.getElementById("session-end-overlay")?.classList.remove("hidden");
+}
+
+function closeSessionEndOverlay() {
+  document.getElementById("session-end-overlay")?.classList.add("hidden");
 }
 
 async function refreshCatchesTableIfOpen() {
   const ov = document.getElementById("catches-overlay");
-  if (!ov || ov.classList.contains("hidden")) return;
-  await populateCatchesTable();
+  if (ov && !ov.classList.contains("hidden")) {
+    await populateCatchesTable();
+  }
+  const se = document.getElementById("session-end-overlay");
+  if (se && !se.classList.contains("hidden")) {
+    await populateSessionEndCatchesTable();
+    const session = await getActiveSession();
+    updateSessionEndCsvStatus(session);
+  }
 }
 
 async function openCatchesOverlay() {
@@ -525,6 +607,7 @@ function buildStartAnglerPicks(anglers) {
     selected.clear();
     anglerEditPanelOpen = false;
     closeCatchesOverlay();
+    closeSessionEndOverlay();
     await renderHome();
   };
 
@@ -635,6 +718,7 @@ function init() {
 
   document.getElementById("btn-open-start")?.addEventListener("click", async () => {
     closeCatchesOverlay();
+    closeSessionEndOverlay();
     const anglers = await getAllAnglers();
     buildStartAnglerPicks(anglers);
     document.getElementById("start-overlay")?.classList.remove("hidden");
@@ -657,25 +741,66 @@ function init() {
   });
 
   document.getElementById("btn-end-session")?.addEventListener("click", () => {
-    document.getElementById("end-session-overlay")?.classList.remove("hidden");
+    openSessionEndOverlay();
   });
 
-  document.getElementById("end-session-cancel")?.addEventListener("click", () => {
-    document.getElementById("end-session-overlay")?.classList.add("hidden");
+  document.getElementById("session-end-cancel")?.addEventListener("click", () => {
+    closeSessionEndOverlay();
   });
 
-  document.getElementById("end-session-confirm")?.addEventListener("click", async () => {
-    document.getElementById("end-session-overlay")?.classList.add("hidden");
+  document.getElementById("session-end-save-csv")?.addEventListener("click", async () => {
+    try {
+      const session = await getActiveSession();
+      if (!session) return;
+      const catches = await getCatchesForSession(session.id);
+      const csv = buildSessionCatchesCsv(catches);
+      triggerCsvDownload(defaultFishLogFilename(), csv);
+      const r = await markActiveSessionCsvExported();
+      if (!r.ok) {
+        showError(r.reason);
+        return;
+      }
+      const s2 = await getActiveSession();
+      updateSessionEndCsvStatus(s2);
+    } catch {
+      showError("CSV-tallennus epäonnistui.");
+    }
+  });
+
+  document.getElementById("session-end-final")?.addEventListener("click", async () => {
     const activeBefore = await getActiveSession();
-    const endedSessionId = activeBefore?.id;
+    if (!activeBefore) return;
+    const csvWasExported = activeBefore.csv_exported === true;
+    const endedSessionId = activeBefore.id;
+    if (!csvWasExported) {
+      if (
+        !confirm(
+          "CSV file has not been saved yet. Are you sure you want to end the session?"
+        )
+      ) {
+        return;
+      }
+      if (
+        !confirm(
+          "You are ending the session without exporting CSV. Are you absolutely sure?"
+        )
+      ) {
+        return;
+      }
+    }
+    closeSessionEndOverlay();
     const r = await endActiveSession();
-    if (!r.ok) showError(r.reason);
+    if (!r.ok) {
+      showError(r.reason);
+      return;
+    }
     anglerEditPanelOpen = false;
     await renderHome();
-    if (r.ok && endedSessionId) {
-      await populateCatchesTable(endedSessionId);
-      document.getElementById("catches-overlay")?.classList.remove("hidden");
+    if (csvWasExported) {
+      showSuccess("Fish saved and session ended");
     }
+    await populateCatchesTable(endedSessionId);
+    document.getElementById("catches-overlay")?.classList.remove("hidden");
   });
 
   document.getElementById("btn-edit-anglers")?.addEventListener("click", () => {
@@ -688,6 +813,7 @@ function init() {
   });
 
   document.getElementById("btn-show-catches")?.addEventListener("click", () => {
+    closeSessionEndOverlay();
     openCatchesOverlay();
   });
 
@@ -697,6 +823,7 @@ function init() {
 
   document.getElementById("btn-log-catch")?.addEventListener("click", () => {
     closeCatchesOverlay();
+    closeSessionEndOverlay();
     openFishOverlay();
   });
 
@@ -726,8 +853,12 @@ function init() {
       showError(wtP.reason);
       return;
     }
+    const weightP = parseOptionalWeightKg(fishState.weightStr);
+    if (!weightP.ok) {
+      showError(weightP.reason);
+      return;
+    }
     const len = parseOptionalPositiveInt(fishState.lengthStr);
-    const w = parseOptionalPositiveInt(fishState.weightStr);
     if (!fishState.anglerId) {
       showError("Valitse kalastaja.");
       return;
@@ -754,7 +885,7 @@ function init() {
         anglerId: fishState.anglerId,
         species: fishState.species || "",
         length: len,
-        weight: w,
+        weight_kg: weightP.value,
         notes: fishState.notes,
         depth_m: depthP.value,
         water_temp_c: wtP.value,

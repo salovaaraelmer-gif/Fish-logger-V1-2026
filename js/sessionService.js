@@ -68,6 +68,8 @@ export async function startSession(anglerIds, initialLocation) {
       hasLoc && initialLocation.accuracyM != null ? initialLocation.accuracyM : null,
     initialLocationTimestamp:
       hasLoc && initialLocation.timestamp != null ? initialLocation.timestamp : null,
+    csv_exported: false,
+    csv_exported_at: null,
   });
 
   for (const aid of unique) {
@@ -95,6 +97,23 @@ export async function endActiveSession() {
   await putSession({
     ...s,
     endTime: Date.now(),
+  });
+  return { ok: true };
+}
+
+/**
+ * Marks the active session as having exported CSV (browser download triggered).
+ * @returns {Promise<{ ok: true } | { ok: false, reason: string }>}
+ */
+export async function markActiveSessionCsvExported() {
+  const s = await getActiveSession();
+  if (!s) {
+    return { ok: false, reason: "Ei aktiivista sessiota." };
+  }
+  await putSession({
+    ...s,
+    csv_exported: true,
+    csv_exported_at: new Date().toISOString(),
   });
   return { ok: true };
 }

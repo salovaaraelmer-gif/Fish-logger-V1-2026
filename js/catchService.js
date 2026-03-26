@@ -12,7 +12,7 @@ import { fetchOpenMeteoCurrent } from "./weatherService.js";
 export const SPECIES_OPTIONS = ["pike", "perch", "zander", "trout", "other"];
 
 /**
- * Length/weight: null or positive integer, never 0.
+ * Length (cm): null or positive integer, never 0.
  * @param {string | number | null | undefined} raw
  * @returns {number | null}
  */
@@ -54,6 +54,21 @@ export function parseOptionalWaterTempC(raw) {
 }
 
 /**
+ * Weight (kg): positive number if entered; comma or dot as decimal separator.
+ * @param {string} raw
+ * @returns {{ ok: true, value: number | null } | { ok: false, reason: string }}
+ */
+export function parseOptionalWeightKg(raw) {
+  const s = (raw || "").trim().replace(",", ".");
+  if (s === "") return { ok: true, value: null };
+  const n = Number(s);
+  if (!Number.isFinite(n) || n <= 0) {
+    return { ok: false, reason: "Paino: anna positiivinen luku (kg) tai jätä tyhjäksi." };
+  }
+  return { ok: true, value: n };
+}
+
+/**
  * @typedef {{
  *   lat: number | null,
  *   lng: number | null,
@@ -80,7 +95,7 @@ function applyLocationFields(partial, loc) {
  *   anglerId: string,
  *   species: string,
  *   length: number | null,
- *   weight: number | null,
+ *   weight_kg: number | null,
  *   notes: string,
  *   depth_m: number | null,
  *   water_temp_c: number | null,
@@ -109,12 +124,12 @@ export async function saveCatch(input, deviceLoc) {
   }
 
   const length = input.length;
-  const weight = input.weight;
+  const weightKg = input.weight_kg;
   if (length !== null && (typeof length !== "number" || length < 1)) {
     return { ok: false, reason: "Pituus: tyhjä tai positiivinen kokonaisluku (ei 0)." };
   }
-  if (weight !== null && (typeof weight !== "number" || weight < 1)) {
-    return { ok: false, reason: "Paino: tyhjä tai positiivinen kokonaisluku (ei 0)." };
+  if (weightKg !== null && (typeof weightKg !== "number" || weightKg <= 0)) {
+    return { ok: false, reason: "Paino: tyhjä tai positiivinen luku (kg) tai jätä tyhjäksi." };
   }
 
   const timestamp = Date.now();
@@ -127,7 +142,7 @@ export async function saveCatch(input, deviceLoc) {
     timestamp,
     species,
     length,
-    weight,
+    weight_kg: weightKg,
     notes: (input.notes || "").trim(),
     depth_m: input.depth_m,
     water_temp_c: input.water_temp_c,
