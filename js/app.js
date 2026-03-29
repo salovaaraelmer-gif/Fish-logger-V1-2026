@@ -31,6 +31,7 @@ import {
   parseOptionalWaterTempC,
   parseOptionalWeightKg,
 } from "./catchService.js";
+import { supabase } from "./supabase.js";
 
 /** @type {Record<string, string>} */
 const SPECIES_LABELS = {
@@ -40,6 +41,24 @@ const SPECIES_LABELS = {
   trout: "Taimen",
   other: "Muu",
 };
+
+/** App species key → Supabase `catches.species` (pike, perch, zander, trout, …). */
+const SPECIES_KEY_TO_SUPABASE = {
+  pike: "pike",
+  perch: "perch",
+  zander: "zander",
+  trout: "trout",
+  other: "other",
+};
+
+/**
+ * @param {string | null | undefined} speciesKey
+ * @returns {string | null}
+ */
+function mapSpeciesKeyToSupabaseSpecies(speciesKey) {
+  if (!speciesKey) return null;
+  return SPECIES_KEY_TO_SUPABASE[speciesKey] ?? null;
+}
 
 /**
  * @type {{
@@ -55,8 +74,17 @@ const SPECIES_LABELS = {
  */
 let fishState = freshFishState();
 
-/** When a session is active, angler list / roster is hidden until user opens this panel. */
-let anglerEditPanelOpen = false;
+/** Home screen: anglers block (list + session roster) expanded. Persists across re-renders. */
+let homeAnglersExpanded = false;
+
+/** Active Supabase `sessions.id` after a successful cloud insert when starting a session; cleared when the session ends. */
+let activeSupabaseSessionId = null;
+
+/** Rows returned from the Supabase `anglers` insert for the active session; cleared when the session ends or on insert failure. */
+let activeSupabaseAnglerRows = null;
+
+/** Local angler id → Supabase angler row (includes `id`) for the active session. */
+const supabaseAnglerRowByLocalId = new Map();
 
 /** @type {ReturnType<typeof setInterval> | null} */
 let sessionTimerIntervalId = null;
@@ -419,14 +447,105 @@ async function openCatchesOverlay() {
   document.getElementById("catches-overlay")?.classList.remove("hidden");
 }
 
+/**
+ * Live stats for the active session: per angler total, then per-species count and longest (cm).
+ * @param {string} sessionId
+ */
+async function renderSessionLiveView(sessionId) {
+  const wrap = document.getElementById("session-live-view");
+  if (!wrap) return;
+
+  const [sas, catches, anglers] = await Promise.all([
+    getSessionAnglersForSession(sessionId),
+    getCatchesForSession(sessionId),
+    getAllAnglers(),
+  ]);
+  const nameById = Object.fromEntries(anglers.map((a) => [a.id, a.displayName]));
+
+  /** @type {Map<string, number>} */
+  const totalByAngler = new Map();
+  /** @type {Map<string, Map<string, { count: number, longest: number | null }>>} */
+  const byAnglerSpecies = new Map();
+
+  for (const c of catches) {
+    totalByAngler.set(c.anglerId, (totalByAngler.get(c.anglerId) || 0) + 1);
+    let spMap = byAnglerSpecies.get(c.anglerId);
+    if (!spMap) {
+      spMap = new Map();
+      byAnglerSpecies.set(c.anglerId, spMap);
+    }
+    let g = spMap.get(c.species);
+    if (!g) {
+      g = { count: 0, longest: null };
+      spMap.set(c.species, g);
+    }
+    g.count += 1;
+    if (c.length != null && c.length >= 1) {
+      if (g.longest == null || c.length > g.longest) g.longest = c.length;
+    }
+  }
+
+  wrap.innerHTML = "";
+  for (const sa of sas) {
+    const name = nameById[sa.anglerId] || sa.anglerId;
+    const total = totalByAngler.get(sa.anglerId) || 0;
+    const spMap = byAnglerSpecies.get(sa.anglerId);
+
+    const card = document.createElement("div");
+    card.className = "session-live-card";
+
+    const head = document.createElement("div");
+    head.className = "session-live-angler-head";
+    const nameEl = document.createElement("span");
+    nameEl.className = "session-live-name";
+    nameEl.textContent = name;
+    const totalEl = document.createElement("span");
+    totalEl.className = "session-live-total";
+    totalEl.textContent = `${total} kpl`;
+    head.append(nameEl, totalEl);
+    card.appendChild(head);
+
+    if (total === 0) {
+      const dash = document.createElement("p");
+      dash.className = "session-live-dash";
+      dash.textContent = "-";
+      card.appendChild(dash);
+    } else if (spMap && spMap.size > 0) {
+      const speciesBox = document.createElement("div");
+      speciesBox.className = "session-live-species";
+      const keys = [...spMap.keys()].sort((a, b) => SPECIES_OPTIONS.indexOf(a) - SPECIES_OPTIONS.indexOf(b));
+      for (const speciesKey of keys) {
+        const g = spMap.get(speciesKey);
+        if (!g) continue;
+        const label = SPECIES_LABELS[speciesKey] || speciesKey;
+        const longestStr = g.longest != null ? `${g.longest} cm` : "-";
+        const line = document.createElement("p");
+        line.className = "session-live-species-line";
+        line.textContent = `${label} kpl ${g.count}, isoin ${longestStr}`;
+        speciesBox.appendChild(line);
+      }
+      card.appendChild(speciesBox);
+    }
+
+    wrap.appendChild(card);
+  }
+}
+
+function syncHomeAnglersToggleUi() {
+  const panel = document.getElementById("angler-edit-panel");
+  const btn = document.getElementById("btn-toggle-anglers");
+  panel?.classList.toggle("hidden", !homeAnglersExpanded);
+  btn?.setAttribute("aria-expanded", homeAnglersExpanded ? "true" : "false");
+  btn?.classList.toggle("is-active", homeAnglersExpanded);
+  if (btn) btn.textContent = homeAnglersExpanded ? "Piilota kalastajat" : "Näytä kalastajat";
+}
+
 async function renderHome() {
   const session = await getActiveSession();
   const meta = document.getElementById("session-meta");
   const noS = document.getElementById("block-no-session");
   const act = document.getElementById("block-active-session");
   const roster = document.getElementById("session-roster");
-  const anglerPanel = document.getElementById("angler-edit-panel");
-  const btnEditAnglers = document.getElementById("btn-edit-anglers");
 
   if (!meta || !noS || !act || !roster) return;
 
@@ -436,10 +555,6 @@ async function renderHome() {
     noS.classList.remove("hidden");
     act.classList.add("hidden");
     roster.classList.add("hidden");
-    anglerPanel?.classList.remove("hidden");
-    anglerEditPanelOpen = false;
-    btnEditAnglers?.setAttribute("aria-expanded", "false");
-    btnEditAnglers?.classList.remove("is-active");
   } else {
     const start = new Date(session.startTime);
     let line = `Sessio käynnissä (alkoi ${start.toLocaleString("fi-FI")}).`;
@@ -457,11 +572,11 @@ async function renderHome() {
     noS.classList.add("hidden");
     act.classList.remove("hidden");
     roster.classList.remove("hidden");
-    anglerPanel?.classList.toggle("hidden", !anglerEditPanelOpen);
-    btnEditAnglers?.setAttribute("aria-expanded", anglerEditPanelOpen ? "true" : "false");
-    btnEditAnglers?.classList.toggle("is-active", anglerEditPanelOpen);
     startSessionTimer(session.startTime);
+    await renderSessionLiveView(session.id);
   }
+
+  syncHomeAnglersToggleUi();
 
   const anglers = await getAllAnglers();
   const listEl = document.getElementById("angler-list");
@@ -603,9 +718,64 @@ function buildStartAnglerPicks(anglers) {
       showError(r.reason);
       return;
     }
+
+    const sessionTitle = null;
+    const { data, error } = await supabase
+      .from("sessions")
+      .insert([
+        {
+          title: sessionTitle ?? null,
+          notes: null,
+        },
+      ])
+      .select()
+      .single();
+
+    if (error) {
+      console.error("[Supabase] sessions insert failed:", error.message, error);
+      showError("Supabase-sessiota ei voitu tallentaa. Katso konsoli.");
+      activeSupabaseSessionId = null;
+    } else if (data?.id) {
+      activeSupabaseSessionId = data.id;
+    } else {
+      console.error("[Supabase] sessions insert: no row id returned", data);
+      showError("Supabase-sessiota ei voitu tallentaa. Katso konsoli.");
+      activeSupabaseSessionId = null;
+    }
+
+    activeSupabaseAnglerRows = null;
+    supabaseAnglerRowByLocalId.clear();
+    if (activeSupabaseSessionId) {
+      const selectedIds = [...selected];
+      const nameByLocalId = new Map(anglers.map((a) => [a.id, a.displayName]));
+      const insertRows = selectedIds.map((localId) => ({
+        session_id: activeSupabaseSessionId,
+        name: nameByLocalId.get(localId) ?? "",
+        user_id: null,
+      }));
+
+      const {
+        data: sbAnglers,
+        error: anglersError,
+      } = await supabase.from("anglers").insert(insertRows).select();
+
+      if (anglersError) {
+        console.error("[Supabase] anglers insert failed:", anglersError.message, anglersError);
+        showError("Supabase-kalastajia ei voitu tallentaa. Katso konsoli.");
+      } else if (sbAnglers && sbAnglers.length === selectedIds.length) {
+        activeSupabaseAnglerRows = sbAnglers;
+        selectedIds.forEach((localId, i) => {
+          const row = sbAnglers[i];
+          if (row) supabaseAnglerRowByLocalId.set(localId, row);
+        });
+      } else {
+        console.error("[Supabase] anglers insert: unexpected response", sbAnglers);
+        showError("Supabase-kalastajia ei voitu tallentaa. Katso konsoli.");
+      }
+    }
+
     document.getElementById("start-overlay")?.classList.add("hidden");
     selected.clear();
-    anglerEditPanelOpen = false;
     closeCatchesOverlay();
     closeSessionEndOverlay();
     await renderHome();
@@ -656,6 +826,34 @@ function wireFishMeasurementInputs() {
   wt?.addEventListener("input", () => syncFishStateFromMeasurementInputs());
 }
 
+/**
+ * Prefill depth and water temperature from the most recent catch in the active session.
+ */
+async function prefillTelemetryFromLastCatch() {
+  const depthEl = /** @type {HTMLInputElement | null} */ (document.getElementById("fish-input-depth"));
+  const tempEl = /** @type {HTMLInputElement | null} */ (document.getElementById("fish-input-water-temp"));
+  if (!depthEl || !tempEl) return;
+  depthEl.value = "";
+  tempEl.value = "";
+  fishState.depthStr = "";
+  fishState.waterTempStr = "";
+  const session = await getActiveSession();
+  if (!session) return;
+  const catches = await getCatchesForSession(session.id);
+  const last = catches[0];
+  if (!last) return;
+  const d = last.depth_m;
+  const t = last.water_temp_c;
+  if (d != null && Number.isFinite(d)) {
+    depthEl.value = String(d);
+    fishState.depthStr = depthEl.value;
+  }
+  if (t != null && Number.isFinite(t)) {
+    tempEl.value = String(t);
+    fishState.waterTempStr = tempEl.value;
+  }
+}
+
 function showFishStep(n) {
   fishState.step = n;
   for (let i = 1; i <= 4; i++) {
@@ -664,7 +862,7 @@ function showFishStep(n) {
   }
 }
 
-function openFishOverlay() {
+async function openFishOverlay() {
   fishState = freshFishState();
   const next2 = document.getElementById("fish-next-2");
   if (next2) next2.disabled = true;
@@ -680,7 +878,8 @@ function openFishOverlay() {
   const sumEl = document.getElementById("fish-save-summary");
   if (sumEl) sumEl.textContent = "";
   wireSpeciesButtons();
-  populateFishAnglers();
+  await populateFishAnglers();
+  await prefillTelemetryFromLastCatch();
   showFishStep(1);
   document.getElementById("fish-overlay")?.classList.remove("hidden");
 }
@@ -794,7 +993,9 @@ function init() {
       showError(r.reason);
       return;
     }
-    anglerEditPanelOpen = false;
+    activeSupabaseSessionId = null;
+    activeSupabaseAnglerRows = null;
+    supabaseAnglerRowByLocalId.clear();
     await renderHome();
     if (csvWasExported) {
       showSuccess("Fish saved and session ended");
@@ -803,13 +1004,9 @@ function init() {
     document.getElementById("catches-overlay")?.classList.remove("hidden");
   });
 
-  document.getElementById("btn-edit-anglers")?.addEventListener("click", () => {
-    anglerEditPanelOpen = !anglerEditPanelOpen;
-    const panel = document.getElementById("angler-edit-panel");
-    const btn = document.getElementById("btn-edit-anglers");
-    panel?.classList.toggle("hidden", !anglerEditPanelOpen);
-    btn?.setAttribute("aria-expanded", anglerEditPanelOpen ? "true" : "false");
-    btn?.classList.toggle("is-active", anglerEditPanelOpen);
+  document.getElementById("btn-toggle-anglers")?.addEventListener("click", () => {
+    homeAnglersExpanded = !homeAnglersExpanded;
+    syncHomeAnglersToggleUi();
   });
 
   document.getElementById("btn-show-catches")?.addEventListener("click", () => {
@@ -824,7 +1021,7 @@ function init() {
   document.getElementById("btn-log-catch")?.addEventListener("click", () => {
     closeCatchesOverlay();
     closeSessionEndOverlay();
-    openFishOverlay();
+    void openFishOverlay();
   });
 
   document.getElementById("fish-close")?.addEventListener("click", () => {
@@ -861,6 +1058,10 @@ function init() {
     const len = parseOptionalPositiveInt(fishState.lengthStr);
     if (!fishState.anglerId) {
       showError("Valitse kalastaja.");
+      return;
+    }
+    if (len == null || typeof len !== "number" || !Number.isFinite(len) || len <= 0) {
+      showError("Length is required. Weight alone is not enough.");
       return;
     }
     const btn = /** @type {HTMLButtonElement | null} */ (document.getElementById("fish-save"));
@@ -904,13 +1105,64 @@ function init() {
     if (summaryEl) {
       summaryEl.textContent = formatSaveSuccessSummary(loc, result.record);
     }
+
+    const savedCatch = result.record;
+
+    const speciesForDb = mapSpeciesKeyToSupabaseSpecies(fishState.species);
+    const sbAnglerRow = fishState.anglerId ? supabaseAnglerRowByLocalId.get(fishState.anglerId) : undefined;
+    const sbAnglerId = sbAnglerRow?.id ?? null;
+
+    const canInsertSupabaseCatch =
+      !!activeSupabaseSessionId && sbAnglerId != null && sbAnglerId !== "" && !!speciesForDb;
+
+    if (canInsertSupabaseCatch) {
+      const savedLen = savedCatch.length;
+      const savedWtKg = savedCatch.weight_kg;
+      const length_cm =
+        savedLen != null && typeof savedLen === "number" && Number.isFinite(savedLen) && savedLen > 0
+          ? savedLen
+          : null;
+      const weight_g =
+        savedWtKg != null && typeof savedWtKg === "number" && Number.isFinite(savedWtKg) && savedWtKg > 0
+          ? Math.round(savedWtKg * 1000)
+          : null;
+
+      if (length_cm == null || typeof length_cm !== "number" || !Number.isFinite(length_cm) || length_cm <= 0) {
+        console.error(
+          "[Supabase] catch sync skipped: length_cm must be a positive number (cm). Saved catch:",
+          savedCatch
+        );
+        showError("Supabase-synkronointi vaatii kelvollisen pituuden (cm).");
+      } else {
+        const { data: _catchData, error: catchError } = await supabase
+          .from("catches")
+          .insert([
+            {
+              session_id: activeSupabaseSessionId,
+              angler_id: sbAnglerId,
+              species: speciesForDb,
+              length_cm,
+              weight_g,
+            },
+          ])
+          .select()
+          .single();
+
+        if (catchError) {
+          console.error("[Supabase] catches insert failed:", catchError.message, catchError);
+          showError("Supabase-saalista ei voitu tallentaa. Katso konsoli.");
+        }
+      }
+    }
+
     showFishStep(4);
     await refreshCatchesTableIfOpen();
+    await renderHome();
   });
 
   document.getElementById("fish-add-another")?.addEventListener("click", () => {
     closeCatchesOverlay();
-    openFishOverlay();
+    void openFishOverlay();
   });
 
   document.getElementById("fish-back-home")?.addEventListener("click", () => {

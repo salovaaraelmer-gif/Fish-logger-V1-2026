@@ -23,13 +23,16 @@
 
         <div id="block-active-session" class="stack hidden">
           <p class="session-timer" id="session-timer" aria-live="polite"></p>
+          <h2 class="session-live-title">Sessio</h2>
+          <div id="session-live-view" class="session-live-view stack" aria-live="polite"></div>
           <button type="button" class="btn btn-primary" id="btn-log-catch">Kirjaa saalis</button>
           <button type="button" class="btn" id="btn-show-catches">Näytä saaliit</button>
           <button type="button" class="btn btn-danger" id="btn-end-session">Lopeta sessio</button>
-          <button type="button" class="btn" id="btn-edit-anglers" aria-expanded="false">Muokkaa kalastajia</button>
         </div>
 
-        <div id="angler-edit-panel" class="stack angler-edit-panel">
+        <button type="button" class="btn" id="btn-toggle-anglers" aria-expanded="false">Näytä kalastajat</button>
+
+        <div id="angler-edit-panel" class="stack angler-edit-panel hidden">
           <h2>Kalastajat</h2>
           <div id="angler-list" class="stack"></div>
           <div class="stack" style="margin-top: 1rem">
@@ -65,7 +68,7 @@
           <div class="field-label">Laji (pakollinen)</div>
           <div class="grid-2" id="species-buttons"></div>
           <div style="margin-top: 1rem">
-            <div class="field-label">Pituus (cm), valinnainen</div>
+            <div class="field-label">Pituus (cm), pakollinen</div>
             <input
               type="text"
               id="fish-input-length"
@@ -106,6 +109,26 @@
               autocomplete="off"
               aria-label="Veden lämpötila celsiuksina"
               placeholder="Esim. 12"
+            />
+          </div>
+          <div style="margin-top: 0.75rem">
+            <div class="field-label">Syvyys (m), valinnainen</div>
+            <input
+              type="text"
+              id="fish-input-depth"
+              inputmode="decimal"
+              autocomplete="off"
+              aria-label="Syvyys metreinä"
+            />
+          </div>
+          <div style="margin-top: 0.75rem">
+            <div class="field-label">Veden lämpötila (°C), valinnainen</div>
+            <input
+              type="text"
+              id="fish-input-water-temp"
+              inputmode="decimal"
+              autocomplete="off"
+              aria-label="Veden lämpötila"
             />
           </div>
           <div class="row-actions">
@@ -219,6 +242,7 @@
     <div id="error-toast" class="error-toast" role="alert"></div>
     <div id="success-toast" class="success-toast" role="status"></div>
 
+    <script type="module" src="./js/supabase.js"></script>
     <script type="module" src="js/app.js"></script>
   </body>
 </html>

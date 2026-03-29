@@ -114,12 +114,13 @@ h2 {
   border-color: var(--accent);
 }
 
-#btn-edit-anglers.is-active {
+#btn-toggle-anglers.is-active {
   outline: 3px solid var(--accent);
   border-color: var(--accent);
 }
 
-#block-active-session:not(.hidden) + #angler-edit-panel:not(.hidden) {
+#block-no-session:not(.hidden) ~ #angler-edit-panel:not(.hidden),
+#block-active-session:not(.hidden) ~ #angler-edit-panel:not(.hidden) {
   margin-top: 1rem;
   padding-top: 1rem;
   border-top: 1px solid var(--border);
@@ -155,6 +156,65 @@ h2 {
   letter-spacing: 0.02em;
   color: var(--accent);
   text-align: center;
+}
+
+.session-live-title {
+  margin: 0.75rem 0 0.35rem;
+}
+
+.session-live-view {
+  margin: 0 0 0.25rem;
+  gap: 0.65rem;
+}
+
+.session-live-card {
+  padding: 0.65rem 0.85rem;
+  background: var(--surface);
+  border: 2px solid var(--border);
+  border-radius: var(--radius);
+  font-variant-numeric: tabular-nums;
+}
+
+.session-live-angler-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.35rem;
+}
+
+.session-live-name {
+  font-weight: 600;
+  min-width: 0;
+}
+
+.session-live-total {
+  font-size: 0.95rem;
+  color: var(--muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.session-live-dash {
+  margin: 0;
+  font-size: 0.95rem;
+  color: var(--muted);
+}
+
+.session-live-species {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-top: 0.25rem;
+  padding-top: 0.45rem;
+  border-top: 1px solid var(--border);
+}
+
+.session-live-species-line {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--text);
+  line-height: 1.35;
 }
 
 .field-label {
