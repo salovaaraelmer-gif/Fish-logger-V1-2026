@@ -4,7 +4,7 @@
  */
 
 const DB_NAME = "FishLoggerV1";
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 
 /** @typedef {{ id: string, displayName: string }} Angler */
 /**
@@ -30,7 +30,7 @@ const DB_VERSION = 3;
  *   timestamp: number,
  *   species: string,
  *   length: number | null,
- *   weight_kg: number | null,
+ *   weight_kg: number | null, // kilograms only; no grams field
  *   notes: string,
  *   depth_m: number | null,
  *   water_temp_c: number | null,
@@ -45,6 +45,7 @@ const DB_VERSION = 3;
  *   air_temp_c: number | null,
  *   wind_speed_ms: number | null,
  *   wind_direction_deg: number | null,
+ *   supabase_id: string | null,
  * }} CatchRecord
  */
 
@@ -55,10 +56,12 @@ const DB_VERSION = 3;
 function migrateCatchV1ToV2(c) {
   if (c && typeof c.depth_m !== "undefined") {
     const raw = /** @type {Record<string, unknown>} */ (c);
-    const { weight: _w, ...rest } = raw;
+    // Drop legacy keys; persisted catches use `weight_kg` (kg) only.
+    const { weight: _legacyWeight, weight_g: _legacyWeightG, ...rest } = raw;
     return /** @type {CatchRecord} */ ({
       ...rest,
       weight_kg: typeof raw.weight_kg === "number" ? raw.weight_kg : null,
+      supabase_id: typeof raw.supabase_id === "string" && raw.supabase_id ? raw.supabase_id : null,
     });
   }
   const lat = c.gps?.lat ?? null;
@@ -88,6 +91,7 @@ function migrateCatchV1ToV2(c) {
     air_temp_c: null,
     wind_speed_ms: null,
     wind_direction_deg: null,
+    supabase_id: null,
   };
 }
 
@@ -148,6 +152,22 @@ function openDb() {
           cursor.continue();
         };
       }
+
+      if (oldVersion < 4 && db.objectStoreNames.contains("catches")) {
+        const tx = /** @type {IDBTransaction} */ (e.target.transaction);
+        const store = tx.objectStore("catches");
+        const curReq = store.openCursor();
+        curReq.onsuccess = (ev) => {
+          const cursor = /** @type {IDBCursorWithValue | null} */ (ev.target.result);
+          if (!cursor) return;
+          const row = /** @type {Record<string, unknown>} */ (cursor.value);
+          if (typeof row.supabase_id === "undefined") {
+            row.supabase_id = null;
+            cursor.update(row);
+          }
+          cursor.continue();
+        };
+      }
     };
   });
 }
@@ -174,6 +194,71 @@ export async function putAngler(a) {
     r.onerror = () => reject(r.error);
     r.onsuccess = () => resolve();
   });
+}
+
+/**
+ * @param {string} id
+ * @returns {Promise<void>}
+ */
+export async function deleteAngler(id) {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const r = db.transaction("anglers", "readwrite").objectStore("anglers").delete(id);
+    r.onerror = () => reject(r.error);
+    r.onsuccess = () => resolve();
+  });
+}
+
+/**
+ * True if any catch references this angler (any session).
+ * @param {string} anglerId
+ * @returns {Promise<boolean>}
+ */
+export async function hasCatchesForAngler(anglerId) {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const r = db.transaction("catches", "readonly").objectStore("catches").getAll();
+    r.onerror = () => reject(r.error);
+    r.onsuccess = () => {
+      const list = r.result || [];
+      const hit = list.some((raw) => {
+        const c = migrateCatchV1ToV2(raw);
+        return c.anglerId === anglerId;
+      });
+      resolve(hit);
+    };
+  });
+}
+
+/**
+ * True if this angler appears in any session roster (active or ended).
+ * @param {string} anglerId
+ * @returns {Promise<boolean>}
+ */
+export async function hasSessionAnglerRowsForAngler(anglerId) {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const idx = db.transaction("sessionAnglers", "readonly").objectStore("sessionAnglers").index("byAngler");
+    const req = idx.getAll(anglerId);
+    req.onerror = () => reject(req.error);
+    req.onsuccess = () => {
+      const list = req.result || [];
+      resolve(list.length > 0);
+    };
+  });
+}
+
+/**
+ * Cannot delete without breaking foreign-style references to past data.
+ * @param {string} anglerId
+ * @returns {Promise<boolean>}
+ */
+export async function isAnglerInUse(anglerId) {
+  const [hasCatch, inAnySessionRoster] = await Promise.all([
+    hasCatchesForAngler(anglerId),
+    hasSessionAnglerRowsForAngler(anglerId),
+  ]);
+  return hasCatch || inAnySessionRoster;
 }
 
 /**
@@ -273,6 +358,36 @@ export async function getActiveSession() {
       const list = r.result || [];
       const active = list.find((s) => s.endTime === null);
       resolve(active || null);
+    };
+  });
+}
+
+/**
+ * @param {string} id
+ * @returns {Promise<Session | null>}
+ */
+export async function getSessionById(id) {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const r = db.transaction("sessions", "readonly").objectStore("sessions").get(id);
+    r.onerror = () => reject(r.error);
+    r.onsuccess = () => resolve(r.result ?? null);
+  });
+}
+
+/**
+ * Ended sessions only (`endTime != null`), newest by end time first.
+ * @returns {Promise<Session[]>}
+ */
+export async function getAllEndedSessions() {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const r = db.transaction("sessions", "readonly").objectStore("sessions").getAll();
+    r.onerror = () => reject(r.error);
+    r.onsuccess = () => {
+      const list = /** @type {Session[]} */ (r.result || []).filter((s) => s.endTime != null);
+      list.sort((a, b) => (b.endTime ?? 0) - (a.endTime ?? 0));
+      resolve(list);
     };
   });
 }

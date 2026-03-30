@@ -129,6 +129,61 @@ h2 {
   border-top: 1px solid var(--border);
 }
 
+.history-section {
+  margin-top: 1.25rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+}
+
+.history-section h2 {
+  margin-bottom: 0.5rem;
+}
+
+.history-session-list {
+  gap: 0.5rem;
+}
+
+.history-session-row {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.2rem;
+  width: 100%;
+  text-align: left;
+  min-height: var(--tap-min);
+  padding: 0.65rem 0.85rem;
+  border-radius: var(--radius);
+  border: 2px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.history-session-row:active {
+  transform: scale(0.99);
+}
+
+.history-session-line1 {
+  font-weight: 650;
+  font-size: 1rem;
+  line-height: 1.35;
+}
+
+.history-session-line2 {
+  line-height: 1.35;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.history-session-line3 {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
 .grid-2 {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -276,6 +331,88 @@ h2 {
   border-radius: var(--radius);
 }
 
+.angler-item-manage {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.angler-item-manage-main {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.angler-item-name {
+  flex: 1;
+  min-width: 0;
+  word-break: break-word;
+  font-weight: 600;
+}
+
+.angler-item-menu-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.angler-menu-trigger {
+  min-width: 44px;
+  min-height: 44px;
+  width: 44px;
+  padding: 0;
+  font-size: 1.35rem;
+  line-height: 1;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.angler-menu-trigger.is-active {
+  outline: 2px solid var(--accent);
+  border-color: var(--border);
+}
+
+.angler-menu-dropdown {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 4px;
+  z-index: 30;
+  min-width: 12rem;
+  padding: 0.35rem 0;
+  background: var(--surface);
+  border: 2px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+
+.angler-menu-item {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 44px;
+  padding: 0.5rem 0.85rem;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 1rem;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.angler-menu-item:active {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.angler-menu-item-danger {
+  color: #ffa198;
+}
+
+.angler-item-manage .angler-item-actions {
+  width: 100%;
+}
+
 .angler-item span {
   font-weight: 600;
 }
@@ -413,29 +550,6 @@ textarea {
   margin: 0 auto;
 }
 
-.session-summary-section h3 {
-  font-size: 0.95rem;
-  font-weight: 600;
-  margin: 0 0 0.35rem;
-  color: var(--muted);
-}
-
-.session-summary-big {
-  font-size: 2rem;
-  font-weight: 700;
-  margin: 0;
-  letter-spacing: -0.02em;
-}
-
-.session-summary-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-}
-
 .session-end-inner {
   max-width: min(1100px, 100%);
   margin: 0 auto;
@@ -491,6 +605,80 @@ textarea {
   margin: 0 0 0.5rem;
   font-variant-numeric: tabular-nums;
   word-break: break-all;
+}
+
+.ended-session-dashboard {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin: 0 0 1rem;
+}
+
+.dash-panel {
+  background: var(--surface);
+  border: 2px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.75rem 0.9rem;
+}
+
+.dash-panel-title {
+  font-size: 0.95rem;
+  font-weight: 600;
+  margin: 0 0 0.6rem;
+  color: var(--muted);
+}
+
+.dash-catches-heading {
+  margin: 0 0 0.35rem;
+  padding-bottom: 0.35rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.dash-dl {
+  margin: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 11rem) 1fr;
+  gap: 0.4rem 0.75rem;
+  font-size: 0.95rem;
+  line-height: 1.35;
+}
+
+.dash-dt {
+  margin: 0;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.dash-dd {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  word-break: break-word;
+}
+
+.dash-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  font-size: 0.95rem;
+  line-height: 1.35;
+}
+
+.dash-list li {
+  padding: 0.4rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.dash-list li:last-child {
+  border-bottom: none;
+}
+
+.ended-session-dashboard:not(.hidden) ~ #catches-table-wrap {
+  margin-top: 0.25rem;
 }
 
 .catch-list {

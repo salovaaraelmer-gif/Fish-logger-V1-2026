@@ -5,10 +5,15 @@
 import {
   getAllAnglers,
   putAngler,
+  deleteAngler,
+  isAnglerInUse,
   getSessionAnglersForSession,
   getActiveSession,
+  getSessionById,
+  getAllEndedSessions,
   getCatchesForSession,
   getCatchById,
+  putCatch,
   deleteCatch,
 } from "./db.js";
 import {
@@ -35,6 +40,12 @@ import {
   parseOptionalWeightKg,
 } from "./catchService.js";
 import { supabase } from "./supabase.js";
+import {
+  catchRecordToSupabasePayload,
+  insertSupabaseCatch,
+  updateSupabaseCatch,
+  deleteSupabaseCatch,
+} from "./supabaseCatchSync.js";
 
 /** @type {Record<string, string>} */
 const SPECIES_LABELS = {
@@ -64,6 +75,49 @@ function mapSpeciesKeyToSupabaseSpecies(speciesKey) {
 }
 
 /**
+ * @param {string} localAnglerId
+ * @returns {string | null}
+ */
+function getSupabaseAnglerIdForSync(localAnglerId) {
+  const row = supabaseAnglerRowByLocalId.get(localAnglerId);
+  if (row?.id == null || String(row.id) === "") return null;
+  return String(row.id);
+}
+
+/**
+ * Insert catch to Supabase and persist returned id on the local row.
+ * @param {import('./db.js').CatchRecord} record
+ * @returns {Promise<null | { ok: true } | { ok: false, error: string }>}
+ */
+async function syncCatchCreateToSupabase(record) {
+  const speciesForDb = mapSpeciesKeyToSupabaseSpecies(record.species);
+  const sbAnglerId = getSupabaseAnglerIdForSync(record.anglerId);
+  if (!activeSupabaseSessionId || !sbAnglerId || !speciesForDb) return null;
+  const payload = catchRecordToSupabasePayload(record, activeSupabaseSessionId, sbAnglerId, speciesForDb);
+  const ins = await insertSupabaseCatch(payload);
+  if (!ins.ok) return { ok: false, error: ins.error };
+  await putCatch({ ...record, supabase_id: ins.id });
+  return { ok: true };
+}
+
+/**
+ * @param {import('./db.js').CatchRecord} record
+ * @returns {Promise<null | { ok: true } | { ok: false, error: string }>}
+ */
+async function syncCatchUpdateToSupabase(record) {
+  if (!record.supabase_id) return null;
+  const speciesForDb = mapSpeciesKeyToSupabaseSpecies(record.species);
+  const sbAnglerId = getSupabaseAnglerIdForSync(record.anglerId);
+  if (!activeSupabaseSessionId || !sbAnglerId || !speciesForDb) {
+    return { ok: false, error: "Supabase-sessio tai kalastajalinkitys puuttuu." };
+  }
+  const payload = catchRecordToSupabasePayload(record, activeSupabaseSessionId, sbAnglerId, speciesForDb);
+  const res = await updateSupabaseCatch(record.supabase_id, payload);
+  if (!res.ok) return { ok: false, error: res.error };
+  return { ok: true };
+}
+
+/**
  * @type {{
  *   step: number,
  *   anglerId: string | null,
@@ -80,6 +134,12 @@ let fishState = freshFishState();
 
 /** Home screen: anglers block (list + session roster) expanded. Persists across re-renders. */
 let homeAnglersExpanded = false;
+
+/** When set, the angler list shows an inline rename form for this id. */
+let anglerManageEditId = /** @type {string | null} */ (null);
+
+/** When set, the ⋯ menu for this angler id is expanded. */
+let anglerMenuOpenId = /** @type {string | null} */ (null);
 
 /** Active Supabase `sessions.id` after a successful cloud insert when starting a session; cleared when the session ends. */
 let activeSupabaseSessionId = null;
@@ -274,17 +334,234 @@ function formatSessionStripLabel(sessionId) {
 }
 
 /**
+ * 24-hour clock with colon (not locale-dependent dot).
  * @param {number} ts
- * @param {boolean} activeSession — if true, HH:MM only (24h, colon); if false, date + time (fi-FI)
+ */
+function formatClock24(ts) {
+  const d = new Date(ts);
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
+/**
+ * Session “day” label from start timestamp (local).
+ * @param {number} ts
+ */
+function formatSessionDateLabel(ts) {
+  return new Date(ts).toLocaleDateString("fi-FI", {
+    weekday: "short",
+    day: "numeric",
+    month: "numeric",
+    year: "numeric",
+  });
+}
+
+/**
+ * @param {number} startMs
+ * @param {number} endMs
+ * @returns {string | null}
+ */
+function formatSessionDuration(startMs, endMs) {
+  const ms = endMs - startMs;
+  if (!Number.isFinite(ms) || ms < 0) return null;
+  const totalMin = Math.floor(ms / 60000);
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  if (h > 0) return `${h} h ${m} min`;
+  return `${m} min`;
+}
+
+/**
+ * @param {import('./db.js').CatchRecord[]} catches
+ * @returns {number | null}
+ */
+function averageWaterTempC(catches) {
+  const vals = catches
+    .map((c) => c.water_temp_c)
+    .filter((t) => t != null && typeof t === "number" && Number.isFinite(t));
+  if (vals.length === 0) return null;
+  const sum = vals.reduce((a, b) => a + b, 0);
+  return sum / vals.length;
+}
+
+/**
+ * Single-line display for the winning catch: both length and weight, "-" when missing.
+ * @param {import('./db.js').CatchRecord} c
+ */
+function formatBiggestFishDisplayLine(c) {
+  const lenPart =
+    c.length != null && typeof c.length === "number" && c.length >= 1
+      ? `${c.length} cm`
+      : "-";
+  const wtPart =
+    c.weight_kg != null && typeof c.weight_kg === "number" && Number.isFinite(c.weight_kg)
+      ? `${c.weight_kg.toLocaleString("fi-FI", { maximumFractionDigits: 2 })} kg`
+      : "-";
+  return `Pituus: ${lenPart} | Paino: ${wtPart}`;
+}
+
+/**
+ * Prefer max weight; if no weights, max length.
+ * @param {import('./db.js').CatchRecord[]} catches
+ * @param {Record<string, string>} nameById
+ * @returns {{ display: string, anglerName: string } | null}
+ */
+function biggestFishSummary(catches, nameById) {
+  const w = catches.filter(
+    (c) => c.weight_kg != null && typeof c.weight_kg === "number" && Number.isFinite(c.weight_kg)
+  );
+  if (w.length > 0) {
+    let best = w[0];
+    for (let i = 1; i < w.length; i++) {
+      if (/** @type {number} */ (w[i].weight_kg) > /** @type {number} */ (best.weight_kg)) best = w[i];
+    }
+    return {
+      display: formatBiggestFishDisplayLine(best),
+      anglerName: nameById[best.anglerId] || best.anglerId,
+    };
+  }
+  const len = catches.filter((c) => c.length != null && typeof c.length === "number" && c.length >= 1);
+  if (len.length > 0) {
+    let best = len[0];
+    for (let i = 1; i < len.length; i++) {
+      if (/** @type {number} */ (len[i].length) > /** @type {number} */ (best.length)) best = len[i];
+    }
+    return {
+      display: formatBiggestFishDisplayLine(best),
+      anglerName: nameById[best.anglerId] || best.anglerId,
+    };
+  }
+  return null;
+}
+
+/**
+ * @param {number} ts
+ * @param {boolean} activeSession — if true, HH:MM only (24h, colon); if false, date + 24h time with colon
  */
 function formatCatchListTime(ts, activeSession) {
   const d = new Date(ts);
   if (activeSession) {
-    const h = String(d.getHours()).padStart(2, "0");
-    const m = String(d.getMinutes()).padStart(2, "0");
-    return `${h}:${m}`;
+    return formatClock24(ts);
   }
-  return d.toLocaleString("fi-FI", { dateStyle: "short", timeStyle: "short" });
+  const datePart = d.toLocaleDateString("fi-FI", {
+    day: "numeric",
+    month: "numeric",
+    year: "numeric",
+  });
+  return `${datePart} · ${formatClock24(ts)}`;
+}
+
+/**
+ * @param {HTMLDListElement} dl
+ * @param {string} label
+ * @param {string} value
+ */
+function appendDashDlRow(dl, label, value) {
+  const dt = document.createElement("dt");
+  dt.className = "dash-dt";
+  dt.textContent = label;
+  const dd = document.createElement("dd");
+  dd.className = "dash-dd";
+  dd.textContent = value;
+  dl.append(dt, dd);
+}
+
+/**
+ * @param {import('./db.js').Session} session
+ * @param {import('./db.js').SessionAngler[]} sessionAnglers
+ * @param {import('./db.js').CatchRecord[]} catches
+ * @param {Record<string, string>} nameById
+ * @param {{
+ *   summaryDl: HTMLDListElement,
+ *   byAnglerUl: HTMLUListElement,
+ *   bySpeciesUl: HTMLUListElement,
+ * }} els
+ */
+function fillEndedSessionDashboardPanels(session, sessionAnglers, catches, nameById, els) {
+  const { summaryDl, byAnglerUl, bySpeciesUl } = els;
+  summaryDl.innerHTML = "";
+  byAnglerUl.innerHTML = "";
+  bySpeciesUl.innerHTML = "";
+
+  const dateLabel = formatSessionDateLabel(session.startTime);
+  const startClock = formatClock24(session.startTime);
+  const endClock = session.endTime != null ? formatClock24(session.endTime) : "—";
+  const duration =
+    session.endTime != null ? formatSessionDuration(session.startTime, session.endTime) : null;
+
+  const anglerIds = [...new Set(sessionAnglers.map((sa) => sa.anglerId))];
+  const anglerNames = anglerIds.length
+    ? anglerIds.map((id) => nameById[id] || id).join(", ")
+    : "—";
+
+  appendDashDlRow(summaryDl, "Päivä", dateLabel);
+  appendDashDlRow(summaryDl, "Alkoi", startClock);
+  appendDashDlRow(summaryDl, "Päättyi", endClock);
+  if (duration) appendDashDlRow(summaryDl, "Kesto", duration);
+  appendDashDlRow(summaryDl, "Kalastajat", anglerNames);
+  appendDashDlRow(summaryDl, "Saaliit yhteensä", String(catches.length));
+
+  const avgW = averageWaterTempC(catches);
+  if (avgW != null) {
+    appendDashDlRow(
+      summaryDl,
+      "Keskim. veden lämpö",
+      `${avgW.toLocaleString("fi-FI", { maximumFractionDigits: 1 })} °C`
+    );
+  }
+
+  const big = biggestFishSummary(catches, nameById);
+  if (big) {
+    appendDashDlRow(summaryDl, "Isoin kala", big.display);
+    appendDashDlRow(summaryDl, "Kalastaja (isoin)", big.anglerName);
+  }
+
+  /** @type {Map<string, number>} */
+  const countByAngler = new Map();
+  for (const c of catches) {
+    countByAngler.set(c.anglerId, (countByAngler.get(c.anglerId) || 0) + 1);
+  }
+  const uniqueAnglerIds = [...new Set(sessionAnglers.map((sa) => sa.anglerId))];
+  const anglerRows = uniqueAnglerIds
+    .map((id) => ({
+      name: nameById[id] || id,
+      count: countByAngler.get(id) || 0,
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name, "fi"));
+
+  if (anglerRows.length === 0) {
+    const li = document.createElement("li");
+    li.className = "meta";
+    li.textContent = "Ei kalastajia sessiossa.";
+    byAnglerUl.appendChild(li);
+  } else {
+    for (const row of anglerRows) {
+      const li = document.createElement("li");
+      li.textContent = `${row.name}: ${row.count}`;
+      byAnglerUl.appendChild(li);
+    }
+  }
+
+  /** @type {Map<string, number>} */
+  const countBySpecies = new Map();
+  for (const c of catches) {
+    countBySpecies.set(c.species, (countBySpecies.get(c.species) || 0) + 1);
+  }
+  const speciesKeys = [...countBySpecies.keys()].sort(
+    (a, b) => SPECIES_OPTIONS.indexOf(a) - SPECIES_OPTIONS.indexOf(b)
+  );
+  if (speciesKeys.length === 0) {
+    const li = document.createElement("li");
+    li.className = "meta";
+    li.textContent = "Ei kirjattuja saaliita.";
+    bySpeciesUl.appendChild(li);
+  } else {
+    for (const key of speciesKeys) {
+      const label = SPECIES_LABELS[key] || key;
+      const li = document.createElement("li");
+      li.textContent = `${label}: ${countBySpecies.get(key)}`;
+      bySpeciesUl.appendChild(li);
+    }
+  }
 }
 
 /**
@@ -402,6 +679,14 @@ function buildCatchCardEl(c, nameById, opts = {}) {
       trigger.setAttribute("aria-expanded", "false");
       if (!confirm("Poistetaanko saalis?")) return;
       try {
+        const remoteId = c.supabase_id;
+        if (typeof remoteId === "string" && remoteId.length > 0) {
+          const delSb = await deleteSupabaseCatch(remoteId);
+          if (!delSb.ok) {
+            showError(`Supabase-poisto epäonnistui: ${delSb.error}`);
+            return;
+          }
+        }
         await deleteCatch(c.id);
         await refreshCatchesTableIfOpen();
         await renderHome();
@@ -459,7 +744,7 @@ function buildCatchCardEl(c, nameById, opts = {}) {
  * @param {HTMLElement | null} container
  * @param {string} sessionId
  * @param {boolean} emptyPlaceholderRow
- * @param {{ activeSession?: boolean, allowEditDelete?: boolean }} [listOptions] — activeSession true: catch time HH:MM only; false: date + time
+ * @param {{ activeSession?: boolean, allowEditDelete?: boolean, sortNewestFirst?: boolean }} [listOptions] — activeSession true: catch time HH:MM only; false: date + time; sortNewestFirst false = oldest-first (history)
  * @returns {Promise<number>} number of catches rendered
  */
 async function renderCatchList(container, sessionId, emptyPlaceholderRow, listOptions = {}) {
@@ -468,7 +753,10 @@ async function renderCatchList(container, sessionId, emptyPlaceholderRow, listOp
   const allowEditDelete = listOptions.allowEditDelete === true;
   const [catches, anglers] = await Promise.all([getCatchesForSession(sessionId), getAllAnglers()]);
   const nameById = Object.fromEntries(anglers.map((a) => [a.id, a.displayName]));
-  const sorted = [...catches].sort((a, b) => b.timestamp - a.timestamp);
+  const newestFirst = listOptions.sortNewestFirst !== false;
+  const sorted = [...catches].sort((a, b) =>
+    newestFirst ? b.timestamp - a.timestamp : a.timestamp - b.timestamp
+  );
   container.innerHTML = "";
   if (sorted.length === 0) {
     if (emptyPlaceholderRow) {
@@ -503,11 +791,21 @@ function updateSessionEndCsvStatus(session) {
  * @param {string | undefined} sessionIdOverride - if set, load this session (e.g. just ended).
  */
 async function populateCatchesTable(sessionIdOverride) {
+  const catchesOv = document.getElementById("catches-overlay");
+  if (catchesOv) {
+    if (sessionIdOverride) {
+      catchesOv.dataset.viewSessionId = sessionIdOverride;
+    } else {
+      delete catchesOv.dataset.viewSessionId;
+    }
+  }
+
   const titleEl = document.getElementById("catches-overlay-title");
   const listEl = document.getElementById("catches-table-body");
   const stripEl = document.getElementById("catches-session-strip");
   const emptyEl = document.getElementById("catches-empty");
   const wrap = document.getElementById("catches-table-wrap");
+  const dashEl = document.getElementById("catches-ended-dashboard");
   if (!listEl) return;
 
   let sessionId = sessionIdOverride;
@@ -515,6 +813,7 @@ async function populateCatchesTable(sessionIdOverride) {
   let emptyMsg = "Ei saaliita tässä sessiossa.";
 
   if (!sessionId) {
+    dashEl?.classList.add("hidden");
     const session = await getActiveSession();
     if (!session) {
       listEl.innerHTML = "";
@@ -533,13 +832,38 @@ async function populateCatchesTable(sessionIdOverride) {
     if (titleEl) titleEl.textContent = overlayTitle;
     listEl.setAttribute("aria-label", overlayTitle);
   } else {
-    overlayTitle = "Päättyneen session saaliit";
-    emptyMsg = "Ei kirjattuja saaliita tähän sessioon.";
+    overlayTitle = "Päättynyt sessio";
+    emptyMsg = "Ei kirjattuja saaliita tässä sessiossa.";
     if (titleEl) titleEl.textContent = overlayTitle;
     listEl.setAttribute("aria-label", overlayTitle);
+
+    const session = await getSessionById(sessionIdOverride);
+    const summaryDl = document.getElementById("ended-dash-summary-dl");
+    const byAnglerUl = document.getElementById("ended-dash-by-angler");
+    const bySpeciesUl = document.getElementById("ended-dash-by-species");
+    if (session && summaryDl && byAnglerUl && bySpeciesUl) {
+      const [sessionAnglers, catches, anglers] = await Promise.all([
+        getSessionAnglersForSession(sessionIdOverride),
+        getCatchesForSession(sessionIdOverride),
+        getAllAnglers(),
+      ]);
+      const nameById = Object.fromEntries(anglers.map((a) => [a.id, a.displayName]));
+      fillEndedSessionDashboardPanels(session, sessionAnglers, catches, nameById, {
+        summaryDl,
+        byAnglerUl,
+        bySpeciesUl,
+      });
+      dashEl?.classList.remove("hidden");
+    } else {
+      dashEl?.classList.add("hidden");
+    }
+    if (stripEl) {
+      stripEl.setAttribute("hidden", "");
+      stripEl.textContent = "";
+    }
   }
 
-  if (stripEl && sessionId) {
+  if (stripEl && sessionId && !sessionIdOverride) {
     stripEl.textContent = formatSessionStripLabel(sessionId);
     stripEl.removeAttribute("hidden");
   }
@@ -550,11 +874,16 @@ async function populateCatchesTable(sessionIdOverride) {
   const count = await renderCatchList(listEl, sessionId, false, {
     activeSession: sessionIdOverride == null,
     allowEditDelete,
+    sortNewestFirst: !sessionIdOverride,
   });
   if (count === 0) {
     if (emptyEl) emptyEl.textContent = emptyMsg;
     emptyEl?.classList.remove("hidden");
-    wrap?.classList.add("hidden");
+    if (!sessionIdOverride) {
+      wrap?.classList.add("hidden");
+    } else {
+      wrap?.classList.remove("hidden");
+    }
     return;
   }
 
@@ -595,10 +924,11 @@ function closeSessionEndOverlay() {
  * @param {string} sessionId
  */
 async function populateSessionSummaryOverlay(sessionId) {
-  const totalEl = document.getElementById("session-summary-total");
-  const anglerListUl = document.getElementById("session-summary-by-angler");
-  const speciesListUl = document.getElementById("session-summary-by-species");
-  if (!totalEl || !anglerListUl || !speciesListUl) return;
+  const session = await getSessionById(sessionId);
+  const summaryDl = document.getElementById("session-summary-dash-dl");
+  const byAnglerUl = document.getElementById("session-summary-dash-by-angler");
+  const bySpeciesUl = document.getElementById("session-summary-dash-by-species");
+  if (!session || !summaryDl || !byAnglerUl || !bySpeciesUl) return;
 
   const [sessionAnglers, catches, anglers] = await Promise.all([
     getSessionAnglersForSession(sessionId),
@@ -606,59 +936,11 @@ async function populateSessionSummaryOverlay(sessionId) {
     getAllAnglers(),
   ]);
   const nameById = Object.fromEntries(anglers.map((a) => [a.id, a.displayName]));
-
-  /** @type {Map<string, number>} */
-  const countByAngler = new Map();
-  for (const c of catches) {
-    countByAngler.set(c.anglerId, (countByAngler.get(c.anglerId) || 0) + 1);
-  }
-
-  const uniqueAnglerIds = [...new Set(sessionAnglers.map((sa) => sa.anglerId))];
-  const anglerRows = uniqueAnglerIds
-    .map((id) => ({
-      name: nameById[id] || id,
-      count: countByAngler.get(id) || 0,
-    }))
-    .sort((a, b) => a.name.localeCompare(b.name, "fi"));
-
-  totalEl.textContent = String(catches.length);
-
-  anglerListUl.innerHTML = "";
-  if (anglerRows.length === 0) {
-    const li = document.createElement("li");
-    li.className = "meta";
-    li.textContent = "Ei kalastajia sessiossa.";
-    anglerListUl.appendChild(li);
-  } else {
-    for (const row of anglerRows) {
-      const li = document.createElement("li");
-      li.textContent = `${row.name}: ${row.count}`;
-      anglerListUl.appendChild(li);
-    }
-  }
-
-  /** @type {Map<string, number>} */
-  const countBySpecies = new Map();
-  for (const c of catches) {
-    countBySpecies.set(c.species, (countBySpecies.get(c.species) || 0) + 1);
-  }
-  speciesListUl.innerHTML = "";
-  const speciesKeys = [...countBySpecies.keys()].sort(
-    (a, b) => SPECIES_OPTIONS.indexOf(a) - SPECIES_OPTIONS.indexOf(b)
-  );
-  if (speciesKeys.length === 0) {
-    const li = document.createElement("li");
-    li.className = "meta";
-    li.textContent = "Ei kirjattuja saaliita.";
-    speciesListUl.appendChild(li);
-  } else {
-    for (const key of speciesKeys) {
-      const label = SPECIES_LABELS[key] || key;
-      const li = document.createElement("li");
-      li.textContent = `${label}: ${countBySpecies.get(key)}`;
-      speciesListUl.appendChild(li);
-    }
-  }
+  fillEndedSessionDashboardPanels(session, sessionAnglers, catches, nameById, {
+    summaryDl,
+    byAnglerUl,
+    bySpeciesUl,
+  });
 }
 
 /**
@@ -676,7 +958,8 @@ function closeSessionSummaryOverlay() {
 async function refreshCatchesTableIfOpen() {
   const ov = document.getElementById("catches-overlay");
   if (ov && !ov.classList.contains("hidden")) {
-    await populateCatchesTable();
+    const sid = ov.dataset.viewSessionId;
+    await populateCatchesTable(sid || undefined);
   }
   const se = document.getElementById("session-end-overlay");
   if (se && !se.classList.contains("hidden")) {
@@ -784,6 +1067,171 @@ function syncHomeAnglersToggleUi() {
   if (btn) btn.textContent = homeAnglersExpanded ? "Piilota kalastajat" : "Näytä kalastajat";
 }
 
+/**
+ * @param {string} raw
+ */
+function normalizeAnglerName(raw) {
+  return (raw || "").trim();
+}
+
+/**
+ * @param {string} normalized
+ * @param {import('./db.js').Angler[]} anglers
+ * @param {string | null} excludeId
+ */
+function anglerNameTaken(normalized, anglers, excludeId) {
+  const key = normalized.toLowerCase();
+  return anglers.some((a) => {
+    if (excludeId != null && a.id === excludeId) return false;
+    return normalizeAnglerName(a.displayName).toLowerCase() === key;
+  });
+}
+
+/**
+ * @param {HTMLElement} listEl
+ * @param {import('./db.js').Angler[]} anglers
+ */
+function renderAnglerManageListInto(listEl, anglers) {
+  listEl.innerHTML = "";
+  if (anglers.length === 0) {
+    listEl.innerHTML = '<p class="meta">Ei kalastajia — lisää nimi alta.</p>';
+    return;
+  }
+  for (const a of anglers) {
+    const row = document.createElement("div");
+    row.className = "angler-item angler-item-manage";
+
+    if (anglerManageEditId === a.id) {
+      const input = document.createElement("input");
+      input.type = "text";
+      input.value = a.displayName;
+      input.autocomplete = "name";
+      input.className = "angler-rename-input";
+
+      const rowActions = document.createElement("div");
+      rowActions.className = "angler-item-actions row-actions";
+      const saveBtn = document.createElement("button");
+      saveBtn.type = "button";
+      saveBtn.className = "btn btn-primary";
+      saveBtn.textContent = "Tallenna nimi";
+      const cancelBtn = document.createElement("button");
+      cancelBtn.type = "button";
+      cancelBtn.className = "btn btn-ghost";
+      cancelBtn.textContent = "Peruuta";
+      rowActions.appendChild(saveBtn);
+      rowActions.appendChild(cancelBtn);
+
+      row.appendChild(input);
+      row.appendChild(rowActions);
+
+      saveBtn.addEventListener("click", async () => {
+        const name = normalizeAnglerName(input.value);
+        if (!name) {
+          showError("Anna kalastajan nimi.");
+          return;
+        }
+        const all = await getAllAnglers();
+        if (anglerNameTaken(name, all, a.id)) {
+          showError("Samanniminen kalastaja on jo olemassa.");
+          return;
+        }
+        await putAngler({ id: a.id, displayName: name });
+        anglerManageEditId = null;
+        await renderHome();
+      });
+      cancelBtn.addEventListener("click", async () => {
+        anglerManageEditId = null;
+        await renderHome();
+      });
+    } else {
+      const main = document.createElement("div");
+      main.className = "angler-item-manage-main";
+
+      const label = document.createElement("span");
+      label.className = "angler-item-name";
+      label.textContent = a.displayName;
+
+      const menuWrap = document.createElement("div");
+      menuWrap.className = "angler-item-menu-wrap";
+
+      const menuBtn = document.createElement("button");
+      menuBtn.type = "button";
+      menuBtn.className = "btn btn-ghost angler-menu-trigger";
+      menuBtn.setAttribute("aria-label", "Kalastajan toiminnot");
+      menuBtn.setAttribute("aria-haspopup", "true");
+      const menuOpen = anglerMenuOpenId === a.id;
+      menuBtn.setAttribute("aria-expanded", menuOpen ? "true" : "false");
+      menuBtn.classList.toggle("is-active", menuOpen);
+      menuBtn.textContent = "⋯";
+
+      const dropdown = document.createElement("div");
+      dropdown.className = "angler-menu-dropdown";
+      dropdown.setAttribute("role", "menu");
+      if (!menuOpen) dropdown.classList.add("hidden");
+
+      const renameItem = document.createElement("button");
+      renameItem.type = "button";
+      renameItem.className = "angler-menu-item";
+      renameItem.setAttribute("role", "menuitem");
+      renameItem.textContent = "Nimeä uudelleen";
+      renameItem.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        anglerMenuOpenId = null;
+        anglerManageEditId = a.id;
+        await renderHome();
+      });
+
+      const delItem = document.createElement("button");
+      delItem.type = "button";
+      delItem.className = "angler-menu-item angler-menu-item-danger";
+      delItem.setAttribute("role", "menuitem");
+      delItem.textContent = "Poista";
+      delItem.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        anglerMenuOpenId = null;
+        if (!confirm(`Poistetaanko kalastaja "${a.displayName}"?`)) return;
+        const inUse = await isAnglerInUse(a.id);
+        if (inUse) {
+          showError(
+            "Kalastajaa ei voi poistaa, koska hänellä on saaliita tai sessiohistoriaa."
+          );
+          return;
+        }
+        await deleteAngler(a.id);
+        if (anglerManageEditId === a.id) anglerManageEditId = null;
+        await renderHome();
+      });
+
+      menuBtn.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        anglerMenuOpenId = anglerMenuOpenId === a.id ? null : a.id;
+        await renderHome();
+      });
+
+      dropdown.appendChild(renameItem);
+      dropdown.appendChild(delItem);
+      menuWrap.appendChild(menuBtn);
+      menuWrap.appendChild(dropdown);
+      main.appendChild(label);
+      main.appendChild(menuWrap);
+      row.appendChild(main);
+    }
+
+    listEl.appendChild(row);
+  }
+
+  const focusInp = /** @type {HTMLInputElement | null} */ (
+    listEl.querySelector(".angler-rename-input")
+  );
+  if (focusInp) {
+    requestAnimationFrame(() => {
+      focusInp.focus();
+      focusInp.select();
+    });
+  }
+}
+
 async function renderHome() {
   const session = await getActiveSession();
   const meta = document.getElementById("session-meta");
@@ -825,17 +1273,7 @@ async function renderHome() {
   const anglers = await getAllAnglers();
   const listEl = document.getElementById("angler-list");
   if (listEl) {
-    listEl.innerHTML = "";
-    if (anglers.length === 0) {
-      listEl.innerHTML = '<p class="meta">Ei kalastajia — lisää nimi alta.</p>';
-    } else {
-      for (const a of anglers) {
-        const row = document.createElement("div");
-        row.className = "angler-item";
-        row.innerHTML = `<span>${escapeHtml(a.displayName)}</span>`;
-        listEl.appendChild(row);
-      }
-    }
+    renderAnglerManageListInto(listEl, anglers);
   }
 
   if (session) {
@@ -889,6 +1327,88 @@ async function renderHome() {
         }
       }
     }
+  }
+
+  await renderHistorySection();
+}
+
+/**
+ * Opens read-only catches for a past session (newest-first sort off; no edit/delete).
+ * @param {string} sessionId
+ */
+async function openHistorySessionCatches(sessionId) {
+  document.getElementById("fish-overlay")?.classList.add("hidden");
+  closeSessionEndOverlay();
+  closeSessionSummaryOverlay();
+  await populateCatchesTable(sessionId);
+  document.getElementById("catches-overlay")?.classList.remove("hidden");
+}
+
+/**
+ * Lists ended sessions (newest end time first); tap opens read-only catch list.
+ */
+async function renderHistorySection() {
+  const listEl = document.getElementById("history-session-list");
+  const emptyEl = document.getElementById("history-empty");
+  if (!listEl || !emptyEl) return;
+
+  const sessions = await getAllEndedSessions();
+  listEl.innerHTML = "";
+
+  if (sessions.length === 0) {
+    emptyEl.hidden = false;
+    return;
+  }
+  emptyEl.hidden = true;
+
+  const anglers = await getAllAnglers();
+  const nameById = Object.fromEntries(anglers.map((a) => [a.id, a.displayName]));
+
+  const rows = await Promise.all(
+    sessions.map(async (s) => {
+      const [sas, catches] = await Promise.all([
+        getSessionAnglersForSession(s.id),
+        getCatchesForSession(s.id),
+      ]);
+      return { session: s, sas, catchCount: catches.length };
+    })
+  );
+
+  for (const { session: s, sas, catchCount } of rows) {
+    const dateStr = formatSessionDateLabel(s.startTime);
+    const startClock = formatClock24(s.startTime);
+    const endClock = s.endTime != null ? formatClock24(s.endTime) : "—";
+
+    const anglerIds = [...new Set(sas.map((sa) => sa.anglerId))];
+    const anglerLabel = anglerIds.length
+      ? anglerIds.map((id) => nameById[id] || id).join(", ")
+      : "—";
+
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "history-session-row";
+    btn.setAttribute(
+      "aria-label",
+      `Sessio ${dateStr}, ${startClock}–${endClock}, ${catchCount} ${catchCount === 1 ? "saalis" : "saalista"}`
+    );
+
+    const line1 = document.createElement("div");
+    line1.className = "history-session-line1";
+    line1.textContent = `${dateStr} · ${startClock}–${endClock}`;
+
+    const line2 = document.createElement("div");
+    line2.className = "history-session-line2 meta";
+    line2.textContent = anglerLabel;
+
+    const line3 = document.createElement("div");
+    line3.className = "history-session-line3";
+    line3.textContent = catchCount === 1 ? "1 saalis" : `${catchCount} saalista`;
+
+    btn.append(line1, line2, line3);
+    btn.addEventListener("click", async () => {
+      await openHistorySessionCatches(s.id);
+    });
+    listEl.appendChild(btn);
   }
 }
 
@@ -1233,6 +1753,15 @@ async function populateFishAnglers() {
 function init() {
   wireFishMeasurementInputs();
 
+  document.addEventListener("click", (e) => {
+    if (anglerMenuOpenId === null) return;
+    const t = e.target;
+    if (!(t instanceof Element)) return;
+    if (t.closest(".angler-item-menu-wrap")) return;
+    anglerMenuOpenId = null;
+    void renderHome();
+  });
+
   document.getElementById("btn-open-start")?.addEventListener("click", async () => {
     closeCatchesOverlay();
     closeSessionEndOverlay();
@@ -1248,9 +1777,14 @@ function init() {
 
   document.getElementById("btn-add-angler")?.addEventListener("click", async () => {
     const inp = /** @type {HTMLInputElement | null} */ (document.getElementById("new-angler-name"));
-    const name = (inp?.value || "").trim();
+    const name = normalizeAnglerName(inp?.value || "");
     if (!name) {
       showError("Anna kalastajan nimi.");
+      return;
+    }
+    const existing = await getAllAnglers();
+    if (anglerNameTaken(name, existing, null)) {
+      showError("Samanniminen kalastaja on jo olemassa.");
       return;
     }
     await putAngler({ id: newId(), displayName: name });
@@ -1436,6 +1970,10 @@ function init() {
         showError(result.reason);
         return;
       }
+      const syncUp = await syncCatchUpdateToSupabase(result.record);
+      if (syncUp && !syncUp.ok) {
+        showError(`Supabase synkronointi epäonnistui: ${syncUp.error}`);
+      }
       fishState.editingCatchId = null;
       document.getElementById("fish-overlay")?.classList.add("hidden");
       showSuccess("Muutokset tallennettu");
@@ -1459,46 +1997,10 @@ function init() {
     }
 
     const savedCatch = result.record;
-
-    const speciesForDb = mapSpeciesKeyToSupabaseSpecies(fishState.species);
-    const sbAnglerRow = fishState.anglerId ? supabaseAnglerRowByLocalId.get(fishState.anglerId) : undefined;
-    const sbAnglerId = sbAnglerRow?.id ?? null;
-
-    const canInsertSupabaseCatch =
-      !!activeSupabaseSessionId && sbAnglerId != null && sbAnglerId !== "" && !!speciesForDb;
-
-    if (canInsertSupabaseCatch) {
-      const savedLen = savedCatch.length;
-      const savedWtKg = savedCatch.weight_kg;
-      const length_cm =
-        savedLen != null && typeof savedLen === "number" && Number.isFinite(savedLen) && savedLen > 0
-          ? savedLen
-          : null;
-      const weight_g =
-        savedWtKg != null && typeof savedWtKg === "number" && Number.isFinite(savedWtKg) && savedWtKg > 0
-          ? Math.round(savedWtKg * 1000)
-          : null;
-
-      if (length_cm != null && typeof length_cm === "number" && Number.isFinite(length_cm) && length_cm > 0) {
-        const { data: _catchData, error: catchError } = await supabase
-          .from("catches")
-          .insert([
-            {
-              session_id: activeSupabaseSessionId,
-              angler_id: sbAnglerId,
-              species: speciesForDb,
-              length_cm,
-              weight_g,
-            },
-          ])
-          .select()
-          .single();
-
-        if (catchError) {
-          console.error("[Supabase] catches insert failed:", catchError.message, catchError);
-          showError("Supabase-saalista ei voitu tallentaa. Katso konsoli.");
-        }
-      }
+    const syncCreate = await syncCatchCreateToSupabase(savedCatch);
+    if (syncCreate && !syncCreate.ok) {
+      console.error("[Supabase] catches insert failed:", syncCreate.error);
+      showError(`Supabase-tallennus epäonnistui: ${syncCreate.error}`);
     }
 
     showFishStep(4);

@@ -48,6 +48,12 @@
             <div id="add-to-session" class="stack"></div>
           </div>
         </div>
+
+        <section id="history-section" class="stack history-section" aria-labelledby="history-heading">
+          <h2 id="history-heading">Historia</h2>
+          <p class="meta" id="history-empty" hidden>Ei päättyneitä sessioita.</p>
+          <div id="history-session-list" class="stack history-session-list"></div>
+        </section>
       </section>
     </div>
 
@@ -151,6 +157,23 @@
         </div>
         <h2 id="catches-overlay-title">Saaliit tässä sessiossa</h2>
         <p class="catch-session-strip meta" id="catches-session-strip" hidden></p>
+
+        <div id="catches-ended-dashboard" class="ended-session-dashboard hidden">
+          <section class="dash-panel" aria-labelledby="ended-dash-summary-h">
+            <h3 id="ended-dash-summary-h" class="dash-panel-title">Yhteenveto</h3>
+            <dl class="dash-dl" id="ended-dash-summary-dl"></dl>
+          </section>
+          <section class="dash-panel" aria-labelledby="ended-dash-anglers-h">
+            <h3 id="ended-dash-anglers-h" class="dash-panel-title">Saaliit kalastajittain</h3>
+            <ul id="ended-dash-by-angler" class="dash-list"></ul>
+          </section>
+          <section class="dash-panel" aria-labelledby="ended-dash-species-h">
+            <h3 id="ended-dash-species-h" class="dash-panel-title">Saaliit lajeittain</h3>
+            <ul id="ended-dash-by-species" class="dash-list"></ul>
+          </section>
+          <h3 class="dash-panel-title dash-catches-heading" id="ended-dash-catches-heading">Kaikki saaliit</h3>
+        </div>
+
         <p class="meta hidden" id="catches-empty">Ei kirjattuja saaliita.</p>
         <div class="catches-table-wrap" id="catches-table-wrap">
           <div
@@ -205,20 +228,20 @@
         <h2>Sessio päättyi</h2>
         <p class="meta">Yhteenveto tästä kalastussessiosta.</p>
 
-        <section class="session-summary-section" aria-labelledby="session-summary-total-label">
-          <h3 id="session-summary-total-label">Saaliit yhteensä</h3>
-          <p class="session-summary-big" id="session-summary-total">0</p>
-        </section>
-
-        <section class="session-summary-section" aria-labelledby="session-summary-anglers-label">
-          <h3 id="session-summary-anglers-label">Kalastajittain</h3>
-          <ul id="session-summary-by-angler" class="session-summary-list"></ul>
-        </section>
-
-        <section class="session-summary-section" aria-labelledby="session-summary-species-label">
-          <h3 id="session-summary-species-label">Lajeittain</h3>
-          <ul id="session-summary-by-species" class="session-summary-list"></ul>
-        </section>
+        <div id="session-summary-dashboard" class="ended-session-dashboard">
+          <section class="dash-panel" aria-labelledby="session-summary-dash-summary-h">
+            <h3 id="session-summary-dash-summary-h" class="dash-panel-title">Yhteenveto</h3>
+            <dl class="dash-dl" id="session-summary-dash-dl"></dl>
+          </section>
+          <section class="dash-panel" aria-labelledby="session-summary-dash-anglers-h">
+            <h3 id="session-summary-dash-anglers-h" class="dash-panel-title">Saaliit kalastajittain</h3>
+            <ul id="session-summary-dash-by-angler" class="dash-list"></ul>
+          </section>
+          <section class="dash-panel" aria-labelledby="session-summary-dash-species-h">
+            <h3 id="session-summary-dash-species-h" class="dash-panel-title">Saaliit lajeittain</h3>
+            <ul id="session-summary-dash-by-species" class="dash-list"></ul>
+          </section>
+        </div>
 
         <button type="button" class="btn btn-primary" id="session-summary-close">Takaisin etusivulle</button>
       </div>

@@ -181,6 +181,7 @@ export async function saveCatch(input, deviceLoc) {
     air_temp_c: null,
     wind_speed_ms: null,
     wind_direction_deg: null,
+    supabase_id: null,
   };
 
   applyLocationFields(record, deviceLoc);
