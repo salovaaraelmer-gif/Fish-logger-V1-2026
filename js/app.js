@@ -26,7 +26,7 @@ import {
   SPECIES_OPTIONS,
   saveCatch,
   fetchDeviceLocationBestEffort,
-  parseOptionalPositiveInt,
+  parseOptionalLengthCm,
   parseOptionalDepthM,
   parseOptionalWaterTempC,
   parseOptionalWeightKg,
@@ -1040,28 +1040,28 @@ function init() {
     syncFishStateFromMeasurementInputs();
     const notesEl = /** @type {HTMLTextAreaElement | null} */ (document.getElementById("fish-notes"));
     fishState.notes = notesEl?.value || "";
-    const depthP = parseOptionalDepthM(fishState.depthStr);
-    if (!depthP.ok) {
-      showError(depthP.reason);
+    if (!fishState.anglerId) {
+      alert("Valitse kalastaja.");
       return;
     }
-    const wtP = parseOptionalWaterTempC(fishState.waterTempStr);
-    if (!wtP.ok) {
-      showError(wtP.reason);
+    const lenP = parseOptionalLengthCm(fishState.lengthStr);
+    if (!lenP.ok) {
+      alert(lenP.reason);
       return;
     }
     const weightP = parseOptionalWeightKg(fishState.weightStr);
     if (!weightP.ok) {
-      showError(weightP.reason);
+      alert(weightP.reason);
       return;
     }
-    const len = parseOptionalPositiveInt(fishState.lengthStr);
-    if (!fishState.anglerId) {
-      showError("Valitse kalastaja.");
+    const depthP = parseOptionalDepthM(fishState.depthStr);
+    if (!depthP.ok) {
+      alert(depthP.reason);
       return;
     }
-    if (len == null || typeof len !== "number" || !Number.isFinite(len) || len <= 0) {
-      showError("Length is required. Weight alone is not enough.");
+    const wtP = parseOptionalWaterTempC(fishState.waterTempStr);
+    if (!wtP.ok) {
+      alert(wtP.reason);
       return;
     }
     const btn = /** @type {HTMLButtonElement | null} */ (document.getElementById("fish-save"));
@@ -1085,7 +1085,7 @@ function init() {
       {
         anglerId: fishState.anglerId,
         species: fishState.species || "",
-        length: len,
+        length: lenP.value,
         weight_kg: weightP.value,
         notes: fishState.notes,
         depth_m: depthP.value,
@@ -1127,13 +1127,7 @@ function init() {
           ? Math.round(savedWtKg * 1000)
           : null;
 
-      if (length_cm == null || typeof length_cm !== "number" || !Number.isFinite(length_cm) || length_cm <= 0) {
-        console.error(
-          "[Supabase] catch sync skipped: length_cm must be a positive number (cm). Saved catch:",
-          savedCatch
-        );
-        showError("Supabase-synkronointi vaatii kelvollisen pituuden (cm).");
-      } else {
+      if (length_cm != null && typeof length_cm === "number" && Number.isFinite(length_cm) && length_cm > 0) {
         const { data: _catchData, error: catchError } = await supabase
           .from("catches")
           .insert([

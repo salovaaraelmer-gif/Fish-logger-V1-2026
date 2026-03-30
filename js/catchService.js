@@ -12,43 +12,60 @@ import { fetchOpenMeteoCurrent } from "./weatherService.js";
 export const SPECIES_OPTIONS = ["pike", "perch", "zander", "trout", "other"];
 
 /**
- * Length (cm): null or positive integer, never 0.
+ * Length (cm): optional; if set, whole number greater than 0.
  * @param {string | number | null | undefined} raw
- * @returns {number | null}
+ * @returns {{ ok: true, value: number | null } | { ok: false, reason: string }}
  */
-export function parseOptionalPositiveInt(raw) {
-  if (raw === null || raw === undefined || raw === "") return null;
-  const n = typeof raw === "string" ? parseInt(raw, 10) : Math.floor(Number(raw));
-  if (!Number.isFinite(n) || n < 1) return null;
-  return n;
+export function parseOptionalLengthCm(raw) {
+  const s = String(raw ?? "").trim();
+  if (s === "") {
+    return { ok: true, value: null };
+  }
+  if (!/^\d+$/.test(s)) {
+    return { ok: false, reason: "Pituus: käytä vain numeroita (kokonaisluku cm)." };
+  }
+  const n = parseInt(s, 10);
+  if (!Number.isFinite(n) || n < 1) {
+    return { ok: false, reason: "Pituus: anna positiivinen luku (cm)." };
+  }
+  return { ok: true, value: n };
 }
 
 /**
- * Depth (m): positive number if entered, decimals allowed.
+ * Depth (m): optional; if set, numeric and 0 or greater.
  * @param {string} raw
  * @returns {{ ok: true, value: number | null } | { ok: false, reason: string }}
  */
 export function parseOptionalDepthM(raw) {
   const s = (raw || "").trim().replace(",", ".");
   if (s === "") return { ok: true, value: null };
+  if (!/^\d+(\.\d+)?$/.test(s)) {
+    return { ok: false, reason: "Syvyys: käytä vain numeroita (m) tai jätä tyhjäksi." };
+  }
   const n = Number(s);
-  if (!Number.isFinite(n) || n <= 0) {
-    return { ok: false, reason: "Syvyys: anna positiivinen luku (m) tai jätä tyhjäksi." };
+  if (!Number.isFinite(n) || n < 0) {
+    return { ok: false, reason: "Syvyys: anna luku ≥ 0 (m) tai jätä tyhjäksi." };
   }
   return { ok: true, value: n };
 }
 
 /**
- * Water temperature (°C): any finite number if entered.
+ * Water temperature (°C): optional; if set, numeric and between -2 and 30.
  * @param {string} raw
  * @returns {{ ok: true, value: number | null } | { ok: false, reason: string }}
  */
 export function parseOptionalWaterTempC(raw) {
   const s = (raw || "").trim().replace(",", ".");
   if (s === "") return { ok: true, value: null };
+  if (!/^-?\d+(\.\d+)?$/.test(s)) {
+    return { ok: false, reason: "Veden lämpötila: käytä vain numeroita (°C) tai jätä tyhjäksi." };
+  }
   const n = Number(s);
   if (!Number.isFinite(n)) {
     return { ok: false, reason: "Veden lämpötila: anna kelvollinen luku (°C) tai jätä tyhjäksi." };
+  }
+  if (n < -2 || n > 30) {
+    return { ok: false, reason: "Veden lämpötila: sallittu väli on -2 … 30 °C tai jätä tyhjäksi." };
   }
   return { ok: true, value: n };
 }
@@ -61,6 +78,9 @@ export function parseOptionalWaterTempC(raw) {
 export function parseOptionalWeightKg(raw) {
   const s = (raw || "").trim().replace(",", ".");
   if (s === "") return { ok: true, value: null };
+  if (!/^\d+(\.\d+)?$/.test(s)) {
+    return { ok: false, reason: "Paino: käytä vain numeroita (kg) tai jätä tyhjäksi." };
+  }
   const n = Number(s);
   if (!Number.isFinite(n) || n <= 0) {
     return { ok: false, reason: "Paino: anna positiivinen luku (kg) tai jätä tyhjäksi." };
