@@ -6,6 +6,8 @@
 /** @type {readonly string[]} */
 const HEADERS = [
   "timestamp",
+  "session_id",
+  "angler_id",
   "species",
   "length_cm",
   "weight_kg",
@@ -48,6 +50,8 @@ export function buildSessionCatchesCsv(catches) {
   for (const c of sorted) {
     const row = [
       escapeField(new Date(c.timestamp).toISOString()),
+      escapeField(c.sessionId ?? ""),
+      escapeField(c.anglerId ?? ""),
       escapeField(c.species ?? ""),
       numField(c.length),
       numField(c.weight_kg),

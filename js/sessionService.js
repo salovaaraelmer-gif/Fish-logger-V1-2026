@@ -22,6 +22,9 @@ function newId() {
  */
 
 /**
+ * Opens a new session and **stores the selected anglers** as `sessionAnglers` rows (session + angler ids).
+ * Catches saved while this session is active get the same `sessionId` (see `saveCatch` in catchService).
+ *
  * @param {string[]} anglerIds
  * @param {InitialLocation | null} [initialLocation]
  * @returns {Promise<{ ok: true, sessionId: string } | { ok: false, reason: string }>}

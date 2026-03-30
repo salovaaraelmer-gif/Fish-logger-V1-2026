@@ -150,25 +150,15 @@
           <button type="button" class="btn btn-ghost" id="catches-close">Sulje</button>
         </div>
         <h2 id="catches-overlay-title">Saaliit tässä sessiossa</h2>
+        <p class="catch-session-strip meta" id="catches-session-strip" hidden></p>
         <p class="meta hidden" id="catches-empty">Ei kirjattuja saaliita.</p>
         <div class="catches-table-wrap" id="catches-table-wrap">
-          <table class="catches-table" id="catches-table" aria-label="Saaliit">
-            <thead>
-              <tr>
-                <th>Aika</th>
-                <th>Kalastaja</th>
-                <th>Laji</th>
-                <th>Pituus</th>
-                <th>Paino (kg)</th>
-                <th>Syvyys</th>
-                <th>Vesi</th>
-                <th>Sijainti</th>
-                <th>Sää</th>
-                <th>Muistiinpanot</th>
-              </tr>
-            </thead>
-            <tbody id="catches-table-body"></tbody>
-          </table>
+          <div
+            class="catch-list"
+            id="catches-table-body"
+            role="list"
+            aria-label="Saaliit"
+          ></div>
         </div>
       </div>
     </div>
@@ -192,30 +182,45 @@
         <h2>Lopeta sessio</h2>
         <p class="meta">Tarkista saaliit. Voit tallentaa CSV:n ennen sulkemista.</p>
         <p class="session-end-csv-status" id="session-end-csv-status" aria-live="polite">CSV not saved</p>
+        <p class="catch-session-strip meta" id="session-end-session-strip" hidden></p>
         <div class="row-actions session-end-actions">
           <button type="button" class="btn btn-primary" id="session-end-save-csv">Save CSV</button>
           <button type="button" class="btn btn-danger" id="session-end-final">End session</button>
           <button type="button" class="btn btn-ghost" id="session-end-cancel">Peruuta</button>
         </div>
         <div class="catches-table-wrap" id="session-end-table-wrap">
-          <table class="catches-table" id="session-end-table" aria-label="Saaliit ennen session päättymistä">
-            <thead>
-              <tr>
-                <th>Aika</th>
-                <th>Kalastaja</th>
-                <th>Laji</th>
-                <th>Pituus</th>
-                <th>Paino (kg)</th>
-                <th>Syvyys</th>
-                <th>Vesi</th>
-                <th>Sijainti</th>
-                <th>Sää</th>
-                <th>Muistiinpanot</th>
-              </tr>
-            </thead>
-            <tbody id="session-end-table-body"></tbody>
-          </table>
+          <div
+            class="catch-list"
+            id="session-end-table-body"
+            role="list"
+            aria-label="Saaliit ennen session päättymistä"
+          ></div>
         </div>
+      </div>
+    </div>
+
+    <!-- Session end: summary (after session is ended) -->
+    <div id="session-summary-overlay" class="hidden">
+      <div class="session-summary-inner stack">
+        <h2>Sessio päättyi</h2>
+        <p class="meta">Yhteenveto tästä kalastussessiosta.</p>
+
+        <section class="session-summary-section" aria-labelledby="session-summary-total-label">
+          <h3 id="session-summary-total-label">Saaliit yhteensä</h3>
+          <p class="session-summary-big" id="session-summary-total">0</p>
+        </section>
+
+        <section class="session-summary-section" aria-labelledby="session-summary-anglers-label">
+          <h3 id="session-summary-anglers-label">Kalastajittain</h3>
+          <ul id="session-summary-by-angler" class="session-summary-list"></ul>
+        </section>
+
+        <section class="session-summary-section" aria-labelledby="session-summary-species-label">
+          <h3 id="session-summary-species-label">Lajeittain</h3>
+          <ul id="session-summary-by-species" class="session-summary-list"></ul>
+        </section>
+
+        <button type="button" class="btn btn-primary" id="session-summary-close">Takaisin etusivulle</button>
       </div>
     </div>
 

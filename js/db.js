@@ -22,6 +22,7 @@ const DB_VERSION = 3;
  */
 /** @typedef {{ id: string, sessionId: string, anglerId: string, isActive: boolean, joinedAt: number, leftAt: number | null }} SessionAngler */
 /**
+ * Local catch row: `sessionId` is the active session when saved; `anglerId` is who caught the fish.
  * @typedef {{
  *   id: string,
  *   sessionId: string | null,
@@ -206,6 +207,35 @@ export async function putCatch(c) {
   const db = await openDb();
   return new Promise((resolve, reject) => {
     const r = db.transaction("catches", "readwrite").objectStore("catches").put(c);
+    r.onerror = () => reject(r.error);
+    r.onsuccess = () => resolve();
+  });
+}
+
+/**
+ * @param {string} id
+ * @returns {Promise<CatchRecord | null>}
+ */
+export async function getCatchById(id) {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const r = db.transaction("catches", "readonly").objectStore("catches").get(id);
+    r.onerror = () => reject(r.error);
+    r.onsuccess = () => {
+      const row = r.result;
+      resolve(row ? migrateCatchV1ToV2(row) : null);
+    };
+  });
+}
+
+/**
+ * @param {string} id
+ * @returns {Promise<void>}
+ */
+export async function deleteCatch(id) {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const r = db.transaction("catches", "readwrite").objectStore("catches").delete(id);
     r.onerror = () => reject(r.error);
     r.onsuccess = () => resolve();
   });

@@ -111,6 +111,10 @@ function applyLocationFields(partial, loc) {
 }
 
 /**
+ * Persists a catch for the **current active session** (`session_id` → `CatchRecord.sessionId`)
+ * and the chosen **angler** (`angler_id` → `CatchRecord.anglerId`). Both are set on the record;
+ * callers do not pass session id — it always comes from the active session in IndexedDB.
+ *
  * @param {{
  *   anglerId: string,
  *   species: string,
@@ -177,6 +181,82 @@ export async function saveCatch(input, deviceLoc) {
     air_temp_c: null,
     wind_speed_ms: null,
     wind_direction_deg: null,
+  };
+
+  applyLocationFields(record, deviceLoc);
+
+  let weather = null;
+  if (
+    record.location_lat != null &&
+    record.location_lng != null &&
+    typeof record.location_lat === "number" &&
+    typeof record.location_lng === "number"
+  ) {
+    try {
+      weather = await fetchOpenMeteoCurrent(record.location_lat, record.location_lng);
+    } catch {
+      weather = null;
+    }
+  }
+  if (weather) {
+    record.weather_summary = weather.weather_summary;
+    record.air_temp_c = weather.air_temp_c;
+    record.wind_speed_ms = weather.wind_speed_ms;
+    record.wind_direction_deg = weather.wind_direction_deg;
+  }
+
+  await putCatch(record);
+
+  return { ok: true, record };
+}
+
+/**
+ * Updates an existing catch in the active session (same id, same session; timestamp unchanged).
+ */
+export async function updateCatch(input, deviceLoc, existing) {
+  const session = await getActiveSession();
+  if (!session) {
+    return { ok: false, reason: "Ei aktiivista sessiota — saalisvahti ei käytössä." };
+  }
+  if (existing.sessionId !== session.id) {
+    return { ok: false, reason: "Saalista ei voi muokata tässä sessiossa." };
+  }
+  const species = (input.species || "").trim();
+  if (!species) {
+    return { ok: false, reason: "Laji on pakollinen." };
+  }
+  if (!SPECIES_OPTIONS.includes(species)) {
+    return { ok: false, reason: "Virheellinen laji." };
+  }
+  if (!input.anglerId) {
+    return { ok: false, reason: "Kalastaja on pakollinen." };
+  }
+  const belongs = await anglerBelongsToActiveSession(session.id, input.anglerId);
+  if (!belongs) {
+    return { ok: false, reason: "Kalastaja ei kuulu tähän aktiiviseen sessioon." };
+  }
+
+  const length = input.length;
+  const weightKg = input.weight_kg;
+  if (length !== null && (typeof length !== "number" || length < 1)) {
+    return { ok: false, reason: "Pituus: tyhjä tai positiivinen kokonaisluku (ei 0)." };
+  }
+  if (weightKg !== null && (typeof weightKg !== "number" || weightKg <= 0)) {
+    return { ok: false, reason: "Paino: tyhjä tai positiivinen luku (kg) tai jätä tyhjäksi." };
+  }
+
+  /** @type {import('./db.js').CatchRecord} */
+  const record = {
+    ...existing,
+    anglerId: input.anglerId,
+    species,
+    length,
+    weight_kg: weightKg,
+    notes: (input.notes || "").trim(),
+    depth_m: input.depth_m,
+    water_temp_c: input.water_temp_c,
+    depth_source: input.depth_m != null ? "manual" : null,
+    water_temp_source: input.water_temp_c != null ? "manual" : null,
   };
 
   applyLocationFields(record, deviceLoc);

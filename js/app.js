@@ -8,6 +8,8 @@ import {
   getSessionAnglersForSession,
   getActiveSession,
   getCatchesForSession,
+  getCatchById,
+  deleteCatch,
 } from "./db.js";
 import {
   startSession,
@@ -25,6 +27,7 @@ import {
 import {
   SPECIES_OPTIONS,
   saveCatch,
+  updateCatch,
   fetchDeviceLocationBestEffort,
   parseOptionalLengthCm,
   parseOptionalDepthM,
@@ -70,6 +73,7 @@ function mapSpeciesKeyToSupabaseSpecies(speciesKey) {
  *   depthStr: string,
  *   waterTempStr: string,
  *   notes: string,
+ *   editingCatchId: string | null,
  * }}
  */
 let fishState = freshFishState();
@@ -152,6 +156,7 @@ function freshFishState() {
     depthStr: "",
     waterTempStr: "",
     notes: "",
+    editingCatchId: null,
   };
 }
 
@@ -239,32 +244,6 @@ function closeCatchesOverlay() {
 }
 
 /**
- * @param {import('./db.js').CatchRecord} c
- */
-function formatCatchLocationCell(c) {
-  const lat = c.location_lat;
-  const lng = c.location_lng;
-  if (typeof lat !== "number" || typeof lng !== "number") return "—";
-  const acc =
-    typeof c.location_accuracy_m === "number" ? ` ±${Math.round(c.location_accuracy_m)}m` : "";
-  return `${lat.toFixed(4)}, ${lng.toFixed(4)}${acc}`;
-}
-
-/**
- * @param {import('./db.js').CatchRecord} c
- */
-function formatCatchWeatherCell(c) {
-  if (c.weather_summary && typeof c.air_temp_c === "number") {
-    const w =
-      typeof c.wind_speed_ms === "number" && typeof c.wind_direction_deg === "number"
-        ? ` ${Math.round(c.wind_speed_ms)} m/s ${Math.round(c.wind_direction_deg)}°`
-        : "";
-    return `${c.weather_summary}, ${c.air_temp_c.toFixed(1)}°C${w}`;
-  }
-  return "—";
-}
-
-/**
  * @param {import('./catchService.js').DeviceLocation} loc
  * @param {import('./db.js').CatchRecord} saved
  */
@@ -286,62 +265,224 @@ function formatSaveSuccessSummary(loc, saved) {
 }
 
 /**
- * @param {HTMLTableSectionElement | null} tbody
+ * @param {string} sessionId
+ */
+function formatSessionStripLabel(sessionId) {
+  if (!sessionId) return "";
+  const short = sessionId.length > 14 ? `${sessionId.slice(0, 8)}…${sessionId.slice(-4)}` : sessionId;
+  return `Sessio · ${short}`;
+}
+
+/**
+ * @param {number} ts
+ * @param {boolean} activeSession — if true, HH:MM only (24h, colon); if false, date + time (fi-FI)
+ */
+function formatCatchListTime(ts, activeSession) {
+  const d = new Date(ts);
+  if (activeSession) {
+    const h = String(d.getHours()).padStart(2, "0");
+    const m = String(d.getMinutes()).padStart(2, "0");
+    return `${h}:${m}`;
+  }
+  return d.toLocaleString("fi-FI", { dateStyle: "short", timeStyle: "short" });
+}
+
+/**
+ * @param {string} text
+ */
+function appendSplitItem(row, text) {
+  const el = document.createElement("div");
+  el.className = "catch-card-split-item";
+  el.textContent = text;
+  row.appendChild(el);
+}
+
+/**
+ * @param {import('./db.js').CatchRecord} c
+ * @param {Record<string, string>} nameById
+ * @param {{ activeSession?: boolean, allowEditDelete?: boolean }} opts
+ */
+function buildCatchCardEl(c, nameById, opts = {}) {
+  const activeSession = opts.activeSession === true;
+  const allowEditDelete = opts.allowEditDelete === true;
+
+  const article = document.createElement("article");
+  article.className = "catch-card";
+  article.setAttribute("role", "listitem");
+
+  const anglerName = nameById[c.anglerId] || c.anglerId;
+  const speciesLabel = SPECIES_LABELS[c.species] || c.species;
+  const timeStr = formatCatchListTime(c.timestamp, activeSession);
+
+  const rowHead = document.createElement("div");
+  rowHead.className = "catch-card-row-head";
+  const anglerStrong = document.createElement("strong");
+  anglerStrong.className = "catch-card-angler-name";
+  anglerStrong.textContent = anglerName;
+  rowHead.appendChild(anglerStrong);
+  rowHead.appendChild(document.createTextNode(` | ${speciesLabel} | ${timeStr}`));
+  article.appendChild(rowHead);
+
+  const hasLen = c.length != null && typeof c.length === "number" && c.length >= 1;
+  const hasWt =
+    c.weight_kg != null && typeof c.weight_kg === "number" && Number.isFinite(c.weight_kg);
+  const hasDepth = c.depth_m != null && typeof c.depth_m === "number" && Number.isFinite(c.depth_m);
+  const hasWtemp =
+    c.water_temp_c != null && typeof c.water_temp_c === "number" && Number.isFinite(c.water_temp_c);
+  const hasMetrics = hasLen || hasWt || hasDepth || hasWtemp;
+
+  const metricsStack = document.createElement("div");
+  metricsStack.className = "catch-card-metrics-stack";
+
+  if (hasLen || hasWt) {
+    const row = document.createElement("div");
+    row.className = "catch-card-row-split";
+    if (hasLen) {
+      appendSplitItem(row, `Pituus: ${c.length} cm`);
+    }
+    if (hasWt) {
+      const w = c.weight_kg.toLocaleString("fi-FI", { maximumFractionDigits: 2 });
+      appendSplitItem(row, `Paino: ${w} kg`);
+    }
+    metricsStack.appendChild(row);
+  }
+
+  if (hasDepth || hasWtemp) {
+    const row = document.createElement("div");
+    row.className = "catch-card-row-split catch-card-row-split--telemetry";
+    if (hasDepth) {
+      const dm = c.depth_m.toLocaleString("fi-FI", { maximumFractionDigits: 2 });
+      appendSplitItem(row, `Syvyys: ${dm} m`);
+    }
+    if (hasWtemp) {
+      const wt = c.water_temp_c.toLocaleString("fi-FI", { maximumFractionDigits: 1 });
+      appendSplitItem(row, `Veden lämpö: ${wt} °C`);
+    }
+    metricsStack.appendChild(row);
+  }
+
+  let actions = null;
+  if (allowEditDelete) {
+    actions = document.createElement("div");
+    actions.className = "catch-card-actions";
+
+    const trigger = document.createElement("button");
+    trigger.type = "button";
+    trigger.className = "btn catch-card-menu-trigger";
+    trigger.setAttribute("aria-label", "Toiminnot");
+    trigger.setAttribute("aria-haspopup", "true");
+    trigger.setAttribute("aria-expanded", "false");
+    trigger.textContent = "⋯";
+
+    const menu = document.createElement("div");
+    menu.className = "catch-card-menu";
+    menu.setAttribute("role", "menu");
+    menu.hidden = true;
+
+    const editBtn = document.createElement("button");
+    editBtn.type = "button";
+    editBtn.className = "catch-card-menu-item";
+    editBtn.setAttribute("role", "menuitem");
+    editBtn.textContent = "Muokkaa";
+    editBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      menu.hidden = true;
+      trigger.setAttribute("aria-expanded", "false");
+      void openFishOverlayForEdit(c);
+    });
+
+    const delBtn = document.createElement("button");
+    delBtn.type = "button";
+    delBtn.className = "catch-card-menu-item catch-card-menu-item--danger";
+    delBtn.setAttribute("role", "menuitem");
+    delBtn.textContent = "Poista";
+    delBtn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      menu.hidden = true;
+      trigger.setAttribute("aria-expanded", "false");
+      if (!confirm("Poistetaanko saalis?")) return;
+      try {
+        await deleteCatch(c.id);
+        await refreshCatchesTableIfOpen();
+        await renderHome();
+      } catch {
+        showError("Poisto epäonnistui.");
+      }
+    });
+
+    menu.append(editBtn, delBtn);
+
+    trigger.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const opening = menu.hidden;
+      document.querySelectorAll(".catch-card-menu").forEach((m) => {
+        m.hidden = true;
+        const t = m.previousElementSibling;
+        if (t?.classList.contains("catch-card-menu-trigger")) {
+          t.setAttribute("aria-expanded", "false");
+        }
+      });
+      if (opening) {
+        menu.hidden = false;
+        trigger.setAttribute("aria-expanded", "true");
+      }
+    });
+
+    actions.append(trigger, menu);
+  }
+
+  if (hasMetrics || allowEditDelete) {
+    const metricsWrap = document.createElement("div");
+    metricsWrap.className = "catch-card-metrics-wrap";
+    if (!hasMetrics && allowEditDelete) {
+      metricsWrap.classList.add("catch-card-metrics-wrap--empty");
+    }
+    metricsWrap.appendChild(metricsStack);
+    if (actions) {
+      metricsWrap.appendChild(actions);
+    }
+    article.appendChild(metricsWrap);
+  }
+
+  const notes = (c.notes || "").trim();
+  if (notes) {
+    const notesEl = document.createElement("div");
+    notesEl.className = "catch-card-notes";
+    notesEl.textContent = notes;
+    article.appendChild(notesEl);
+  }
+
+  return article;
+}
+
+/**
+ * @param {HTMLElement | null} container
  * @param {string} sessionId
  * @param {boolean} emptyPlaceholderRow
+ * @param {{ activeSession?: boolean, allowEditDelete?: boolean }} [listOptions] — activeSession true: catch time HH:MM only; false: date + time
  * @returns {Promise<number>} number of catches rendered
  */
-async function renderCatchesIntoTbody(tbody, sessionId, emptyPlaceholderRow) {
-  if (!tbody) return 0;
+async function renderCatchList(container, sessionId, emptyPlaceholderRow, listOptions = {}) {
+  if (!container) return 0;
+  const activeSession = listOptions.activeSession === true;
+  const allowEditDelete = listOptions.allowEditDelete === true;
   const [catches, anglers] = await Promise.all([getCatchesForSession(sessionId), getAllAnglers()]);
   const nameById = Object.fromEntries(anglers.map((a) => [a.id, a.displayName]));
-  tbody.innerHTML = "";
-  if (catches.length === 0) {
+  const sorted = [...catches].sort((a, b) => b.timestamp - a.timestamp);
+  container.innerHTML = "";
+  if (sorted.length === 0) {
     if (emptyPlaceholderRow) {
-      const tr = document.createElement("tr");
-      const td = document.createElement("td");
-      td.colSpan = 10;
-      td.textContent = "Ei kirjattuja saaliita.";
-      td.className = "meta";
-      tr.appendChild(td);
-      tbody.appendChild(tr);
+      const p = document.createElement("p");
+      p.className = "meta catch-list-empty";
+      p.textContent = "Ei kirjattuja saaliita.";
+      container.appendChild(p);
     }
     return 0;
   }
-  for (const c of catches) {
-    const tr = document.createElement("tr");
-    const tdTime = document.createElement("td");
-    tdTime.textContent = new Date(c.timestamp).toLocaleString("fi-FI");
-    const tdAngler = document.createElement("td");
-    tdAngler.textContent = nameById[c.anglerId] || c.anglerId;
-    const tdSpecies = document.createElement("td");
-    tdSpecies.textContent = SPECIES_LABELS[c.species] || c.species;
-    const tdLen = document.createElement("td");
-    tdLen.textContent = c.length != null ? String(c.length) : "—";
-    const tdWeight = document.createElement("td");
-    tdWeight.textContent =
-      c.weight_kg != null && typeof c.weight_kg === "number" ? String(c.weight_kg) : "—";
-    const tdDepth = document.createElement("td");
-    tdDepth.textContent =
-      c.depth_m != null && typeof c.depth_m === "number" ? String(c.depth_m) : "—";
-    const tdWat = document.createElement("td");
-    tdWat.textContent =
-      c.water_temp_c != null && typeof c.water_temp_c === "number"
-        ? `${c.water_temp_c}`
-        : "—";
-    const tdLoc = document.createElement("td");
-    tdLoc.className = "catches-notes-cell";
-    tdLoc.textContent = formatCatchLocationCell(c);
-    const tdWx = document.createElement("td");
-    tdWx.className = "catches-notes-cell";
-    tdWx.textContent = formatCatchWeatherCell(c);
-    const tdNotes = document.createElement("td");
-    tdNotes.textContent = (c.notes || "").trim() || "—";
-    tdNotes.className = "catches-notes-cell";
-    tr.append(tdTime, tdAngler, tdSpecies, tdLen, tdWeight, tdDepth, tdWat, tdLoc, tdWx, tdNotes);
-    tbody.appendChild(tr);
+  for (const c of sorted) {
+    container.appendChild(buildCatchCardEl(c, nameById, { activeSession, allowEditDelete }));
   }
-  return catches.length;
+  return sorted.length;
 }
 
 /**
@@ -363,11 +504,11 @@ function updateSessionEndCsvStatus(session) {
  */
 async function populateCatchesTable(sessionIdOverride) {
   const titleEl = document.getElementById("catches-overlay-title");
-  const tableEl = document.getElementById("catches-table");
-  const tbody = document.getElementById("catches-table-body");
+  const listEl = document.getElementById("catches-table-body");
+  const stripEl = document.getElementById("catches-session-strip");
   const emptyEl = document.getElementById("catches-empty");
   const wrap = document.getElementById("catches-table-wrap");
-  if (!tbody) return;
+  if (!listEl) return;
 
   let sessionId = sessionIdOverride;
   let overlayTitle = "Saaliit tässä sessiossa";
@@ -376,25 +517,40 @@ async function populateCatchesTable(sessionIdOverride) {
   if (!sessionId) {
     const session = await getActiveSession();
     if (!session) {
-      tbody.innerHTML = "";
+      listEl.innerHTML = "";
+      if (stripEl) {
+        stripEl.setAttribute("hidden", "");
+        stripEl.textContent = "";
+      }
       emptyEl?.classList.remove("hidden");
       wrap?.classList.add("hidden");
       if (titleEl) titleEl.textContent = "Saaliit tässä sessiossa";
       if (emptyEl) emptyEl.textContent = "Ei aktiivista sessiota.";
-      if (tableEl) tableEl.setAttribute("aria-label", "Saaliit tässä sessiossa");
+      listEl.setAttribute("aria-label", "Saaliit tässä sessiossa");
       return;
     }
     sessionId = session.id;
     if (titleEl) titleEl.textContent = overlayTitle;
-    if (tableEl) tableEl.setAttribute("aria-label", overlayTitle);
+    listEl.setAttribute("aria-label", overlayTitle);
   } else {
     overlayTitle = "Päättyneen session saaliit";
     emptyMsg = "Ei kirjattuja saaliita tähän sessioon.";
     if (titleEl) titleEl.textContent = overlayTitle;
-    if (tableEl) tableEl.setAttribute("aria-label", overlayTitle);
+    listEl.setAttribute("aria-label", overlayTitle);
   }
 
-  const count = await renderCatchesIntoTbody(tbody, sessionId, false);
+  if (stripEl && sessionId) {
+    stripEl.textContent = formatSessionStripLabel(sessionId);
+    stripEl.removeAttribute("hidden");
+  }
+
+  const active = await getActiveSession();
+  const allowEditDelete = !!active && active.id === sessionId;
+
+  const count = await renderCatchList(listEl, sessionId, false, {
+    activeSession: sessionIdOverride == null,
+    allowEditDelete,
+  });
   if (count === 0) {
     if (emptyEl) emptyEl.textContent = emptyMsg;
     emptyEl?.classList.remove("hidden");
@@ -408,10 +564,15 @@ async function populateCatchesTable(sessionIdOverride) {
 
 async function populateSessionEndCatchesTable() {
   const session = await getActiveSession();
-  const tbody = document.getElementById("session-end-table-body");
+  const listEl = document.getElementById("session-end-table-body");
   const wrap = document.getElementById("session-end-table-wrap");
-  if (!session || !tbody) return;
-  await renderCatchesIntoTbody(tbody, session.id, true);
+  const stripEl = document.getElementById("session-end-session-strip");
+  if (!session || !listEl) return;
+  if (stripEl) {
+    stripEl.textContent = formatSessionStripLabel(session.id);
+    stripEl.removeAttribute("hidden");
+  }
+  await renderCatchList(listEl, session.id, true, { activeSession: true, allowEditDelete: true });
   wrap?.classList.remove("hidden");
 }
 
@@ -427,6 +588,89 @@ async function openSessionEndOverlay() {
 
 function closeSessionEndOverlay() {
   document.getElementById("session-end-overlay")?.classList.add("hidden");
+}
+
+/**
+ * Fills session summary from `getCatchesForSession` + session roster + angler names (no DB schema changes).
+ * @param {string} sessionId
+ */
+async function populateSessionSummaryOverlay(sessionId) {
+  const totalEl = document.getElementById("session-summary-total");
+  const anglerListUl = document.getElementById("session-summary-by-angler");
+  const speciesListUl = document.getElementById("session-summary-by-species");
+  if (!totalEl || !anglerListUl || !speciesListUl) return;
+
+  const [sessionAnglers, catches, anglers] = await Promise.all([
+    getSessionAnglersForSession(sessionId),
+    getCatchesForSession(sessionId),
+    getAllAnglers(),
+  ]);
+  const nameById = Object.fromEntries(anglers.map((a) => [a.id, a.displayName]));
+
+  /** @type {Map<string, number>} */
+  const countByAngler = new Map();
+  for (const c of catches) {
+    countByAngler.set(c.anglerId, (countByAngler.get(c.anglerId) || 0) + 1);
+  }
+
+  const uniqueAnglerIds = [...new Set(sessionAnglers.map((sa) => sa.anglerId))];
+  const anglerRows = uniqueAnglerIds
+    .map((id) => ({
+      name: nameById[id] || id,
+      count: countByAngler.get(id) || 0,
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name, "fi"));
+
+  totalEl.textContent = String(catches.length);
+
+  anglerListUl.innerHTML = "";
+  if (anglerRows.length === 0) {
+    const li = document.createElement("li");
+    li.className = "meta";
+    li.textContent = "Ei kalastajia sessiossa.";
+    anglerListUl.appendChild(li);
+  } else {
+    for (const row of anglerRows) {
+      const li = document.createElement("li");
+      li.textContent = `${row.name}: ${row.count}`;
+      anglerListUl.appendChild(li);
+    }
+  }
+
+  /** @type {Map<string, number>} */
+  const countBySpecies = new Map();
+  for (const c of catches) {
+    countBySpecies.set(c.species, (countBySpecies.get(c.species) || 0) + 1);
+  }
+  speciesListUl.innerHTML = "";
+  const speciesKeys = [...countBySpecies.keys()].sort(
+    (a, b) => SPECIES_OPTIONS.indexOf(a) - SPECIES_OPTIONS.indexOf(b)
+  );
+  if (speciesKeys.length === 0) {
+    const li = document.createElement("li");
+    li.className = "meta";
+    li.textContent = "Ei kirjattuja saaliita.";
+    speciesListUl.appendChild(li);
+  } else {
+    for (const key of speciesKeys) {
+      const label = SPECIES_LABELS[key] || key;
+      const li = document.createElement("li");
+      li.textContent = `${label}: ${countBySpecies.get(key)}`;
+      speciesListUl.appendChild(li);
+    }
+  }
+}
+
+/**
+ * @param {string} sessionId
+ */
+async function openSessionSummaryOverlay(sessionId) {
+  await populateSessionSummaryOverlay(sessionId);
+  document.getElementById("session-summary-overlay")?.classList.remove("hidden");
+}
+
+function closeSessionSummaryOverlay() {
+  document.getElementById("session-summary-overlay")?.classList.add("hidden");
 }
 
 async function refreshCatchesTableIfOpen() {
@@ -862,6 +1106,79 @@ function showFishStep(n) {
   }
 }
 
+/**
+ * @param {import('./db.js').CatchRecord} record
+ */
+async function openFishOverlayForEdit(record) {
+  closeCatchesOverlay();
+  closeSessionEndOverlay();
+  fishState = freshFishState();
+  fishState.editingCatchId = record.id;
+  fishState.anglerId = record.anglerId;
+  fishState.species = record.species;
+  fishState.notes = (record.notes || "").trim();
+  fishState.lengthStr =
+    record.length != null && typeof record.length === "number" && record.length >= 1
+      ? String(record.length)
+      : "";
+  fishState.weightStr = "";
+  if (record.weight_kg != null && typeof record.weight_kg === "number" && Number.isFinite(record.weight_kg)) {
+    fishState.weightStr = String(record.weight_kg);
+  }
+  fishState.depthStr = "";
+  if (record.depth_m != null && typeof record.depth_m === "number" && Number.isFinite(record.depth_m)) {
+    fishState.depthStr = String(record.depth_m);
+  }
+  fishState.waterTempStr = "";
+  if (
+    record.water_temp_c != null &&
+    typeof record.water_temp_c === "number" &&
+    Number.isFinite(record.water_temp_c)
+  ) {
+    fishState.waterTempStr = String(record.water_temp_c);
+  }
+
+  const next2 = document.getElementById("fish-next-2");
+  if (next2) next2.disabled = !fishState.species;
+
+  const sumEl = document.getElementById("fish-save-summary");
+  if (sumEl) sumEl.textContent = "";
+
+  wireSpeciesButtons();
+  if (fishState.species) {
+    const sbox = document.getElementById("species-buttons");
+    sbox?.querySelectorAll("button").forEach((el) => {
+      const key = el.dataset.species;
+      el.classList.toggle("btn-selected", key === fishState.species);
+    });
+  }
+
+  clearFishMeasurementInputs();
+  const len = /** @type {HTMLInputElement | null} */ (document.getElementById("fish-input-length"));
+  const w = /** @type {HTMLInputElement | null} */ (document.getElementById("fish-input-weight"));
+  const depth = /** @type {HTMLInputElement | null} */ (document.getElementById("fish-input-depth"));
+  const wt = /** @type {HTMLInputElement | null} */ (document.getElementById("fish-input-water-temp"));
+  const notes = /** @type {HTMLTextAreaElement | null} */ (document.getElementById("fish-notes"));
+  if (len) len.value = fishState.lengthStr;
+  if (w) w.value = fishState.weightStr;
+  if (depth) depth.value = fishState.depthStr;
+  if (wt) wt.value = fishState.waterTempStr;
+  if (notes) notes.value = fishState.notes;
+  syncFishStateFromMeasurementInputs();
+
+  await populateFishAnglers();
+  const abox = document.getElementById("fish-angler-buttons");
+  abox?.querySelectorAll("button").forEach((el) => {
+    const aid = el.dataset.anglerId;
+    if (aid === record.anglerId) {
+      el.classList.add("btn-selected");
+    }
+  });
+
+  showFishStep(2);
+  document.getElementById("fish-overlay")?.classList.remove("hidden");
+}
+
 async function openFishOverlay() {
   fishState = freshFishState();
   const next2 = document.getElementById("fish-next-2");
@@ -901,6 +1218,7 @@ async function populateFishAnglers() {
     const b = document.createElement("button");
     b.type = "button";
     b.className = "btn";
+    b.dataset.anglerId = sa.anglerId;
     b.textContent = nameById[sa.anglerId] || sa.anglerId;
     b.addEventListener("click", () => {
       fishState.anglerId = sa.anglerId;
@@ -918,6 +1236,7 @@ function init() {
   document.getElementById("btn-open-start")?.addEventListener("click", async () => {
     closeCatchesOverlay();
     closeSessionEndOverlay();
+    closeSessionSummaryOverlay();
     const anglers = await getAllAnglers();
     buildStartAnglerPicks(anglers);
     document.getElementById("start-overlay")?.classList.remove("hidden");
@@ -1000,8 +1319,7 @@ function init() {
     if (csvWasExported) {
       showSuccess("Fish saved and session ended");
     }
-    await populateCatchesTable(endedSessionId);
-    document.getElementById("catches-overlay")?.classList.remove("hidden");
+    await openSessionSummaryOverlay(endedSessionId);
   });
 
   document.getElementById("btn-toggle-anglers")?.addEventListener("click", () => {
@@ -1011,6 +1329,7 @@ function init() {
 
   document.getElementById("btn-show-catches")?.addEventListener("click", () => {
     closeSessionEndOverlay();
+    closeSessionSummaryOverlay();
     openCatchesOverlay();
   });
 
@@ -1021,10 +1340,16 @@ function init() {
   document.getElementById("btn-log-catch")?.addEventListener("click", () => {
     closeCatchesOverlay();
     closeSessionEndOverlay();
+    closeSessionSummaryOverlay();
     void openFishOverlay();
   });
 
+  document.getElementById("session-summary-close")?.addEventListener("click", () => {
+    closeSessionSummaryOverlay();
+  });
+
   document.getElementById("fish-close")?.addEventListener("click", () => {
+    fishState.editingCatchId = null;
     document.getElementById("fish-overlay")?.classList.add("hidden");
   });
 
@@ -1081,18 +1406,45 @@ function init() {
     } catch {
       /* save without location */
     }
-    const result = await saveCatch(
-      {
-        anglerId: fishState.anglerId,
-        species: fishState.species || "",
-        length: lenP.value,
-        weight_kg: weightP.value,
-        notes: fishState.notes,
-        depth_m: depthP.value,
-        water_temp_c: wtP.value,
-      },
-      loc
-    );
+
+    const inputPayload = {
+      anglerId: fishState.anglerId,
+      species: fishState.species || "",
+      length: lenP.value,
+      weight_kg: weightP.value,
+      notes: fishState.notes,
+      depth_m: depthP.value,
+      water_temp_c: wtP.value,
+    };
+
+    if (fishState.editingCatchId) {
+      const existing = await getCatchById(fishState.editingCatchId);
+      if (!existing) {
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = "Tallenna";
+        }
+        showError("Saalista ei löytynyt.");
+        return;
+      }
+      const result = await updateCatch(inputPayload, loc, existing);
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = "Tallenna";
+      }
+      if (!result.ok) {
+        showError(result.reason);
+        return;
+      }
+      fishState.editingCatchId = null;
+      document.getElementById("fish-overlay")?.classList.add("hidden");
+      showSuccess("Muutokset tallennettu");
+      await refreshCatchesTableIfOpen();
+      await renderHome();
+      return;
+    }
+
+    const result = await saveCatch(inputPayload, loc);
     if (btn) {
       btn.disabled = false;
       btn.textContent = "Tallenna";
@@ -1160,7 +1512,20 @@ function init() {
   });
 
   document.getElementById("fish-back-home")?.addEventListener("click", () => {
+    fishState.editingCatchId = null;
     document.getElementById("fish-overlay")?.classList.add("hidden");
+  });
+
+  document.addEventListener("click", () => {
+    document.querySelectorAll(".catch-card-menu").forEach((m) => {
+      if (!m.hidden) {
+        m.hidden = true;
+        const t = m.previousElementSibling;
+        if (t?.classList.contains("catch-card-menu-trigger")) {
+          t.setAttribute("aria-expanded", "false");
+        }
+      }
+    });
   });
 
   renderHome();
