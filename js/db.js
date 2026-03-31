@@ -4,7 +4,7 @@
  */
 
 const DB_NAME = "FishLoggerV1";
-const DB_VERSION = 4;
+const DB_VERSION = 5;
 
 /** @typedef {{ id: string, displayName: string }} Angler */
 /**
@@ -18,6 +18,7 @@ const DB_VERSION = 4;
  *   initialLocationTimestamp?: number | null,
  *   csv_exported?: boolean,
  *   csv_exported_at?: string | null,
+ *   title?: string | null,
  * }} Session
  */
 /** @typedef {{ id: string, sessionId: string, anglerId: string, isActive: boolean, joinedAt: number, leftAt: number | null }} SessionAngler */
@@ -163,6 +164,22 @@ function openDb() {
           const row = /** @type {Record<string, unknown>} */ (cursor.value);
           if (typeof row.supabase_id === "undefined") {
             row.supabase_id = null;
+            cursor.update(row);
+          }
+          cursor.continue();
+        };
+      }
+
+      if (oldVersion < 5 && db.objectStoreNames.contains("sessions")) {
+        const tx = /** @type {IDBTransaction} */ (e.target.transaction);
+        const store = tx.objectStore("sessions");
+        const curReq = store.openCursor();
+        curReq.onsuccess = (ev) => {
+          const cursor = /** @type {IDBCursorWithValue | null} */ (ev.target.result);
+          if (!cursor) return;
+          const row = /** @type {Record<string, unknown>} */ (cursor.value);
+          if (typeof row.title === "undefined") {
+            row.title = null;
             cursor.update(row);
           }
           cursor.continue();

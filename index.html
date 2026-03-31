@@ -5,13 +5,38 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#0d1117" />
     <!-- Suositeltu: paikallinen HTTP-palvelin (ES-moduulit + sijainti). Esim. VS Code Live Server tai: npx serve -->
-    <title>Kalapäivä — saalisvahti</title>
+    <title>AnglrLog — saalisvahti</title>
     <link rel="stylesheet" href="css/app.css" />
   </head>
   <body>
     <div id="app">
       <header>
-        <h1>Kalapäivä</h1>
+        <h1 class="app-brand-title">AnglrLog</h1>
+        <div id="session-title-block" class="session-title-block hidden">
+          <div class="session-title-row">
+            <span
+              id="session-title-display"
+              class="session-title-display"
+              tabindex="0"
+              role="button"
+              aria-label="Session otsikko, muokkaa napauttamalla"
+            ></span>
+            <button
+              type="button"
+              id="sync-status-indicator"
+              class="sync-status-indicator"
+              aria-label="Sync status"
+              title="Synced"
+            ></button>
+          </div>
+          <input
+            type="text"
+            id="session-title-input"
+            class="session-title-input hidden"
+            autocomplete="off"
+            aria-label="Session otsikko"
+          />
+        </div>
         <p class="meta" id="session-meta">Ladataan…</p>
       </header>
 

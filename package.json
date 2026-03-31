@@ -1,7 +1,7 @@
 {
   "name": "kalapaiva",
   "private": true,
-  "description": "Local dev server only — Kalapäivä is static HTML/JS",
+  "description": "Local dev server only — AnglrLog is static HTML/JS",
   "scripts": {
     "start": "npx --yes serve . -l 5050"
   }

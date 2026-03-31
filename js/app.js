@@ -23,7 +23,9 @@ import {
   markAnglerInactive,
   markActiveSessionCsvExported,
   newId,
+  saveActiveSessionTitle,
 } from "./sessionService.js";
+import { getSessionDisplayTitle } from "./sessionTitle.js";
 import {
   buildSessionCatchesCsv,
   defaultFishLogFilename,
@@ -93,6 +95,11 @@ async function syncCatchCreateToSupabase(record) {
   const speciesForDb = mapSpeciesKeyToSupabaseSpecies(record.species);
   const sbAnglerId = getSupabaseAnglerIdForSync(record.anglerId);
   if (!activeSupabaseSessionId || !sbAnglerId || !speciesForDb) return null;
+  if (!navigator.onLine) {
+    setSyncStatus("offline");
+    return { ok: false, error: "Offline." };
+  }
+  setSyncStatus("syncing");
   const payload = catchRecordToSupabasePayload(record, activeSupabaseSessionId, sbAnglerId, speciesForDb);
   const ins = await insertSupabaseCatch(payload);
   if (!ins.ok) return { ok: false, error: ins.error };
@@ -111,10 +118,167 @@ async function syncCatchUpdateToSupabase(record) {
   if (!activeSupabaseSessionId || !sbAnglerId || !speciesForDb) {
     return { ok: false, error: "Supabase-sessio tai kalastajalinkitys puuttuu." };
   }
+  if (!navigator.onLine) {
+    setSyncStatus("offline");
+    return { ok: false, error: "Offline." };
+  }
+  setSyncStatus("syncing");
   const payload = catchRecordToSupabasePayload(record, activeSupabaseSessionId, sbAnglerId, speciesForDb);
   const res = await updateSupabaseCatch(record.supabase_id, payload);
   if (!res.ok) return { ok: false, error: res.error };
   return { ok: true };
+}
+
+/**
+ * @param {string} title
+ * @returns {Promise<{ ok: true } | { ok: false, error: string } | { skipped: true } | { ok: true, offline: true }>}
+ */
+async function pushSessionTitleToSupabase(title) {
+  if (!activeSupabaseSessionId) return { skipped: true };
+  if (!navigator.onLine) {
+    sessionTitleNeedsCloudSync = true;
+    setSyncStatus("offline");
+    return { ok: true, offline: true };
+  }
+  setSyncStatus("syncing");
+  const { error } = await supabase
+    .from("sessions")
+    .update({ title })
+    .eq("id", activeSupabaseSessionId);
+  if (error) {
+    sessionTitleNeedsCloudSync = true;
+    setSyncStatus("error");
+    return { ok: false, error: error.message };
+  }
+  sessionTitleNeedsCloudSync = false;
+  setSyncStatus("synced");
+  return { ok: true };
+}
+
+async function syncPendingSessionTitleToCloud() {
+  if (!sessionTitleNeedsCloudSync || !activeSupabaseSessionId) return;
+  const s = await getActiveSession();
+  if (!s) return;
+  const title = getSessionDisplayTitle(s);
+  await pushSessionTitleToSupabase(title);
+}
+
+/**
+ * Saves current input to IndexedDB and Supabase; keeps edit mode open.
+ * @returns {Promise<string | null>} Resolved title, or null if no session.
+ */
+async function flushSessionTitleSave() {
+  const input = /** @type {HTMLInputElement | null} */ (document.getElementById("session-title-input"));
+  if (!input || input.classList.contains("hidden")) return null;
+  const r = await saveActiveSessionTitle(input.value);
+  if (!r.ok) return null;
+  input.value = r.title;
+  const cloud = await pushSessionTitleToSupabase(r.title);
+  if (cloud && "ok" in cloud && cloud.ok === false && "error" in cloud) {
+    showError(`Otsikon synkronointi epäonnistui: ${cloud.error}`);
+  }
+  return r.title;
+}
+
+async function exitSessionTitleEdit() {
+  const title = await flushSessionTitleSave();
+  sessionTitleEditing = false;
+  const display = document.getElementById("session-title-display");
+  const input = /** @type {HTMLInputElement | null} */ (document.getElementById("session-title-input"));
+  if (!display || !input) return;
+  const s = await getActiveSession();
+  display.textContent = title != null ? title : s ? getSessionDisplayTitle(s) : "";
+  input.classList.add("hidden");
+  display.classList.remove("hidden");
+}
+
+async function beginSessionTitleEdit() {
+  const session = await getActiveSession();
+  if (!session) return;
+  const display = document.getElementById("session-title-display");
+  const input = /** @type {HTMLInputElement | null} */ (document.getElementById("session-title-input"));
+  if (!display || !input) return;
+  sessionTitleEditing = true;
+  display.classList.add("hidden");
+  input.classList.remove("hidden");
+  input.value = getSessionDisplayTitle(session);
+  requestAnimationFrame(() => {
+    input.focus();
+    input.select();
+  });
+}
+
+/**
+ * @param {import('./db.js').Session} session
+ */
+function syncSessionTitleHeader(session) {
+  const block = document.getElementById("session-title-block");
+  const display = document.getElementById("session-title-display");
+  if (!block || !display) return;
+  block.classList.remove("hidden");
+  renderSyncStatusIndicator();
+  if (sessionTitleEditing) return;
+  display.textContent = getSessionDisplayTitle(session);
+}
+
+/**
+ * @param {"synced" | "syncing" | "offline" | "error"} next
+ */
+function setSyncStatus(next) {
+  syncStatus = next;
+  renderSyncStatusIndicator();
+}
+
+function renderSyncStatusIndicator() {
+  const el = /** @type {HTMLButtonElement | null} */ (document.getElementById("sync-status-indicator"));
+  if (!el) return;
+  el.dataset.state = syncStatus;
+  let label = "Synced";
+  if (syncStatus === "syncing") label = "Syncing";
+  if (syncStatus === "offline") label = "Offline";
+  if (syncStatus === "error") label = "Error";
+  el.title = label;
+  el.setAttribute("aria-label", label);
+}
+
+function wireSessionTitleEditor() {
+  const display = document.getElementById("session-title-display");
+  const input = /** @type {HTMLInputElement | null} */ (document.getElementById("session-title-input"));
+  if (!display || !input) return;
+
+  display.addEventListener("click", (e) => {
+    e.preventDefault();
+    void beginSessionTitleEdit();
+  });
+  display.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      void beginSessionTitleEdit();
+    }
+  });
+
+  input.addEventListener("input", () => {
+    if (sessionTitleDebounceTimer) clearTimeout(sessionTitleDebounceTimer);
+    sessionTitleDebounceTimer = setTimeout(() => {
+      sessionTitleDebounceTimer = null;
+      void flushSessionTitleSave();
+    }, 400);
+  });
+
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      input.blur();
+    }
+  });
+
+  input.addEventListener("blur", () => {
+    if (sessionTitleDebounceTimer) {
+      clearTimeout(sessionTitleDebounceTimer);
+      sessionTitleDebounceTimer = null;
+    }
+    void exitSessionTitleEdit();
+  });
 }
 
 /**
@@ -143,6 +307,18 @@ let anglerMenuOpenId = /** @type {string | null} */ (null);
 
 /** Active Supabase `sessions.id` after a successful cloud insert when starting a session; cleared when the session ends. */
 let activeSupabaseSessionId = null;
+
+/** True while session title is shown as an input (inline edit). */
+let sessionTitleEditing = false;
+
+/** @type {ReturnType<typeof setTimeout> | null} */
+let sessionTitleDebounceTimer = null;
+
+/** True if local title may not be synced to Supabase yet (offline or failed push). */
+let sessionTitleNeedsCloudSync = false;
+
+/** @type {"synced" | "syncing" | "offline" | "error"} */
+let syncStatus = navigator.onLine ? "synced" : "offline";
 
 /** Rows returned from the Supabase `anglers` insert for the active session; cleared when the session ends or on insert failure. */
 let activeSupabaseAnglerRows = null;
@@ -681,11 +857,19 @@ function buildCatchCardEl(c, nameById, opts = {}) {
       try {
         const remoteId = c.supabase_id;
         if (typeof remoteId === "string" && remoteId.length > 0) {
+          if (!navigator.onLine) {
+            setSyncStatus("offline");
+            showError("Offline.");
+            return;
+          }
+          setSyncStatus("syncing");
           const delSb = await deleteSupabaseCatch(remoteId);
           if (!delSb.ok) {
+            setSyncStatus("error");
             showError(`Supabase-poisto epäonnistui: ${delSb.error}`);
             return;
           }
+          setSyncStatus("synced");
         }
         await deleteCatch(c.id);
         await refreshCatchesTableIfOpen();
@@ -1243,6 +1427,13 @@ async function renderHome() {
 
   if (!session) {
     stopSessionTimer();
+    document.getElementById("session-title-block")?.classList.add("hidden");
+    sessionTitleEditing = false;
+    const titleInp = /** @type {HTMLInputElement | null} */ (document.getElementById("session-title-input"));
+    const titleDisp = document.getElementById("session-title-display");
+    titleInp?.classList.add("hidden");
+    titleDisp?.classList.remove("hidden");
+    renderSyncStatusIndicator();
     meta.textContent = "Ei aktiivista kalastussessiota. Aloita sessio ennen saaliin kirjausta.";
     noS.classList.remove("hidden");
     act.classList.add("hidden");
@@ -1265,6 +1456,7 @@ async function renderHome() {
     act.classList.remove("hidden");
     roster.classList.remove("hidden");
     startSessionTimer(session.startTime);
+    syncSessionTitleHeader(session);
     await renderSessionLiveView(session.id);
   }
 
@@ -1483,12 +1675,16 @@ function buildStartAnglerPicks(anglers) {
       return;
     }
 
-    const sessionTitle = null;
+    if (!navigator.onLine) {
+      setSyncStatus("offline");
+    } else {
+      setSyncStatus("syncing");
+    }
     const { data, error } = await supabase
       .from("sessions")
       .insert([
         {
-          title: sessionTitle ?? null,
+          title: r.title,
           notes: null,
         },
       ])
@@ -1499,12 +1695,15 @@ function buildStartAnglerPicks(anglers) {
       console.error("[Supabase] sessions insert failed:", error.message, error);
       showError("Supabase-sessiota ei voitu tallentaa. Katso konsoli.");
       activeSupabaseSessionId = null;
+      setSyncStatus(navigator.onLine ? "error" : "offline");
     } else if (data?.id) {
       activeSupabaseSessionId = data.id;
+      setSyncStatus("synced");
     } else {
       console.error("[Supabase] sessions insert: no row id returned", data);
       showError("Supabase-sessiota ei voitu tallentaa. Katso konsoli.");
       activeSupabaseSessionId = null;
+      setSyncStatus(navigator.onLine ? "error" : "offline");
     }
 
     activeSupabaseAnglerRows = null;
@@ -1526,15 +1725,18 @@ function buildStartAnglerPicks(anglers) {
       if (anglersError) {
         console.error("[Supabase] anglers insert failed:", anglersError.message, anglersError);
         showError("Supabase-kalastajia ei voitu tallentaa. Katso konsoli.");
+        setSyncStatus(navigator.onLine ? "error" : "offline");
       } else if (sbAnglers && sbAnglers.length === selectedIds.length) {
         activeSupabaseAnglerRows = sbAnglers;
         selectedIds.forEach((localId, i) => {
           const row = sbAnglers[i];
           if (row) supabaseAnglerRowByLocalId.set(localId, row);
         });
+        setSyncStatus("synced");
       } else {
         console.error("[Supabase] anglers insert: unexpected response", sbAnglers);
         showError("Supabase-kalastajia ei voitu tallentaa. Katso konsoli.");
+        setSyncStatus(navigator.onLine ? "error" : "offline");
       }
     }
 
@@ -1752,6 +1954,16 @@ async function populateFishAnglers() {
 
 function init() {
   wireFishMeasurementInputs();
+  wireSessionTitleEditor();
+  renderSyncStatusIndicator();
+  window.addEventListener("online", () => {
+    setSyncStatus("syncing");
+    void syncPendingSessionTitleToCloud();
+    if (!sessionTitleNeedsCloudSync) setSyncStatus("synced");
+  });
+  window.addEventListener("offline", () => {
+    setSyncStatus("offline");
+  });
 
   document.addEventListener("click", (e) => {
     if (anglerMenuOpenId === null) return;
@@ -1972,7 +2184,10 @@ function init() {
       }
       const syncUp = await syncCatchUpdateToSupabase(result.record);
       if (syncUp && !syncUp.ok) {
+        setSyncStatus(navigator.onLine ? "error" : "offline");
         showError(`Supabase synkronointi epäonnistui: ${syncUp.error}`);
+      } else if (syncUp && syncUp.ok) {
+        setSyncStatus("synced");
       }
       fishState.editingCatchId = null;
       document.getElementById("fish-overlay")?.classList.add("hidden");
@@ -2000,7 +2215,10 @@ function init() {
     const syncCreate = await syncCatchCreateToSupabase(savedCatch);
     if (syncCreate && !syncCreate.ok) {
       console.error("[Supabase] catches insert failed:", syncCreate.error);
+      setSyncStatus(navigator.onLine ? "error" : "offline");
       showError(`Supabase-tallennus epäonnistui: ${syncCreate.error}`);
+    } else if (syncCreate && syncCreate.ok) {
+      setSyncStatus("synced");
     }
 
     showFishStep(4);

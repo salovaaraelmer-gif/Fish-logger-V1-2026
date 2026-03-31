@@ -12,6 +12,7 @@ import {
   putSessionAngler,
   isAnglerInAnyActiveSession,
 } from "./db.js";
+import { defaultSessionTitleFromDate } from "./sessionTitle.js";
 
 function newId() {
   return crypto.randomUUID ? crypto.randomUUID() : `id-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -27,7 +28,7 @@ function newId() {
  *
  * @param {string[]} anglerIds
  * @param {InitialLocation | null} [initialLocation]
- * @returns {Promise<{ ok: true, sessionId: string } | { ok: false, reason: string }>}
+ * @returns {Promise<{ ok: true, sessionId: string, title: string } | { ok: false, reason: string }>}
  */
 export async function startSession(anglerIds, initialLocation) {
   const unique = [...new Set(anglerIds)].filter(Boolean);
@@ -57,6 +58,7 @@ export async function startSession(anglerIds, initialLocation) {
 
   const sessionId = newId();
   const now = Date.now();
+  const title = defaultSessionTitleFromDate(now);
   const hasLoc =
     initialLocation &&
     typeof initialLocation.lat === "number" &&
@@ -73,6 +75,7 @@ export async function startSession(anglerIds, initialLocation) {
       hasLoc && initialLocation.timestamp != null ? initialLocation.timestamp : null,
     csv_exported: false,
     csv_exported_at: null,
+    title,
   });
 
   for (const aid of unique) {
@@ -86,7 +89,23 @@ export async function startSession(anglerIds, initialLocation) {
     });
   }
 
-  return { ok: true, sessionId };
+  return { ok: true, sessionId, title };
+}
+
+/**
+ * Persists title on the active session (non-empty; empty resets to default for today).
+ * @param {string} rawTitle
+ * @returns {Promise<{ ok: true, title: string } | { ok: false, reason: string }>}
+ */
+export async function saveActiveSessionTitle(rawTitle) {
+  const s = await getActiveSession();
+  if (!s) {
+    return { ok: false, reason: "Ei aktiivista sessiota." };
+  }
+  const trimmed = (rawTitle || "").trim();
+  const title = trimmed || defaultSessionTitleFromDate(Date.now());
+  await putSession({ ...s, title });
+  return { ok: true, title };
 }
 
 /**

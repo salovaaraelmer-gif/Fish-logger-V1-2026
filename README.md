@@ -1,8 +1,8 @@
-# Kalapäivä — saalisvahti
+# AnglrLog — saalisvahti
 
 **Do not open `index.html` by double‑clicking** (that uses `file://`). The app uses JavaScript **ES modules**; browsers block loading them from `file://`, so the page stays on “Ladataan…” and buttons do nothing. Always use a **local HTTP server** (see [How to run](#how-to-run) and [Why `file://` fails](#why-file-fails-cors)).
 
-**Kalapäivä** is a small, boat-oriented fishing log (Fish Logger V1). The goal is **fast catch entry** with minimal taps: you only enter what matters; time and location are captured when the browser allows it.
+AnglrLog is a small, boat-oriented fishing log (Fish Logger V1). The goal is **fast catch entry** with minimal taps: you only enter what matters; time and location are captured when the browser allows it.
 
 The UI is in **Finnish**. The code and data model follow the spec in `Plan v1.ini`.
 
