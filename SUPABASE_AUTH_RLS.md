@@ -111,3 +111,12 @@ The client sets **`user_metadata`** on sign-up:
 - `full_name` (e.g. `"First Last"`)
 
 The UI reads **`full_name`** for display and does not use email as a visible name.
+
+## 5. Deletes from the app
+
+Session delete in the client removes **`catches`**, then **`anglers`**, then **`sessions`**, each filtered by **`session_id`** (or `id`) **and** **`user_id = auth.uid()`**. That matches the policies above.
+
+- If **`DELETE` policies are missing** on any of these tables, Postgres will not remove rows (the app now reports when the session row count is zero).
+- If **`user_id` is NULL** on existing rows, RLS will not match and deletes will affect **zero** rows. Backfill, e.g.  
+  `update public.catches set user_id = '<your-user-uuid>' where user_id is null;`  
+  (only for your own test data), then retry.

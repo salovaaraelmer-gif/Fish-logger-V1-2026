@@ -27,11 +27,11 @@ import {
   endActiveSession,
   addAnglerToSession,
   markAnglerInactive,
-  markActiveSessionCsvExported,
+  markSessionCsvExportedById,
   newId,
   saveActiveSessionTitle,
 } from "./sessionService.js";
-import { getSessionDisplayTitle } from "./sessionTitle.js";
+import { defaultSessionTitleFromDate, getSessionDisplayTitle } from "./sessionTitle.js";
 import {
   buildSessionCatchesCsv,
   defaultFishLogFilename,
@@ -71,7 +71,10 @@ const SPECIES_LABELS = {
   other: "Muu",
 };
 
-/** App species key → Supabase `catches.species` (pike, perch, zander, trout, …). */
+/**
+ * App species key → value stored in `public.catches.species`.
+ * Must match your DB (including any CHECK on `species`). See `SUPABASE_CATCHES_SCHEMA.md`.
+ */
 const SPECIES_KEY_TO_SUPABASE = {
   pike: "pike",
   perch: "perch",
@@ -97,6 +100,218 @@ function getSupabaseAnglerIdForSync(localAnglerId) {
   const row = supabaseAnglerRowByLocalId.get(localAnglerId);
   if (row?.id == null || String(row.id) === "") return null;
   return String(row.id);
+}
+
+/**
+ * In-memory map is cleared after a session ends; roster rows store `supabaseAnglerId` for cloud ops.
+ * @param {string} localAnglerId
+ * @param {string} sessionId
+ * @returns {Promise<string | null>}
+ */
+async function resolveSupabaseAnglerId(localAnglerId, sessionId) {
+  const fromMap = getSupabaseAnglerIdForSync(localAnglerId);
+  if (fromMap) return fromMap;
+  const sa = await findSessionAngler(sessionId, localAnglerId);
+  if (typeof sa?.supabaseAnglerId === "string" && sa.supabaseAnglerId) {
+    return sa.supabaseAnglerId;
+  }
+  return null;
+}
+
+/**
+ * Deletes a catch in Supabase when possible, then caller removes the local row.
+ * @param {import('./db.js').CatchRecord} c
+ * @returns {Promise<boolean>} false = stop (showed error); true = safe to delete locally
+ */
+async function deleteCatchFromSupabaseBestEffort(c) {
+  const remoteId = c.supabase_id;
+  if (typeof remoteId === "string" && remoteId.length > 0) {
+    if (!navigator.onLine) {
+      setSyncStatus("offline");
+      showError("Offline.");
+      return false;
+    }
+    setSyncStatus("syncing");
+    const delSb = await deleteSupabaseCatch(remoteId);
+    if (!delSb.ok) {
+      setSyncStatus("error");
+      showError(`Supabase-poisto epäonnistui: ${delSb.error}`);
+      return false;
+    }
+    setSyncStatus("synced");
+    return true;
+  }
+  if (!c.sessionId) return true;
+  const sess = await getSessionById(c.sessionId);
+  const sbSessionId =
+    sess && typeof sess.supabaseSessionId === "string" && sess.supabaseSessionId
+      ? sess.supabaseSessionId
+      : null;
+  const speciesForDb = mapSpeciesKeyToSupabaseSpecies(c.species);
+  const sbAnglerId = await resolveSupabaseAnglerId(c.anglerId, c.sessionId);
+  if (!sbSessionId || !sbAnglerId || !speciesForDb) {
+    return true;
+  }
+  if (!navigator.onLine) {
+    setSyncStatus("offline");
+    showError("Offline.");
+    return false;
+  }
+  setSyncStatus("syncing");
+  const caughtAt = new Date(c.timestamp).toISOString();
+  const { error } = await supabase
+    .from("catches")
+    .delete()
+    .eq("session_id", sbSessionId)
+    .eq("angler_id", sbAnglerId)
+    .eq("caught_at", caughtAt)
+    .eq("species", speciesForDb);
+  if (error) {
+    setSyncStatus("error");
+    showError(`Supabase-poisto epäonnistui: ${error.message}`);
+    return false;
+  }
+  setSyncStatus("synced");
+  return true;
+}
+
+/**
+ * Finds `public.sessions.id` when the local row has no `supabaseSessionId` (older data, failed persist).
+ * Matches by `user_id`, session `title`, and closest `created_at` to local `startTime`.
+ * @param {import('./db.js').Session} s
+ * @returns {Promise<string | null>}
+ */
+async function resolveCloudSessionIdForLocalSession(s) {
+  if (typeof s.supabaseSessionId === "string" && s.supabaseSessionId) {
+    return s.supabaseSessionId;
+  }
+  const uid = await getAuthUserId();
+  if (!uid || !navigator.onLine) return null;
+  const title =
+    typeof s.title === "string" && s.title.trim()
+      ? s.title.trim()
+      : defaultSessionTitleFromDate(s.startTime);
+  const r1 = await supabase
+    .from("sessions")
+    .select("id, created_at")
+    .eq("user_id", uid)
+    .eq("title", title)
+    .order("created_at", { ascending: false })
+    .limit(20);
+  let rows = r1.data;
+  let err = r1.error;
+  if (err) {
+    const r2 = await supabase
+      .from("sessions")
+      .select("id, created_at")
+      .eq("user_id", uid)
+      .eq("title", title)
+      .order("id", { ascending: false })
+      .limit(20);
+    rows = r2.data;
+    err = r2.error;
+  }
+  if (err) {
+    console.warn("[Session] cloud id lookup:", err.message);
+    return null;
+  }
+  if (!rows?.length) return null;
+  if (rows.length === 1) return rows[0].id;
+  const startMs = s.startTime;
+  let bestId = null;
+  let bestDelta = Infinity;
+  for (const row of rows) {
+    if (!row.created_at) continue;
+    const d = Math.abs(new Date(row.created_at).getTime() - startMs);
+    if (d < bestDelta) {
+      bestDelta = d;
+      bestId = row.id;
+    }
+  }
+  if (bestId != null && bestDelta < 20 * 60 * 1000) {
+    return bestId;
+  }
+  return null;
+}
+
+/**
+ * Removes cloud rows for a session using the Supabase session UUID, then local IndexedDB cascade.
+ * @param {string} localSessionId
+ * @returns {Promise<boolean>}
+ */
+async function deleteSessionCloudThenLocal(localSessionId) {
+  const s = await getSessionById(localSessionId);
+  if (!s) {
+    showError("Sessiota ei löytynyt.");
+    return false;
+  }
+  let cloudSid =
+    typeof s.supabaseSessionId === "string" && s.supabaseSessionId ? s.supabaseSessionId : null;
+  if (!cloudSid) {
+    const resolved = await resolveCloudSessionIdForLocalSession(s);
+    if (resolved) {
+      cloudSid = resolved;
+      await putSession({ ...s, supabaseSessionId: resolved });
+    }
+  }
+  if (cloudSid) {
+    if (!navigator.onLine) {
+      showError("Yhteys puuttuu. Pilvestä poistaminen ei onnistu.");
+      return false;
+    }
+    const uid = await getAuthUserId();
+    if (!uid) {
+      showError("Kirjautuminen puuttuu.");
+      return false;
+    }
+    // RLS policies use user_id; filter explicitly so deletes match rows. Use .select() to verify row counts.
+    const cRes = await supabase
+      .from("catches")
+      .delete()
+      .eq("session_id", cloudSid)
+      .eq("user_id", uid)
+      .select("id");
+    if (cRes.error) {
+      console.error("[Session] cloud delete catches:", cRes.error);
+      showError(`Pilvi (saaliit): ${cRes.error.message}`);
+      return false;
+    }
+    const aRes = await supabase
+      .from("anglers")
+      .delete()
+      .eq("session_id", cloudSid)
+      .eq("user_id", uid)
+      .select("id");
+    if (aRes.error) {
+      console.error("[Session] cloud delete anglers:", aRes.error);
+      showError(`Pilvi (kalastajat): ${aRes.error.message}`);
+      return false;
+    }
+    const sRes = await supabase
+      .from("sessions")
+      .delete()
+      .eq("id", cloudSid)
+      .eq("user_id", uid)
+      .select("id");
+    if (sRes.error) {
+      console.error("[Session] cloud delete session:", sRes.error);
+      showError(`Pilvi (sessio): ${sRes.error.message}`);
+      return false;
+    }
+    if (!sRes.data || sRes.data.length === 0) {
+      showError(
+        "Pilvestä ei poistunut sessioriviä (0 riviä). Tarkista: RLS DELETE -politiikat ja että riveillä on user_id = kirjautunut käyttäjä."
+      );
+      return false;
+    }
+  } else {
+    const proceed = window.confirm(
+      "Pilvi-sessiota ei löytynyt (ei tallennettua tunnistetta). Poistetaanko vain tästä laitteesta? Supabase-rivit jäävät ellei poista niitä käsin."
+    );
+    if (!proceed) return false;
+  }
+  await deleteSessionCascade(localSessionId);
+  return true;
 }
 
 /**
@@ -546,9 +761,54 @@ function closeCatchesOverlay() {
 }
 
 /**
+ * Leaves session detail (catches overlay) and related UI; use after deleting a session so the user is on home / history list, not a stale detail view.
+ */
+function navigateHomeFromSessionDetail() {
+  const catchesOv = document.getElementById("catches-overlay");
+  if (catchesOv) {
+    catchesOv.classList.add("hidden");
+    delete catchesOv.dataset.viewSessionId;
+  }
+  catchesSessionMenuSessionId = null;
+  catchesSessionMenuOpen = false;
+  syncCatchesSessionMenuUi();
+  closeSessionSummaryOverlay();
+  closeSessionEndOverlay();
+  document.getElementById("fish-overlay")?.classList.add("hidden");
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+/**
  * @param {import('./catchService.js').DeviceLocation} loc
  * @param {import('./db.js').CatchRecord} saved
  */
+/**
+ * Builds and downloads CSV for an ended session; marks session as CSV-exported locally.
+ * @param {string} sessionId
+ */
+async function handleExportEndedSessionCsv(sessionId) {
+  const session = await getSessionById(sessionId);
+  if (!session || session.endTime == null) {
+    showError("CSV voidaan viedä vain päättyneelle sessiolle.");
+    return;
+  }
+  try {
+    const catches = await getCatchesForSession(sessionId);
+    const csv = buildSessionCatchesCsv(catches);
+    triggerCsvDownload(defaultFishLogFilename(), csv);
+    const r = await markSessionCsvExportedById(sessionId);
+    if (!r.ok) {
+      showError(r.reason);
+      return;
+    }
+    await refreshCatchesTableIfOpen();
+    await renderHome();
+    showSuccess("CSV tallennettu");
+  } catch {
+    showError("CSV-tallennus epäonnistui.");
+  }
+}
+
 function formatSaveSuccessSummary(loc, saved) {
   const parts = [];
   if (loc.lat != null && loc.lng != null) {
@@ -921,22 +1181,8 @@ function buildCatchCardEl(c, nameById, opts = {}) {
       trigger.setAttribute("aria-expanded", "false");
       if (!confirm("Poistetaanko saalis?")) return;
       try {
-        const remoteId = c.supabase_id;
-        if (typeof remoteId === "string" && remoteId.length > 0) {
-          if (!navigator.onLine) {
-            setSyncStatus("offline");
-            showError("Offline.");
-            return;
-          }
-          setSyncStatus("syncing");
-          const delSb = await deleteSupabaseCatch(remoteId);
-          if (!delSb.ok) {
-            setSyncStatus("error");
-            showError(`Supabase-poisto epäonnistui: ${delSb.error}`);
-            return;
-          }
-          setSyncStatus("synced");
-        }
+        const okCloud = await deleteCatchFromSupabaseBestEffort(c);
+        if (!okCloud) return;
         await deleteCatch(c.id);
         await refreshCatchesTableIfOpen();
         await renderHome();
@@ -1024,19 +1270,6 @@ async function renderCatchList(container, sessionId, emptyPlaceholderRow, listOp
 }
 
 /**
- * @param {import('./db.js').Session | null | undefined} session
- */
-function updateSessionEndCsvStatus(session) {
-  const el = document.getElementById("session-end-csv-status");
-  if (!el) return;
-  if (session && session.csv_exported === true) {
-    el.textContent = "CSV saved";
-  } else {
-    el.textContent = "CSV not saved";
-  }
-}
-
-/**
  * Fills the session catches table from IndexedDB.
  * @param {string | undefined} sessionIdOverride - if set, load this session (e.g. just ended).
  */
@@ -1084,19 +1317,29 @@ async function populateCatchesTable(sessionIdOverride) {
       return;
     }
     sessionId = session.id;
+    detailMenuBtn?.classList.add("hidden");
+    catchesSessionMenuSessionId = null;
+    catchesSessionMenuOpen = false;
+    syncCatchesSessionMenuUi();
     if (titleEl) titleEl.textContent = overlayTitle;
     listEl.setAttribute("aria-label", overlayTitle);
   } else {
-    detailMenuBtn?.classList.remove("hidden");
-    catchesSessionMenuOpen = false;
-    catchesSessionMenuSessionId = sessionIdOverride;
-    syncCatchesSessionMenuUi();
     overlayTitle = "Päättynyt sessio";
     emptyMsg = "Ei kirjattuja saaliita tässä sessiossa.";
     if (titleEl) titleEl.textContent = overlayTitle;
     listEl.setAttribute("aria-label", overlayTitle);
 
     const session = await getSessionById(sessionIdOverride);
+    const isEndedSession = session != null && session.endTime != null;
+    if (isEndedSession) {
+      detailMenuBtn?.classList.remove("hidden");
+      catchesSessionMenuSessionId = sessionIdOverride;
+    } else {
+      detailMenuBtn?.classList.add("hidden");
+      catchesSessionMenuSessionId = null;
+    }
+    catchesSessionMenuOpen = false;
+    syncCatchesSessionMenuUi();
     const summaryDl = document.getElementById("ended-dash-summary-dl");
     const byAnglerUl = document.getElementById("ended-dash-by-angler");
     const bySpeciesUl = document.getElementById("ended-dash-by-species");
@@ -1169,8 +1412,6 @@ async function openSessionEndOverlay() {
   if (!session) return;
   closeCatchesOverlay();
   await populateSessionEndCatchesTable();
-  const s2 = await getActiveSession();
-  updateSessionEndCsvStatus(s2);
   document.getElementById("session-end-overlay")?.classList.remove("hidden");
 }
 
@@ -1223,8 +1464,6 @@ async function refreshCatchesTableIfOpen() {
   const se = document.getElementById("session-end-overlay");
   if (se && !se.classList.contains("hidden")) {
     await populateSessionEndCatchesTable();
-    const session = await getActiveSession();
-    updateSessionEndCsvStatus(session);
   }
 }
 
@@ -2478,46 +2717,10 @@ function mainAppInit() {
     closeSessionEndOverlay();
   });
 
-  document.getElementById("session-end-save-csv")?.addEventListener("click", async () => {
-    try {
-      const session = await getActiveSession();
-      if (!session) return;
-      const catches = await getCatchesForSession(session.id);
-      const csv = buildSessionCatchesCsv(catches);
-      triggerCsvDownload(defaultFishLogFilename(), csv);
-      const r = await markActiveSessionCsvExported();
-      if (!r.ok) {
-        showError(r.reason);
-        return;
-      }
-      const s2 = await getActiveSession();
-      updateSessionEndCsvStatus(s2);
-    } catch {
-      showError("CSV-tallennus epäonnistui.");
-    }
-  });
-
   document.getElementById("session-end-final")?.addEventListener("click", async () => {
     const activeBefore = await getActiveSession();
     if (!activeBefore) return;
-    const csvWasExported = activeBefore.csv_exported === true;
     const endedSessionId = activeBefore.id;
-    if (!csvWasExported) {
-      if (
-        !confirm(
-          "CSV file has not been saved yet. Are you sure you want to end the session?"
-        )
-      ) {
-        return;
-      }
-      if (
-        !confirm(
-          "You are ending the session without exporting CSV. Are you absolutely sure?"
-        )
-      ) {
-        return;
-      }
-    }
     closeSessionEndOverlay();
     const r = await endActiveSession();
     if (!r.ok) {
@@ -2528,9 +2731,7 @@ function mainAppInit() {
     activeSupabaseAnglerRows = null;
     supabaseAnglerRowByLocalId.clear();
     await renderHome();
-    if (csvWasExported) {
-      showSuccess("Fish saved and session ended");
-    }
+    showSuccess("Sessio päättyi");
     await openSessionSummaryOverlay(endedSessionId);
   });
 
@@ -2555,6 +2756,14 @@ function mainAppInit() {
     catchesSessionMenuOpen = !catchesSessionMenuOpen;
     syncCatchesSessionMenuUi();
   });
+  document.getElementById("catches-session-menu-export-csv")?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    catchesSessionMenuOpen = false;
+    syncCatchesSessionMenuUi();
+    const sessionId = catchesSessionMenuSessionId;
+    if (!sessionId) return;
+    void handleExportEndedSessionCsv(sessionId);
+  });
   document.getElementById("catches-session-menu-delete")?.addEventListener("click", () => {
     catchesSessionMenuOpen = false;
     syncCatchesSessionMenuUi();
@@ -2564,16 +2773,11 @@ function mainAppInit() {
     if (!confirmed) return;
     void (async () => {
       try {
-        const { error } = await supabase.from("sessions").delete().eq("id", sessionId);
-        if (error) {
-          console.error(error);
-          alert("Failed to delete session");
-          return;
-        }
-        await deleteSessionCascade(sessionId);
-        alert("Session deleted");
-        document.getElementById("catches-overlay")?.classList.add("hidden");
+        const ok = await deleteSessionCloudThenLocal(sessionId);
+        if (!ok) return;
+        navigateHomeFromSessionDetail();
         await renderHome();
+        showSuccess("Sessio poistettu");
       } catch (err) {
         console.error("[Session] delete failed:", err);
         alert("Failed to delete session");

@@ -17,7 +17,7 @@ The client sends **snake_case** fields aligned with local names. Ensure your tab
 | `user_id` | `uuid` | Owner; FK to `auth.users`, must equal `auth.uid()` (see `SUPABASE_AUTH_RLS.md`) |
 | `session_id` | `uuid` | FK to your sessions table |
 | `angler_id` | `uuid` | FK to your anglers table |
-| `species` | `text` | e.g. `pike`, `perch`, … |
+| `species` | `text` | App sends `pike`, `perch`, `zander`, `trout`, `other` (same as internal keys) |
 | `length_cm` | `numeric` | Nullable |
 | `weight_kg` | `numeric` | Kilograms, nullable |
 | `depth_m` | `numeric` | Nullable |
@@ -60,6 +60,36 @@ alter table public.catches
 ```
 
 If you still have **`weight_g`**, rename it to **`weight_kg`** and ensure values are in **kilograms** (the app does not convert grams).
+
+## Check constraint `catches_species_allowed`
+
+If inserts fail with:
+
+`new row for relation "catches" violates check constraint "catches_species_allowed"`
+
+your table only allows a fixed set of `species` values, and the **Muu** option uses **`other`**, which is often missing from that list.
+
+**Option A — drop the check** (simplest; the app already restricts species in the UI):
+
+```sql
+alter table public.catches
+  drop constraint if exists catches_species_allowed;
+```
+
+**Option B — keep a check but allow what the app sends**:
+
+```sql
+alter table public.catches
+  drop constraint if exists catches_species_allowed;
+
+alter table public.catches
+  add constraint catches_species_allowed
+  check (
+    species in ('pike', 'perch', 'zander', 'trout', 'other')
+  );
+```
+
+If your constraint used different spellings (e.g. Finnish `muu` instead of `other`), either include those strings in the `in (...)` list or change the mapping in `js/app.js` (`SPECIES_KEY_TO_SUPABASE`) to match.
 
 ## Old local catches
 

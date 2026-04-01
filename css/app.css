@@ -751,12 +751,6 @@ textarea {
   margin: 0 auto;
 }
 
-.session-end-csv-status {
-  margin: 0.5rem 0 0.75rem;
-  font-weight: 600;
-  color: var(--muted);
-}
-
 .session-end-actions {
   flex-wrap: wrap;
   gap: 0.5rem;

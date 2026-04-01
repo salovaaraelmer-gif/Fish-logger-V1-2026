@@ -241,6 +241,14 @@
             <div id="catches-session-menu" class="catches-session-menu hidden" role="menu">
               <button
                 type="button"
+                id="catches-session-menu-export-csv"
+                class="catches-session-menu-item"
+                role="menuitem"
+              >
+                Export CSV
+              </button>
+              <button
+                type="button"
                 id="catches-session-menu-delete"
                 class="catches-session-menu-item catches-session-menu-item-danger"
                 role="menuitem"
@@ -293,15 +301,13 @@
       </div>
     </div>
 
-    <!-- End session: catch summary + CSV -->
+    <!-- End session: catch summary -->
     <div id="session-end-overlay" class="hidden">
       <div class="session-end-inner">
         <h2>Lopeta sessio</h2>
-        <p class="meta">Tarkista saaliit. Voit tallentaa CSV:n ennen sulkemista.</p>
-        <p class="session-end-csv-status" id="session-end-csv-status" aria-live="polite">CSV not saved</p>
+        <p class="meta">Tarkista saaliit. Voit viedä CSV:n päättyneen session näkymästä (⋯-valikko).</p>
         <p class="catch-session-strip meta" id="session-end-session-strip" hidden></p>
         <div class="row-actions session-end-actions">
-          <button type="button" class="btn btn-primary" id="session-end-save-csv">Save CSV</button>
           <button type="button" class="btn btn-danger" id="session-end-final">End session</button>
           <button type="button" class="btn btn-ghost" id="session-end-cancel">Peruuta</button>
         </div>

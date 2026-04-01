@@ -6,6 +6,7 @@
 import {
   getActiveSession,
   getAllAnglers,
+  getSessionById,
   getSessionAnglersForSession,
   findSessionAngler,
   putSession,
@@ -131,6 +132,24 @@ export async function markActiveSessionCsvExported() {
   const s = await getActiveSession();
   if (!s) {
     return { ok: false, reason: "Ei aktiivista sessiota." };
+  }
+  await putSession({
+    ...s,
+    csv_exported: true,
+    csv_exported_at: new Date().toISOString(),
+  });
+  return { ok: true };
+}
+
+/**
+ * Marks CSV as exported for a session by local id (e.g. ended session from detail menu).
+ * @param {string} sessionId
+ * @returns {Promise<{ ok: true } | { ok: false, reason: string }>}
+ */
+export async function markSessionCsvExportedById(sessionId) {
+  const s = await getSessionById(sessionId);
+  if (!s) {
+    return { ok: false, reason: "Sessiota ei löytynyt." };
   }
   await putSession({
     ...s,

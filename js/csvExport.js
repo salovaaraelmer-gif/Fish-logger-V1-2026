@@ -5,7 +5,8 @@
 
 /** @type {readonly string[]} */
 const HEADERS = [
-  "timestamp",
+  "caught_at",
+  "local_time",
   "session_id",
   "angler_id",
   "species",
@@ -21,6 +22,23 @@ const HEADERS = [
   "wind_speed_ms",
   "wind_direction_deg",
 ];
+
+/**
+ * Same instant as caught_at (UTC ISO), formatted for Europe/Helsinki (e.g. 31.03.2026 14.30.45).
+ * @param {number} timestampMs
+ */
+function formatLocalTimeHelsinki(timestampMs) {
+  return new Date(timestampMs).toLocaleString("fi-FI", {
+    timeZone: "Europe/Helsinki",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  });
+}
 
 /**
  * @param {string} s
@@ -48,8 +66,11 @@ export function buildSessionCatchesCsv(catches) {
   const lines = [HEADERS.join(",")];
   const sorted = [...catches].sort((a, b) => a.timestamp - b.timestamp);
   for (const c of sorted) {
+    const caughtAtUtc = new Date(c.timestamp).toISOString();
+    const localTime = formatLocalTimeHelsinki(c.timestamp);
     const row = [
-      escapeField(new Date(c.timestamp).toISOString()),
+      escapeField(caughtAtUtc),
+      escapeField(localTime),
       escapeField(c.sessionId ?? ""),
       escapeField(c.anglerId ?? ""),
       escapeField(c.species ?? ""),
