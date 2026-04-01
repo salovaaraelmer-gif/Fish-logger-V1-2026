@@ -9,9 +9,54 @@
     <link rel="stylesheet" href="css/app.css" />
   </head>
   <body>
-    <div id="app">
+    <div id="auth-gate" class="auth-gate">
+      <div class="auth-inner stack">
+        <h1 class="app-brand-title auth-brand">AnglrLog</h1>
+
+        <div id="auth-login" class="auth-panel stack">
+          <h2>Kirjaudu</h2>
+          <div class="field-label">Sähköposti</div>
+          <input type="email" id="auth-login-email" autocomplete="email" />
+          <div class="field-label">Salasana</div>
+          <input type="password" id="auth-login-password" autocomplete="current-password" />
+          <button type="button" class="btn btn-primary" id="auth-login-submit">Kirjaudu</button>
+          <button type="button" class="btn btn-ghost" id="auth-go-signup">Luo tili</button>
+        </div>
+
+        <div id="auth-signup" class="auth-panel stack hidden">
+          <h2>Luo tili</h2>
+          <div class="field-label">Etunimi</div>
+          <input type="text" id="auth-signup-first" autocomplete="given-name" />
+          <div class="field-label">Sukunimi</div>
+          <input type="text" id="auth-signup-last" autocomplete="family-name" />
+          <div class="field-label">Sähköposti</div>
+          <input type="email" id="auth-signup-email" autocomplete="email" />
+          <div class="field-label">Salasana</div>
+          <input type="password" id="auth-signup-password" autocomplete="new-password" />
+          <button type="button" class="btn btn-primary" id="auth-signup-submit">Rekisteröidy</button>
+          <button type="button" class="btn btn-ghost" id="auth-go-login">Onko jo tili? Kirjaudu</button>
+        </div>
+
+        <p id="auth-message" class="meta auth-message" role="status" hidden></p>
+        <div id="auth-debug-panel" class="auth-debug-panel hidden" aria-live="polite">
+          <div class="auth-debug-head">
+            <strong>Auth diagnostics</strong>
+            <button type="button" id="auth-debug-refresh" class="btn btn-ghost auth-debug-btn">Refresh</button>
+          </div>
+          <pre id="auth-debug-output" class="auth-debug-output"></pre>
+        </div>
+      </div>
+    </div>
+
+    <div id="app" class="hidden">
       <header>
-        <h1 class="app-brand-title">AnglrLog</h1>
+        <div class="app-header-row">
+          <h1 class="app-brand-title">AnglrLog</h1>
+          <div class="app-header-user">
+            <span id="user-display-name" class="user-display-name" aria-live="polite"></span>
+            <button type="button" class="btn btn-ghost btn-logout" id="btn-logout">Kirjaudu ulos</button>
+          </div>
+        </div>
         <div id="session-title-block" class="session-title-block hidden">
           <div class="session-title-row">
             <span
@@ -180,7 +225,31 @@
         <div class="row-actions" style="margin-bottom: 1rem">
           <button type="button" class="btn btn-ghost" id="catches-close">Sulje</button>
         </div>
-        <h2 id="catches-overlay-title">Saaliit tässä sessiossa</h2>
+        <div class="catches-overlay-top-row">
+          <h2 id="catches-overlay-title">Saaliit tässä sessiossa</h2>
+          <div class="catches-session-menu-wrap">
+            <button
+              type="button"
+              id="catches-session-menu-btn"
+              class="catches-session-menu-btn hidden"
+              aria-label="Session toiminnot"
+              aria-haspopup="true"
+              aria-expanded="false"
+            >
+              ⋯
+            </button>
+            <div id="catches-session-menu" class="catches-session-menu hidden" role="menu">
+              <button
+                type="button"
+                id="catches-session-menu-delete"
+                class="catches-session-menu-item catches-session-menu-item-danger"
+                role="menuitem"
+              >
+                Delete session
+              </button>
+            </div>
+          </div>
+        </div>
         <p class="catch-session-strip meta" id="catches-session-strip" hidden></p>
 
         <div id="catches-ended-dashboard" class="ended-session-dashboard hidden">

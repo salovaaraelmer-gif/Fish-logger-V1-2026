@@ -14,7 +14,13 @@ import {
   getCatchesForSession,
   getCatchById,
   putCatch,
+  putSession,
+  putSessionAngler,
+  findSessionAngler,
   deleteCatch,
+  deleteSessionCascade,
+  setIndexedDbUserId,
+  purgeLegacyFishLoggerDatabase,
 } from "./db.js";
 import {
   startSession,
@@ -42,6 +48,13 @@ import {
   parseOptionalWeightKg,
 } from "./catchService.js";
 import { supabase } from "./supabase.js";
+import {
+  getDisplayNameFromUser,
+  getAuthUserId,
+  signInWithEmail,
+  signOut,
+  signUpWithProfile,
+} from "./auth.js";
 import {
   catchRecordToSupabasePayload,
   insertSupabaseCatch,
@@ -87,6 +100,39 @@ function getSupabaseAnglerIdForSync(localAnglerId) {
 }
 
 /**
+ * Restores in-memory Supabase sync state from IndexedDB after reload. Without this,
+ * `activeSupabaseSessionId` and angler UUIDs were only in RAM, so catches never synced.
+ */
+async function rehydrateSupabaseSessionContext() {
+  const session = await getActiveSession();
+  if (!session || session.endTime != null) {
+    activeSupabaseSessionId = null;
+    activeSupabaseAnglerRows = null;
+    supabaseAnglerRowByLocalId.clear();
+    return;
+  }
+  const cloudSid =
+    typeof session.supabaseSessionId === "string" && session.supabaseSessionId
+      ? session.supabaseSessionId
+      : null;
+  if (!cloudSid) {
+    activeSupabaseSessionId = null;
+    activeSupabaseAnglerRows = null;
+    supabaseAnglerRowByLocalId.clear();
+    return;
+  }
+  activeSupabaseSessionId = cloudSid;
+  activeSupabaseAnglerRows = null;
+  supabaseAnglerRowByLocalId.clear();
+  const sas = await getSessionAnglersForSession(session.id);
+  for (const sa of sas) {
+    if (typeof sa.supabaseAnglerId === "string" && sa.supabaseAnglerId) {
+      supabaseAnglerRowByLocalId.set(sa.anglerId, { id: sa.supabaseAnglerId });
+    }
+  }
+}
+
+/**
  * Insert catch to Supabase and persist returned id on the local row.
  * @param {import('./db.js').CatchRecord} record
  * @returns {Promise<null | { ok: true } | { ok: false, error: string }>}
@@ -95,12 +141,22 @@ async function syncCatchCreateToSupabase(record) {
   const speciesForDb = mapSpeciesKeyToSupabaseSpecies(record.species);
   const sbAnglerId = getSupabaseAnglerIdForSync(record.anglerId);
   if (!activeSupabaseSessionId || !sbAnglerId || !speciesForDb) return null;
+  const authUserId = await getAuthUserId();
+  if (!authUserId) {
+    return { ok: false, error: "Kirjautuminen puuttuu." };
+  }
   if (!navigator.onLine) {
     setSyncStatus("offline");
     return { ok: false, error: "Offline." };
   }
   setSyncStatus("syncing");
-  const payload = catchRecordToSupabasePayload(record, activeSupabaseSessionId, sbAnglerId, speciesForDb);
+  const payload = catchRecordToSupabasePayload(
+    record,
+    activeSupabaseSessionId,
+    sbAnglerId,
+    speciesForDb,
+    authUserId
+  );
   const ins = await insertSupabaseCatch(payload);
   if (!ins.ok) return { ok: false, error: ins.error };
   await putCatch({ ...record, supabase_id: ins.id });
@@ -118,12 +174,22 @@ async function syncCatchUpdateToSupabase(record) {
   if (!activeSupabaseSessionId || !sbAnglerId || !speciesForDb) {
     return { ok: false, error: "Supabase-sessio tai kalastajalinkitys puuttuu." };
   }
+  const authUserId = await getAuthUserId();
+  if (!authUserId) {
+    return { ok: false, error: "Kirjautuminen puuttuu." };
+  }
   if (!navigator.onLine) {
     setSyncStatus("offline");
     return { ok: false, error: "Offline." };
   }
   setSyncStatus("syncing");
-  const payload = catchRecordToSupabasePayload(record, activeSupabaseSessionId, sbAnglerId, speciesForDb);
+  const payload = catchRecordToSupabasePayload(
+    record,
+    activeSupabaseSessionId,
+    sbAnglerId,
+    speciesForDb,
+    authUserId
+  );
   const res = await updateSupabaseCatch(record.supabase_id, payload);
   if (!res.ok) return { ok: false, error: res.error };
   return { ok: true };
@@ -305,7 +371,7 @@ let anglerManageEditId = /** @type {string | null} */ (null);
 /** When set, the ⋯ menu for this angler id is expanded. */
 let anglerMenuOpenId = /** @type {string | null} */ (null);
 
-/** Active Supabase `sessions.id` after a successful cloud insert when starting a session; cleared when the session ends. */
+/** Active Supabase `sessions.id` after a successful cloud insert when starting a session; cleared when the session ends. Also restored from IndexedDB on load (see `rehydrateSupabaseSessionContext`). */
 let activeSupabaseSessionId = null;
 
 /** True while session title is shown as an input (inline edit). */
@@ -985,6 +1051,7 @@ async function populateCatchesTable(sessionIdOverride) {
   }
 
   const titleEl = document.getElementById("catches-overlay-title");
+  const detailMenuBtn = document.getElementById("catches-session-menu-btn");
   const listEl = document.getElementById("catches-table-body");
   const stripEl = document.getElementById("catches-session-strip");
   const emptyEl = document.getElementById("catches-empty");
@@ -997,6 +1064,10 @@ async function populateCatchesTable(sessionIdOverride) {
   let emptyMsg = "Ei saaliita tässä sessiossa.";
 
   if (!sessionId) {
+    detailMenuBtn?.classList.add("hidden");
+    catchesSessionMenuOpen = false;
+    catchesSessionMenuSessionId = null;
+    syncCatchesSessionMenuUi();
     dashEl?.classList.add("hidden");
     const session = await getActiveSession();
     if (!session) {
@@ -1016,6 +1087,10 @@ async function populateCatchesTable(sessionIdOverride) {
     if (titleEl) titleEl.textContent = overlayTitle;
     listEl.setAttribute("aria-label", overlayTitle);
   } else {
+    detailMenuBtn?.classList.remove("hidden");
+    catchesSessionMenuOpen = false;
+    catchesSessionMenuSessionId = sessionIdOverride;
+    syncCatchesSessionMenuUi();
     overlayTitle = "Päättynyt sessio";
     emptyMsg = "Ei kirjattuja saaliita tässä sessiossa.";
     if (titleEl) titleEl.textContent = overlayTitle;
@@ -1417,6 +1492,7 @@ function renderAnglerManageListInto(listEl, anglers) {
 }
 
 async function renderHome() {
+  await rehydrateSupabaseSessionContext();
   const session = await getActiveSession();
   const meta = document.getElementById("session-meta");
   const noS = document.getElementById("block-no-session");
@@ -1680,12 +1756,19 @@ function buildStartAnglerPicks(anglers) {
     } else {
       setSyncStatus("syncing");
     }
+    const authUserId = await getAuthUserId();
+    if (!authUserId) {
+      showError("Kirjautuminen puuttuu. Kirjaudu uudelleen.");
+      activeSupabaseSessionId = null;
+      setSyncStatus("error");
+    } else {
     const { data, error } = await supabase
       .from("sessions")
       .insert([
         {
           title: r.title,
           notes: null,
+          user_id: authUserId,
         },
       ])
       .select()
@@ -1699,11 +1782,16 @@ function buildStartAnglerPicks(anglers) {
     } else if (data?.id) {
       activeSupabaseSessionId = data.id;
       setSyncStatus("synced");
+      const localS = await getSessionById(r.sessionId);
+      if (localS) {
+        await putSession({ ...localS, supabaseSessionId: data.id });
+      }
     } else {
       console.error("[Supabase] sessions insert: no row id returned", data);
       showError("Supabase-sessiota ei voitu tallentaa. Katso konsoli.");
       activeSupabaseSessionId = null;
       setSyncStatus(navigator.onLine ? "error" : "offline");
+    }
     }
 
     activeSupabaseAnglerRows = null;
@@ -1714,7 +1802,7 @@ function buildStartAnglerPicks(anglers) {
       const insertRows = selectedIds.map((localId) => ({
         session_id: activeSupabaseSessionId,
         name: nameByLocalId.get(localId) ?? "",
-        user_id: null,
+        user_id: authUserId,
       }));
 
       const {
@@ -1732,6 +1820,15 @@ function buildStartAnglerPicks(anglers) {
           const row = sbAnglers[i];
           if (row) supabaseAnglerRowByLocalId.set(localId, row);
         });
+        for (let i = 0; i < selectedIds.length; i++) {
+          const localId = selectedIds[i];
+          const row = sbAnglers[i];
+          if (!row || row.id == null || String(row.id) === "") continue;
+          const sa = await findSessionAngler(r.sessionId, localId);
+          if (sa) {
+            await putSessionAngler({ ...sa, supabaseAnglerId: String(row.id) });
+          }
+        }
         setSyncStatus("synced");
       } else {
         console.error("[Supabase] anglers insert: unexpected response", sbAnglers);
@@ -1952,7 +2049,376 @@ async function populateFishAnglers() {
   }
 }
 
-function init() {
+/** True after main app listeners are wired (once). */
+let mainAppStarted = false;
+/** History session detail menu open state (3-dot). */
+let catchesSessionMenuOpen = false;
+/** Session id currently attached to history detail menu actions. */
+let catchesSessionMenuSessionId = /** @type {string | null} */ (null);
+
+function showAuthGate() {
+  document.getElementById("auth-gate")?.classList.remove("hidden");
+  document.getElementById("app")?.classList.add("hidden");
+}
+
+function showMainApp() {
+  document.getElementById("auth-gate")?.classList.add("hidden");
+  document.getElementById("app")?.classList.remove("hidden");
+}
+
+function syncCatchesSessionMenuUi() {
+  const btn = document.getElementById("catches-session-menu-btn");
+  const menu = document.getElementById("catches-session-menu");
+  if (!btn || !menu) return;
+  btn.setAttribute("aria-expanded", catchesSessionMenuOpen ? "true" : "false");
+  menu.classList.toggle("hidden", !catchesSessionMenuOpen);
+}
+
+/**
+ * @param {{ user_metadata?: Record<string, unknown> } | null} user
+ */
+function updateUserDisplayName(user) {
+  const el = document.getElementById("user-display-name");
+  if (!el) return;
+  el.textContent = user ? getDisplayNameFromUser(user) : "";
+}
+
+function setAuthMessage(msg) {
+  const p = document.getElementById("auth-message");
+  if (!p) return;
+  if (!msg) {
+    p.hidden = true;
+    p.textContent = "";
+    return;
+  }
+  p.hidden = false;
+  p.textContent = msg;
+}
+
+/** Last user id used for IndexedDB scope; detects account switch without full reload. */
+let lastIndexedDbUserId = /** @type {string | null} */ (null);
+let authDebugVisible = false;
+let authDebugLastStep = "idle";
+let authDebugLastError = "";
+
+function onAuthSignedOut() {
+  activeSupabaseSessionId = null;
+  activeSupabaseAnglerRows = null;
+  supabaseAnglerRowByLocalId.clear();
+  sessionTitleNeedsCloudSync = false;
+  stopSessionTimer();
+  fishState.editingCatchId = null;
+  anglerManageEditId = null;
+  anglerMenuOpenId = null;
+  homeAnglersExpanded = false;
+  document.getElementById("fish-overlay")?.classList.add("hidden");
+  document.getElementById("catches-overlay")?.classList.add("hidden");
+  document.getElementById("start-overlay")?.classList.add("hidden");
+  document.getElementById("session-end-overlay")?.classList.add("hidden");
+  document.getElementById("session-summary-overlay")?.classList.add("hidden");
+  setIndexedDbUserId(null);
+  lastIndexedDbUserId = null;
+}
+
+/** Remove old shared localStorage keys once. */
+function purgeLegacyLocalStorageKeysOnce() {
+  try {
+    const marker = "fishlogger_local_user_scope_migrated_v1";
+    if (localStorage.getItem(marker) === "1") return;
+    localStorage.removeItem("sessions");
+    localStorage.removeItem("catches");
+    localStorage.removeItem("anglers");
+    localStorage.removeItem("active_session");
+    localStorage.setItem(marker, "1");
+  } catch (err) {
+    console.warn("[Auth] localStorage migration skipped:", err);
+  }
+}
+
+function setAuthDebugStep(step) {
+  authDebugLastStep = step;
+}
+
+function setAuthDebugError(msg) {
+  authDebugLastError = msg || "";
+}
+
+async function refreshAuthDebugOutput() {
+  const out = document.getElementById("auth-debug-output");
+  if (!out) return;
+  const online = navigator.onLine ? "online" : "offline";
+  const hasMain = !document.getElementById("app")?.classList.contains("hidden");
+  const authMessage = document.getElementById("auth-message")?.textContent?.trim() || "";
+  let sessionUid = "";
+  let sessionEmail = "";
+  try {
+    const maybe = await withTimeout(supabase.auth.getSession(), 1200);
+    if (maybe && !(typeof maybe === "object" && "timedOut" in maybe)) {
+      sessionUid = maybe?.data?.session?.user?.id || "";
+      sessionEmail = maybe?.data?.session?.user?.email || "";
+    }
+  } catch {
+    /* ignore diagnostics read failures */
+  }
+  out.textContent = [
+    `time: ${new Date().toISOString()}`,
+    `step: ${authDebugLastStep}`,
+    `last_error: ${authDebugLastError || "-"}`,
+    `online: ${online}`,
+    `app_visible: ${hasMain ? "yes" : "no"}`,
+    `auth_message: ${authMessage || "-"}`,
+    `scoped_user_id: ${lastIndexedDbUserId || "-"}`,
+    `session_user_id: ${sessionUid || "-"}`,
+    `session_email: ${sessionEmail || "-"}`,
+  ].join("\n");
+}
+
+function toggleAuthDebugPanel(force) {
+  const panel = document.getElementById("auth-debug-panel");
+  if (!panel) return;
+  authDebugVisible = typeof force === "boolean" ? force : !authDebugVisible;
+  panel.classList.toggle("hidden", !authDebugVisible);
+  if (authDebugVisible) void refreshAuthDebugOutput();
+}
+
+/**
+ * @template T
+ * @param {Promise<T>} promise
+ * @param {number} ms
+ * @returns {Promise<T | { timedOut: true }>}
+ */
+function withTimeout(promise, ms) {
+  return Promise.race([
+    promise,
+    new Promise((resolve) => {
+      setTimeout(() => resolve({ timedOut: true }), ms);
+    }),
+  ]);
+}
+
+/**
+ * Non-throwing best-effort session activation.
+ * @returns {Promise<boolean>}
+ */
+async function tryActivateExistingSession() {
+  try {
+    const maybeSession = await withTimeout(supabase.auth.getSession(), 1500);
+    if (!maybeSession || (typeof maybeSession === "object" && "timedOut" in maybeSession)) {
+      return false;
+    }
+    const session = maybeSession?.data?.session;
+    if (!session?.user) return false;
+    await activateSignedInUser(session.user);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Activates app state for a signed-in user.
+ * @param {{ id: string, user_metadata?: Record<string, unknown> }} user
+ */
+async function activateSignedInUser(user) {
+  const uid = user.id;
+  if (lastIndexedDbUserId && lastIndexedDbUserId !== uid) {
+    activeSupabaseSessionId = null;
+    activeSupabaseAnglerRows = null;
+    supabaseAnglerRowByLocalId.clear();
+    sessionTitleNeedsCloudSync = false;
+  }
+  lastIndexedDbUserId = uid;
+  setIndexedDbUserId(uid);
+  try {
+    await purgeLegacyFishLoggerDatabase();
+  } catch (err) {
+    console.warn("[Auth] legacy IndexedDB purge skipped:", err);
+  }
+  showMainApp();
+  updateUserDisplayName(user);
+  if (!mainAppStarted) {
+    mainAppInit();
+    mainAppStarted = true;
+  } else {
+    await renderHome();
+  }
+}
+
+function wireAuthUi() {
+  document.addEventListener("keydown", (e) => {
+    if (e.ctrlKey && e.altKey && e.key.toLowerCase() === "d") {
+      e.preventDefault();
+      toggleAuthDebugPanel();
+    }
+  });
+  document.getElementById("auth-debug-refresh")?.addEventListener("click", () => {
+    void refreshAuthDebugOutput();
+  });
+
+  document.getElementById("auth-go-signup")?.addEventListener("click", () => {
+    document.getElementById("auth-login")?.classList.add("hidden");
+    document.getElementById("auth-signup")?.classList.remove("hidden");
+    setAuthMessage("");
+  });
+  document.getElementById("auth-go-login")?.addEventListener("click", () => {
+    document.getElementById("auth-signup")?.classList.add("hidden");
+    document.getElementById("auth-login")?.classList.remove("hidden");
+    setAuthMessage("");
+  });
+
+  document.getElementById("auth-login-submit")?.addEventListener("click", async () => {
+    const submitBtn = /** @type {HTMLButtonElement | null} */ (
+      document.getElementById("auth-login-submit")
+    );
+    const emailEl = /** @type {HTMLInputElement | null} */ (document.getElementById("auth-login-email"));
+    const passEl = /** @type {HTMLInputElement | null} */ (document.getElementById("auth-login-password"));
+    const email = emailEl?.value?.trim() ?? "";
+    const password = passEl?.value ?? "";
+    setAuthMessage("");
+    if (!email || !password) {
+      setAuthMessage("Anna sähköposti ja salasana.");
+      return;
+    }
+    if (submitBtn) {
+      submitBtn.disabled = true;
+      submitBtn.textContent = "Kirjaudutaan…";
+    }
+    let requestSettled = false;
+    const loginWatchdogId = setTimeout(() => {
+      if (requestSettled) return;
+      if (submitBtn) {
+        submitBtn.disabled = false;
+        submitBtn.textContent = "Kirjaudu";
+      }
+      setAuthMessage("Kirjautuminen aikakatkaistiin. Tarkista yhteys ja yritä uudelleen.");
+      // Non-blocking recovery probe in case sign-in actually completed server-side.
+      void tryActivateExistingSession().then((ok) => {
+        if (ok) setAuthMessage("");
+      });
+    }, 12000);
+    try {
+      setAuthDebugStep("sign_in_start");
+      setAuthMessage("Kirjaudutaan…");
+      const res = await signInWithEmail(email, password);
+      const { data, error } = res;
+      if (error) {
+        setAuthDebugStep("sign_in_error");
+        setAuthDebugError(error.message || "unknown");
+        if (error.message.toLowerCase().includes("invalid login credentials")) {
+          setAuthMessage("Virheellinen sähköposti tai salasana.");
+        } else if (error.message.toLowerCase().includes("email not confirmed")) {
+          setAuthMessage("Sähköpostia ei ole vahvistettu.");
+        } else {
+          setAuthMessage(error.message);
+        }
+        return;
+      }
+      // Some clients/environments may not immediately deliver SIGNED_IN callback.
+      if (data?.user) {
+        setAuthDebugStep("sign_in_user_payload");
+        setAuthDebugError("");
+        await activateSignedInUser(data.user);
+        setAuthMessage("");
+      } else {
+        setAuthDebugStep("sign_in_no_user_payload");
+        const ok = await tryActivateExistingSession();
+        if (ok) {
+          setAuthDebugStep("sign_in_recovered_from_session");
+          setAuthDebugError("");
+          setAuthMessage("");
+        } else {
+          setAuthDebugStep("sign_in_unresolved_no_session");
+          setAuthDebugError("no user payload and no session");
+          setAuthMessage("Kirjautuminen ei valmistunut. Yritä uudelleen.");
+        }
+      }
+    } catch (err) {
+      setAuthDebugStep("sign_in_exception");
+      setAuthDebugError(String(err));
+      setAuthMessage("Kirjautuminen epäonnistui. Yritä uudelleen.");
+      console.error("[Auth] sign-in failed:", err);
+    } finally {
+      requestSettled = true;
+      clearTimeout(loginWatchdogId);
+      if (submitBtn) {
+        submitBtn.disabled = false;
+        submitBtn.textContent = "Kirjaudu";
+      }
+      if (authDebugVisible) void refreshAuthDebugOutput();
+    }
+  });
+
+  document.getElementById("auth-signup-submit")?.addEventListener("click", async () => {
+    const fnEl = /** @type {HTMLInputElement | null} */ (document.getElementById("auth-signup-first"));
+    const lnEl = /** @type {HTMLInputElement | null} */ (document.getElementById("auth-signup-last"));
+    const emailEl = /** @type {HTMLInputElement | null} */ (document.getElementById("auth-signup-email"));
+    const passEl = /** @type {HTMLInputElement | null} */ (document.getElementById("auth-signup-password"));
+    const fn = fnEl?.value?.trim() ?? "";
+    const ln = lnEl?.value?.trim() ?? "";
+    const email = emailEl?.value?.trim() ?? "";
+    const password = passEl?.value ?? "";
+    setAuthMessage("");
+    if (!fn || !ln) {
+      setAuthMessage("Anna etunimi ja sukunimi.");
+      return;
+    }
+    if (!email || !password) {
+      setAuthMessage("Anna sähköposti ja salasana.");
+      return;
+    }
+    const { data, error } = await signUpWithProfile(email, password, fn, ln);
+    if (error) {
+      setAuthMessage(error.message);
+      return;
+    }
+    if (data?.user && !data.session) {
+      setAuthMessage("Tarkista sähköposti ja vahvista tili, jos vahvistus on käytössä.");
+    }
+  });
+
+  document.getElementById("btn-logout")?.addEventListener("click", async () => {
+    const { error } = await signOut();
+    if (error) showError(error.message);
+  });
+}
+
+async function bootstrap() {
+  setAuthDebugStep("bootstrap_start");
+  purgeLegacyLocalStorageKeysOnce();
+  wireAuthUi();
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  if (session?.user) {
+    setAuthDebugStep("bootstrap_session_found");
+    await activateSignedInUser(session.user);
+  } else {
+    setAuthDebugStep("bootstrap_no_session");
+    showAuthGate();
+  }
+
+  supabase.auth.onAuthStateChange((event, session) => {
+    void handleAuthStateChange(event, session);
+  });
+}
+
+/**
+ * @param {import("@supabase/supabase-js").AuthChangeEvent} event
+ * @param {import("@supabase/supabase-js").Session | null} session
+ */
+async function handleAuthStateChange(event, session) {
+  if (event === "INITIAL_SESSION") return;
+  if (event === "SIGNED_IN" && session?.user) {
+    await activateSignedInUser(session.user);
+  }
+  if (event === "SIGNED_OUT") {
+    showAuthGate();
+    updateUserDisplayName(null);
+    if (mainAppStarted) onAuthSignedOut();
+  }
+}
+
+function mainAppInit() {
   wireFishMeasurementInputs();
   wireSessionTitleEditor();
   renderSyncStatusIndicator();
@@ -2080,7 +2546,39 @@ function init() {
   });
 
   document.getElementById("catches-close")?.addEventListener("click", () => {
+    catchesSessionMenuOpen = false;
+    syncCatchesSessionMenuUi();
     closeCatchesOverlay();
+  });
+  document.getElementById("catches-session-menu-btn")?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    catchesSessionMenuOpen = !catchesSessionMenuOpen;
+    syncCatchesSessionMenuUi();
+  });
+  document.getElementById("catches-session-menu-delete")?.addEventListener("click", () => {
+    catchesSessionMenuOpen = false;
+    syncCatchesSessionMenuUi();
+    const sessionId = catchesSessionMenuSessionId;
+    if (!sessionId) return;
+    const confirmed = window.confirm("Delete this session?");
+    if (!confirmed) return;
+    void (async () => {
+      try {
+        const { error } = await supabase.from("sessions").delete().eq("id", sessionId);
+        if (error) {
+          console.error(error);
+          alert("Failed to delete session");
+          return;
+        }
+        await deleteSessionCascade(sessionId);
+        alert("Session deleted");
+        document.getElementById("catches-overlay")?.classList.add("hidden");
+        await renderHome();
+      } catch (err) {
+        console.error("[Session] delete failed:", err);
+        alert("Failed to delete session");
+      }
+    })();
   });
 
   document.getElementById("btn-log-catch")?.addEventListener("click", () => {
@@ -2236,7 +2734,7 @@ function init() {
     document.getElementById("fish-overlay")?.classList.add("hidden");
   });
 
-  document.addEventListener("click", () => {
+  document.addEventListener("click", (e) => {
     document.querySelectorAll(".catch-card-menu").forEach((m) => {
       if (!m.hidden) {
         m.hidden = true;
@@ -2246,9 +2744,15 @@ function init() {
         }
       }
     });
+    if (!catchesSessionMenuOpen) return;
+    const target = e.target;
+    if (!(target instanceof Element)) return;
+    if (target.closest(".catches-session-menu-wrap")) return;
+    catchesSessionMenuOpen = false;
+    syncCatchesSessionMenuUi();
   });
 
   renderHome();
 }
 
-init();
+void bootstrap();

@@ -3,8 +3,66 @@
  * @module db
  */
 
-const DB_NAME = "FishLoggerV1";
+/** Base name; each user gets a separate DB: `${DB_NAME_BASE}_${userId}` (logical `sessions_${userId}` etc.). */
+const DB_NAME_BASE = "FishLoggerV1";
+/** Pre–user-scoping database; removed on startup after login. */
+const LEGACY_DB_NAME = "FishLoggerV1";
 const DB_VERSION = 5;
+
+/** @type {string | null} */
+let scopedUserId = null;
+
+/**
+ * Call after auth with `user.id`. Required before any IndexedDB read/write.
+ * Pass `null` only after clearing user data (logout).
+ * @param {string | null} userId
+ */
+export function setIndexedDbUserId(userId) {
+  scopedUserId = userId;
+}
+
+/** @returns {string | null} */
+export function getIndexedDbUserId() {
+  return scopedUserId;
+}
+
+function getDbName() {
+  if (!scopedUserId) {
+    throw new Error("IndexedDB: no user id set");
+  }
+  return `${DB_NAME_BASE}_${scopedUserId}`;
+}
+
+/**
+ * Deletes the old shared database (no user suffix). Safe to call when missing.
+ * @returns {Promise<void>}
+ */
+export function purgeLegacyFishLoggerDatabase() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.deleteDatabase(LEGACY_DB_NAME);
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+    req.onblocked = () => resolve();
+  });
+}
+
+/**
+ * Deletes the current user's IndexedDB entirely (logout). Clears scoped user id.
+ * @returns {Promise<void>}
+ */
+export function clearUserIndexedDb() {
+  if (!scopedUserId) {
+    return Promise.resolve();
+  }
+  const name = `${DB_NAME_BASE}_${scopedUserId}`;
+  scopedUserId = null;
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.deleteDatabase(name);
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+    req.onblocked = () => resolve();
+  });
+}
 
 /** @typedef {{ id: string, displayName: string }} Angler */
 /**
@@ -19,9 +77,10 @@ const DB_VERSION = 5;
  *   csv_exported?: boolean,
  *   csv_exported_at?: string | null,
  *   title?: string | null,
+ *   supabaseSessionId?: string | null,
  * }} Session
  */
-/** @typedef {{ id: string, sessionId: string, anglerId: string, isActive: boolean, joinedAt: number, leftAt: number | null }} SessionAngler */
+/** @typedef {{ id: string, sessionId: string, anglerId: string, isActive: boolean, joinedAt: number, leftAt: number | null, supabaseAnglerId?: string | null }} SessionAngler */
 /**
  * Local catch row: `sessionId` is the active session when saved; `anglerId` is who caught the fish.
  * @typedef {{
@@ -100,8 +159,11 @@ function migrateCatchV1ToV2(c) {
  * @returns {Promise<IDBDatabase>}
  */
 function openDb() {
+  if (!scopedUserId) {
+    return Promise.reject(new Error("IndexedDB: no authenticated user scoped"));
+  }
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    const req = indexedDB.open(getDbName(), DB_VERSION);
     req.onerror = () => reject(req.error);
     req.onsuccess = () => resolve(req.result);
     req.onupgradeneeded = (e) => {
@@ -442,4 +504,47 @@ export async function isAnglerInAnyActiveSession(anglerId) {
 export async function findSessionAngler(sessionId, anglerId) {
   const all = await getSessionAnglersForSession(sessionId);
   return all.find((sa) => sa.anglerId === anglerId);
+}
+
+/**
+ * Deletes one session and all local rows tied to it (catches + sessionAnglers).
+ * @param {string} sessionId
+ * @returns {Promise<void>}
+ */
+export async function deleteSessionCascade(sessionId) {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(["sessions", "sessionAnglers", "catches"], "readwrite");
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+    tx.oncomplete = () => resolve();
+
+    const sessionsStore = tx.objectStore("sessions");
+    const sessionAnglersStore = tx.objectStore("sessionAnglers");
+    const catchesStore = tx.objectStore("catches");
+
+    sessionsStore.delete(sessionId);
+
+    const saReq = sessionAnglersStore.getAll();
+    saReq.onsuccess = () => {
+      const rows = /** @type {SessionAngler[]} */ (saReq.result || []);
+      for (const row of rows) {
+        if (row.sessionId === sessionId) {
+          sessionAnglersStore.delete(row.id);
+        }
+      }
+    };
+    saReq.onerror = () => reject(saReq.error);
+
+    const cReq = catchesStore.getAll();
+    cReq.onsuccess = () => {
+      const rows = /** @type {CatchRecord[]} */ (cReq.result || []);
+      for (const row of rows) {
+        if (row.sessionId === sessionId) {
+          catchesStore.delete(row.id);
+        }
+      }
+    };
+    cReq.onerror = () => reject(cReq.error);
+  });
 }

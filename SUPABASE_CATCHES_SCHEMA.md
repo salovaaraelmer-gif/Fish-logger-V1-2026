@@ -14,6 +14,7 @@ The client sends **snake_case** fields aligned with local names. Ensure your tab
 | Column | Type (suggested) | Notes |
 |--------|------------------|--------|
 | `id` | `uuid` | Primary key, default `gen_random_uuid()` |
+| `user_id` | `uuid` | Owner; FK to `auth.users`, must equal `auth.uid()` (see `SUPABASE_AUTH_RLS.md`) |
 | `session_id` | `uuid` | FK to your sessions table |
 | `angler_id` | `uuid` | FK to your anglers table |
 | `species` | `text` | e.g. `pike`, `perch`, … |

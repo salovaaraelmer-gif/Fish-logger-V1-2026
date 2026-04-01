@@ -3,6 +3,7 @@
  * Uses `CatchRecord.supabase_id` as the only link to remote rows.
  *
  * Required `public.catches` columns (add via Supabase SQL if missing):
+ * - user_id (uuid, FK to auth.users) — owner; required for RLS
  * - id (uuid, default gen_random_uuid())
  * - session_id (uuid, FK)
  * - angler_id (uuid, FK)
@@ -29,8 +30,15 @@ import { supabase } from "./supabase.js";
  * @param {string} supabaseSessionId
  * @param {string} supabaseAnglerId
  * @param {string} speciesForDb
+ * @param {string} authUserId — `auth.uid()` for the row owner
  */
-export function catchRecordToSupabasePayload(record, supabaseSessionId, supabaseAnglerId, speciesForDb) {
+export function catchRecordToSupabasePayload(
+  record,
+  supabaseSessionId,
+  supabaseAnglerId,
+  speciesForDb,
+  authUserId
+) {
   const len =
     record.length != null && typeof record.length === "number" && record.length >= 1
       ? record.length
@@ -54,6 +62,7 @@ export function catchRecordToSupabasePayload(record, supabaseSessionId, supabase
       : null;
 
   return {
+    user_id: authUserId,
     session_id: supabaseSessionId,
     angler_id: supabaseAnglerId,
     species: speciesForDb,
