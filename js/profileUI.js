@@ -62,7 +62,7 @@ export function closeProfileOverlay() {
 }
 
 /**
- * @param {{ onError?: (msg: string) => void }} [options]
+ * @param {{ onError?: (msg: string) => void, onOpen?: () => void }} [options]
  * @returns {void}
  */
 export function wireProfileUi(options = {}) {
@@ -73,6 +73,9 @@ export function wireProfileUi(options = {}) {
 
   openBtn?.addEventListener("click", () => {
     overlay?.classList.remove("hidden");
+    if (typeof options.onOpen === "function") {
+      options.onOpen();
+    }
     void fillProfileFields();
   });
 

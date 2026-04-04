@@ -455,6 +455,24 @@ export async function getSessionById(id) {
 }
 
 /**
+ * @param {string} supabaseSessionId — `public.sessions.id`
+ * @returns {Promise<Session | null>}
+ */
+export async function getSessionBySupabaseCloudId(supabaseSessionId) {
+  if (!supabaseSessionId) return null;
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const r = db.transaction("sessions", "readonly").objectStore("sessions").getAll();
+    r.onerror = () => reject(r.error);
+    r.onsuccess = () => {
+      const list = /** @type {Session[]} */ (r.result || []);
+      const found = list.find((s) => s.supabaseSessionId === supabaseSessionId);
+      resolve(found ?? null);
+    };
+  });
+}
+
+/**
  * Ended sessions only (`endTime != null`), newest by end time first.
  * @returns {Promise<Session[]>}
  */

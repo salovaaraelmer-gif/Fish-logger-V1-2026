@@ -7,6 +7,7 @@ import {
   getSessionAnglersForSession,
   getActiveSession,
   getSessionById,
+  getSessionBySupabaseCloudId,
   getAllEndedSessions,
   getCatchesForSession,
   getCatchById,
@@ -25,6 +26,7 @@ import {
   markAnglerInactive,
   markSessionCsvExportedById,
   saveActiveSessionTitle,
+  newId,
 } from "./sessionService.js";
 import { defaultSessionTitleFromDate, getSessionDisplayTitle } from "./sessionTitle.js";
 import {
@@ -69,6 +71,7 @@ import {
   fetchSessionAnglerIdBySessionAndUser,
   insertSessionScopedAnglers,
 } from "./legacyAnglers.js";
+import { fetchParticipantSessionsForUser } from "./supabaseParticipantSessions.js";
 
 /** @type {Record<string, string>} */
 const SPECIES_LABELS = {
@@ -675,6 +678,12 @@ let sessionTitleNeedsCloudSync = false;
 
 /** @type {"synced" | "syncing" | "offline" | "error"} */
 let syncStatus = navigator.onLine ? "synced" : "offline";
+
+/** Participant-based session list from `session_anglers` + `sessions` (not owner-only). */
+let participantActiveCloudRows = [];
+let participantEndedCloudRows = [];
+/** True after a successful online `fetchParticipantSessionsForUser` in this tab. */
+let lastParticipantRehydrateOk = false;
 
 /** Rows returned from the last successful `session_anglers` batch for the active session (optional; cleared when the session ends). */
 let activeSupabaseAnglerRows = null;
@@ -1671,9 +1680,95 @@ async function ensureLoggedInUserAngler() {
   return ensureLoggedInUserAnglerWithUser(user);
 }
 
+/**
+ * @param {{ id: string, title: string | null, ended_at: string | null, created_at: string | null }} cloud
+ */
+async function upsertLocalSessionFromCloudRow(cloud) {
+  const existing = await getSessionBySupabaseCloudId(cloud.id);
+  const endMs = cloud.ended_at ? new Date(cloud.ended_at).getTime() : null;
+  const startMs = cloud.created_at ? new Date(cloud.created_at).getTime() : Date.now();
+  if (existing) {
+    await putSession({
+      ...existing,
+      supabaseSessionId: cloud.id,
+      title: cloud.title ?? existing.title,
+      endTime: endMs,
+    });
+  } else {
+    await putSession({
+      id: newId(),
+      startTime: startMs,
+      endTime: endMs,
+      initialLocationLat: null,
+      initialLocationLng: null,
+      initialLocationAccuracyM: null,
+      initialLocationTimestamp: null,
+      csv_exported: false,
+      csv_exported_at: null,
+      title: cloud.title ?? null,
+      supabaseSessionId: cloud.id,
+    });
+  }
+}
+
+async function rehydrateSupabaseParticipantSessions() {
+  const uid = await getAuthUserId();
+  console.log("[participantSessions] currentUserId", uid || "(none)");
+  participantActiveCloudRows = [];
+  participantEndedCloudRows = [];
+  lastParticipantRehydrateOk = false;
+  if (!uid) {
+    return;
+  }
+  if (!navigator.onLine) {
+    console.log("[participantSessions] offline — skipping cloud fetch (history/active use local fallback)");
+    return;
+  }
+  const res = await fetchParticipantSessionsForUser(uid);
+  if (!res.ok) {
+    console.warn("[participantSessions] fetch failed:", res.error);
+    return;
+  }
+  lastParticipantRehydrateOk = true;
+  participantActiveCloudRows = res.active;
+  participantEndedCloudRows = res.ended;
+  console.log(
+    "[participantSessions] active (participant-based) count:",
+    res.active.length,
+    "ids:",
+    res.active.map((s) => s.id)
+  );
+  console.log(
+    "[participantSessions] ended (participant-based) count:",
+    res.ended.length,
+    "ids:",
+    res.ended.map((s) => s.id)
+  );
+  const merged = [...res.active, ...res.ended];
+  for (const cloud of merged) {
+    await upsertLocalSessionFromCloudRow(cloud);
+  }
+}
+
+/**
+ * Prefer active session from participant-based cloud list when online; else local `getActiveSession`.
+ * @returns {Promise<import('./db.js').Session | null>}
+ */
+async function getActiveSessionForParticipantUi() {
+  if (navigator.onLine && lastParticipantRehydrateOk && participantActiveCloudRows.length > 0) {
+    const primary = participantActiveCloudRows[0];
+    const local = await getSessionBySupabaseCloudId(primary.id);
+    if (local && local.endTime == null) {
+      return local;
+    }
+  }
+  return getActiveSession();
+}
+
 async function renderHome() {
+  await rehydrateSupabaseParticipantSessions();
   await rehydrateSupabaseSessionContext();
-  const session = await getActiveSession();
+  const session = await getActiveSessionForParticipantUi();
   const meta = document.getElementById("session-meta");
   const noS = document.getElementById("block-no-session");
   const act = document.getElementById("block-active-session");
@@ -1772,7 +1867,21 @@ async function renderHistorySection() {
   const emptyEl = document.getElementById("history-empty");
   if (!listEl || !emptyEl) return;
 
-  const sessions = await getAllEndedSessions();
+  /** @type {import('./db.js').Session[]} */
+  let sessions;
+  if (navigator.onLine && lastParticipantRehydrateOk) {
+    sessions = [];
+    for (const cloud of participantEndedCloudRows) {
+      const local = await getSessionBySupabaseCloudId(cloud.id);
+      if (local) {
+        sessions.push(local);
+      }
+    }
+    sessions.sort((a, b) => (b.endTime ?? 0) - (a.endTime ?? 0));
+  } else {
+    sessions = await getAllEndedSessions();
+  }
+
   listEl.innerHTML = "";
 
   if (sessions.length === 0) {
@@ -2492,6 +2601,9 @@ function onAuthSignedOut() {
   activeSupabaseSessionId = null;
   activeSupabaseAnglerRows = null;
   supabaseAnglerRowByLocalId.clear();
+  participantActiveCloudRows = [];
+  participantEndedCloudRows = [];
+  lastParticipantRehydrateOk = false;
   sessionTitleNeedsCloudSync = false;
   stopSessionTimer();
   fishState.editingCatchId = null;
@@ -2915,7 +3027,12 @@ async function handleAuthStateChange(event, session) {
 }
 
 function mainAppInit() {
-  wireProfileUi({ onError: showError });
+  wireProfileUi({
+    onError: showError,
+    onOpen: () => {
+      void renderHome();
+    },
+  });
   wireFishMeasurementInputs();
   wireSessionTitleEditor();
   renderSyncStatusIndicator();
