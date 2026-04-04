@@ -3,10 +3,7 @@
  */
 
 import {
-  getAllAnglers,
   putAngler,
-  deleteAngler,
-  isAnglerInUse,
   getSessionAnglersForSession,
   getActiveSession,
   getSessionById,
@@ -25,10 +22,8 @@ import {
 import {
   startSession,
   endActiveSession,
-  addAnglerToSession,
   markAnglerInactive,
   markSessionCsvExportedById,
-  newId,
   saveActiveSessionTitle,
 } from "./sessionService.js";
 import { defaultSessionTitleFromDate, getSessionDisplayTitle } from "./sessionTitle.js";
@@ -52,9 +47,15 @@ import {
   getDisplayNameFromUser,
   getAuthUserId,
   signInWithEmail,
-  signOut,
   signUpWithProfile,
 } from "./auth.js";
+import {
+  upsertProfileForUser,
+  fetchProfileDisplayNames,
+  searchProfiles,
+  profileDisplayLabel,
+} from "./supabaseProfile.js";
+import { closeProfileOverlay, wireProfileUi } from "./profileUI.js";
 import {
   catchRecordToSupabasePayload,
   insertSupabaseCatch,
@@ -100,6 +101,42 @@ function getSupabaseAnglerIdForSync(localAnglerId) {
   const row = supabaseAnglerRowByLocalId.get(localAnglerId);
   if (row?.id == null || String(row.id) === "") return null;
   return String(row.id);
+}
+
+/**
+ * Adds roster rows in `session_anglers` for selected anglers whose local id matches a `profiles.id`.
+ * @param {string} cloudSessionId
+ * @param {string[]} selectedLocalAnglerIds
+ * @returns {Promise<{ ok: true, profileIds: string[] } | { ok: false, error: string }>}
+ */
+async function insertSessionAnglersForSelectedProfiles(cloudSessionId, selectedLocalAnglerIds) {
+  const candidates = [...new Set(selectedLocalAnglerIds)];
+  const profileIds = [];
+  for (const user_id of candidates) {
+    const { data, error } = await supabase
+      .from("session_anglers")
+      .insert({ session_id: cloudSessionId, user_id })
+      .select("user_id")
+      .maybeSingle();
+    if (!error && data && typeof data.user_id === "string") {
+      profileIds.push(data.user_id);
+      continue;
+    }
+    const code = error && typeof error === "object" && "code" in error ? String(error.code) : "";
+    const msg = error && typeof error.message === "string" ? error.message.toLowerCase() : "";
+    if (code === "23505" || msg.includes("duplicate") || msg.includes("unique")) {
+      profileIds.push(user_id);
+      continue;
+    }
+    if (code === "23503" || msg.includes("foreign key")) {
+      continue;
+    }
+    if (error) {
+      console.error("[Supabase] session_anglers insert failed:", error);
+      return { ok: false, error: error.message || "session_anglers insert failed" };
+    }
+  }
+  return { ok: true, profileIds };
 }
 
 /**
@@ -236,6 +273,7 @@ async function resolveCloudSessionIdForLocalSession(s) {
 
 /**
  * Removes cloud rows for a session using the Supabase session UUID, then local IndexedDB cascade.
+ * `session_anglers` rows are removed by `ON DELETE CASCADE` when the session row is deleted.
  * @param {string} localSessionId
  * @returns {Promise<boolean>}
  */
@@ -274,17 +312,6 @@ async function deleteSessionCloudThenLocal(localSessionId) {
     if (cRes.error) {
       console.error("[Session] cloud delete catches:", cRes.error);
       showError(`Pilvi (saaliit): ${cRes.error.message}`);
-      return false;
-    }
-    const aRes = await supabase
-      .from("anglers")
-      .delete()
-      .eq("session_id", cloudSid)
-      .eq("user_id", uid)
-      .select("id");
-    if (aRes.error) {
-      console.error("[Session] cloud delete anglers:", aRes.error);
-      showError(`Pilvi (kalastajat): ${aRes.error.message}`);
       return false;
     }
     const sRes = await supabase
@@ -580,12 +607,6 @@ let fishState = freshFishState();
 /** Home screen: anglers block (list + session roster) expanded. Persists across re-renders. */
 let homeAnglersExpanded = false;
 
-/** When set, the angler list shows an inline rename form for this id. */
-let anglerManageEditId = /** @type {string | null} */ (null);
-
-/** When set, the ⋯ menu for this angler id is expanded. */
-let anglerMenuOpenId = /** @type {string | null} */ (null);
-
 /** Active Supabase `sessions.id` after a successful cloud insert when starting a session; cleared when the session ends. Also restored from IndexedDB on load (see `rehydrateSupabaseSessionContext`). */
 let activeSupabaseSessionId = null;
 
@@ -601,10 +622,10 @@ let sessionTitleNeedsCloudSync = false;
 /** @type {"synced" | "syncing" | "offline" | "error"} */
 let syncStatus = navigator.onLine ? "synced" : "offline";
 
-/** Rows returned from the Supabase `anglers` insert for the active session; cleared when the session ends or on insert failure. */
+/** Rows returned from the last successful `session_anglers` batch for the active session (optional; cleared when the session ends). */
 let activeSupabaseAnglerRows = null;
 
-/** Local angler id → Supabase angler row (includes `id`) for the active session. */
+/** Local angler id → `{ id: profiles.id }` for the active session (`catches.angler_id`). */
 const supabaseAnglerRowByLocalId = new Map();
 
 /** @type {ReturnType<typeof setInterval> | null} */
@@ -1247,8 +1268,9 @@ async function renderCatchList(container, sessionId, emptyPlaceholderRow, listOp
   if (!container) return 0;
   const activeSession = listOptions.activeSession === true;
   const allowEditDelete = listOptions.allowEditDelete === true;
-  const [catches, anglers] = await Promise.all([getCatchesForSession(sessionId), getAllAnglers()]);
-  const nameById = Object.fromEntries(anglers.map((a) => [a.id, a.displayName]));
+  const catches = await getCatchesForSession(sessionId);
+  const anglerIds = [...new Set(catches.map((c) => c.anglerId))];
+  const nameById = await fetchProfileDisplayNames(anglerIds);
   const newestFirst = listOptions.sortNewestFirst !== false;
   const sorted = [...catches].sort((a, b) =>
     newestFirst ? b.timestamp - a.timestamp : a.timestamp - b.timestamp
@@ -1344,12 +1366,14 @@ async function populateCatchesTable(sessionIdOverride) {
     const byAnglerUl = document.getElementById("ended-dash-by-angler");
     const bySpeciesUl = document.getElementById("ended-dash-by-species");
     if (session && summaryDl && byAnglerUl && bySpeciesUl) {
-      const [sessionAnglers, catches, anglers] = await Promise.all([
+      const [sessionAnglers, catches] = await Promise.all([
         getSessionAnglersForSession(sessionIdOverride),
         getCatchesForSession(sessionIdOverride),
-        getAllAnglers(),
       ]);
-      const nameById = Object.fromEntries(anglers.map((a) => [a.id, a.displayName]));
+      const anglerIds = [
+        ...new Set([...sessionAnglers.map((sa) => sa.anglerId), ...catches.map((c) => c.anglerId)]),
+      ];
+      const nameById = await fetchProfileDisplayNames(anglerIds);
       fillEndedSessionDashboardPanels(session, sessionAnglers, catches, nameById, {
         summaryDl,
         byAnglerUl,
@@ -1430,12 +1454,14 @@ async function populateSessionSummaryOverlay(sessionId) {
   const bySpeciesUl = document.getElementById("session-summary-dash-by-species");
   if (!session || !summaryDl || !byAnglerUl || !bySpeciesUl) return;
 
-  const [sessionAnglers, catches, anglers] = await Promise.all([
+  const [sessionAnglers, catches] = await Promise.all([
     getSessionAnglersForSession(sessionId),
     getCatchesForSession(sessionId),
-    getAllAnglers(),
   ]);
-  const nameById = Object.fromEntries(anglers.map((a) => [a.id, a.displayName]));
+  const anglerIds = [
+    ...new Set([...sessionAnglers.map((sa) => sa.anglerId), ...catches.map((c) => c.anglerId)]),
+  ];
+  const nameById = await fetchProfileDisplayNames(anglerIds);
   fillEndedSessionDashboardPanels(session, sessionAnglers, catches, nameById, {
     summaryDl,
     byAnglerUl,
@@ -1480,12 +1506,14 @@ async function renderSessionLiveView(sessionId) {
   const wrap = document.getElementById("session-live-view");
   if (!wrap) return;
 
-  const [sas, catches, anglers] = await Promise.all([
+  const [sas, catches] = await Promise.all([
     getSessionAnglersForSession(sessionId),
     getCatchesForSession(sessionId),
-    getAllAnglers(),
   ]);
-  const nameById = Object.fromEntries(anglers.map((a) => [a.id, a.displayName]));
+  const anglerIds = [
+    ...new Set([...sas.map((sa) => sa.anglerId), ...catches.map((c) => c.anglerId)]),
+  ];
+  const nameById = await fetchProfileDisplayNames(anglerIds);
 
   /** @type {Map<string, number>} */
   const totalByAngler = new Map();
@@ -1562,172 +1590,31 @@ function syncHomeAnglersToggleUi() {
   panel?.classList.toggle("hidden", !homeAnglersExpanded);
   btn?.setAttribute("aria-expanded", homeAnglersExpanded ? "true" : "false");
   btn?.classList.toggle("is-active", homeAnglersExpanded);
-  if (btn) btn.textContent = homeAnglersExpanded ? "Piilota kalastajat" : "Näytä kalastajat";
+  if (btn) btn.textContent = homeAnglersExpanded ? "Piilota osallistujat" : "Näytä osallistujat";
 }
 
 /**
- * @param {string} raw
+ * Upserts local angler row id = auth user id (display name from profile).
+ * @param {{ id: string, user_metadata?: Record<string, unknown> } | null | undefined} user
+ * @returns {Promise<string | null>}
  */
-function normalizeAnglerName(raw) {
-  return (raw || "").trim();
+async function ensureLoggedInUserAnglerWithUser(user) {
+  if (!user?.id) return null;
+  const displayName = getDisplayNameFromUser(user);
+  const name = displayName.trim() || "User";
+  await putAngler({ id: user.id, displayName: name });
+  return user.id;
 }
 
 /**
- * @param {string} normalized
- * @param {import('./db.js').Angler[]} anglers
- * @param {string | null} excludeId
+ * @returns {Promise<string | null>}
  */
-function anglerNameTaken(normalized, anglers, excludeId) {
-  const key = normalized.toLowerCase();
-  return anglers.some((a) => {
-    if (excludeId != null && a.id === excludeId) return false;
-    return normalizeAnglerName(a.displayName).toLowerCase() === key;
-  });
-}
-
-/**
- * @param {HTMLElement} listEl
- * @param {import('./db.js').Angler[]} anglers
- */
-function renderAnglerManageListInto(listEl, anglers) {
-  listEl.innerHTML = "";
-  if (anglers.length === 0) {
-    listEl.innerHTML = '<p class="meta">Ei kalastajia — lisää nimi alta.</p>';
-    return;
-  }
-  for (const a of anglers) {
-    const row = document.createElement("div");
-    row.className = "angler-item angler-item-manage";
-
-    if (anglerManageEditId === a.id) {
-      const input = document.createElement("input");
-      input.type = "text";
-      input.value = a.displayName;
-      input.autocomplete = "name";
-      input.className = "angler-rename-input";
-
-      const rowActions = document.createElement("div");
-      rowActions.className = "angler-item-actions row-actions";
-      const saveBtn = document.createElement("button");
-      saveBtn.type = "button";
-      saveBtn.className = "btn btn-primary";
-      saveBtn.textContent = "Tallenna nimi";
-      const cancelBtn = document.createElement("button");
-      cancelBtn.type = "button";
-      cancelBtn.className = "btn btn-ghost";
-      cancelBtn.textContent = "Peruuta";
-      rowActions.appendChild(saveBtn);
-      rowActions.appendChild(cancelBtn);
-
-      row.appendChild(input);
-      row.appendChild(rowActions);
-
-      saveBtn.addEventListener("click", async () => {
-        const name = normalizeAnglerName(input.value);
-        if (!name) {
-          showError("Anna kalastajan nimi.");
-          return;
-        }
-        const all = await getAllAnglers();
-        if (anglerNameTaken(name, all, a.id)) {
-          showError("Samanniminen kalastaja on jo olemassa.");
-          return;
-        }
-        await putAngler({ id: a.id, displayName: name });
-        anglerManageEditId = null;
-        await renderHome();
-      });
-      cancelBtn.addEventListener("click", async () => {
-        anglerManageEditId = null;
-        await renderHome();
-      });
-    } else {
-      const main = document.createElement("div");
-      main.className = "angler-item-manage-main";
-
-      const label = document.createElement("span");
-      label.className = "angler-item-name";
-      label.textContent = a.displayName;
-
-      const menuWrap = document.createElement("div");
-      menuWrap.className = "angler-item-menu-wrap";
-
-      const menuBtn = document.createElement("button");
-      menuBtn.type = "button";
-      menuBtn.className = "btn btn-ghost angler-menu-trigger";
-      menuBtn.setAttribute("aria-label", "Kalastajan toiminnot");
-      menuBtn.setAttribute("aria-haspopup", "true");
-      const menuOpen = anglerMenuOpenId === a.id;
-      menuBtn.setAttribute("aria-expanded", menuOpen ? "true" : "false");
-      menuBtn.classList.toggle("is-active", menuOpen);
-      menuBtn.textContent = "⋯";
-
-      const dropdown = document.createElement("div");
-      dropdown.className = "angler-menu-dropdown";
-      dropdown.setAttribute("role", "menu");
-      if (!menuOpen) dropdown.classList.add("hidden");
-
-      const renameItem = document.createElement("button");
-      renameItem.type = "button";
-      renameItem.className = "angler-menu-item";
-      renameItem.setAttribute("role", "menuitem");
-      renameItem.textContent = "Nimeä uudelleen";
-      renameItem.addEventListener("click", async (e) => {
-        e.stopPropagation();
-        anglerMenuOpenId = null;
-        anglerManageEditId = a.id;
-        await renderHome();
-      });
-
-      const delItem = document.createElement("button");
-      delItem.type = "button";
-      delItem.className = "angler-menu-item angler-menu-item-danger";
-      delItem.setAttribute("role", "menuitem");
-      delItem.textContent = "Poista";
-      delItem.addEventListener("click", async (e) => {
-        e.stopPropagation();
-        anglerMenuOpenId = null;
-        if (!confirm(`Poistetaanko kalastaja "${a.displayName}"?`)) return;
-        const inUse = await isAnglerInUse(a.id);
-        if (inUse) {
-          showError(
-            "Kalastajaa ei voi poistaa, koska hänellä on saaliita tai sessiohistoriaa."
-          );
-          return;
-        }
-        await deleteAngler(a.id);
-        if (anglerManageEditId === a.id) anglerManageEditId = null;
-        await renderHome();
-      });
-
-      menuBtn.addEventListener("click", async (e) => {
-        e.stopPropagation();
-        e.preventDefault();
-        anglerMenuOpenId = anglerMenuOpenId === a.id ? null : a.id;
-        await renderHome();
-      });
-
-      dropdown.appendChild(renameItem);
-      dropdown.appendChild(delItem);
-      menuWrap.appendChild(menuBtn);
-      menuWrap.appendChild(dropdown);
-      main.appendChild(label);
-      main.appendChild(menuWrap);
-      row.appendChild(main);
-    }
-
-    listEl.appendChild(row);
-  }
-
-  const focusInp = /** @type {HTMLInputElement | null} */ (
-    listEl.querySelector(".angler-rename-input")
-  );
-  if (focusInp) {
-    requestAnimationFrame(() => {
-      focusInp.focus();
-      focusInp.select();
-    });
-  }
+async function ensureLoggedInUserAngler() {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return null;
+  return ensureLoggedInUserAnglerWithUser(user);
 }
 
 async function renderHome() {
@@ -1777,17 +1664,10 @@ async function renderHome() {
 
   syncHomeAnglersToggleUi();
 
-  const anglers = await getAllAnglers();
-  const listEl = document.getElementById("angler-list");
-  if (listEl) {
-    renderAnglerManageListInto(listEl, anglers);
-  }
-
   if (session) {
     const sas = await getSessionAnglersForSession(session.id);
-    const nameById = Object.fromEntries(anglers.map((a) => [a.id, a.displayName]));
+    const nameById = await fetchProfileDisplayNames(sas.map((sa) => sa.anglerId));
     const rows = document.getElementById("session-angler-rows");
-    const addBox = document.getElementById("add-to-session");
     if (rows) {
       rows.innerHTML = "";
       for (const sa of sas) {
@@ -1811,27 +1691,6 @@ async function renderHome() {
           row.appendChild(b);
         }
         rows.appendChild(row);
-      }
-    }
-    if (addBox) {
-      addBox.innerHTML = "";
-      const inSession = new Set(sas.filter((x) => x.isActive).map((x) => x.anglerId));
-      const available = anglers.filter((a) => !inSession.has(a.id));
-      if (available.length === 0) {
-        addBox.innerHTML = '<p class="meta">Kaikki kalastajat ovat jo sessiossa (tai lisää uusi ylhäältä).</p>';
-      } else {
-        for (const a of available) {
-          const b = document.createElement("button");
-          b.type = "button";
-          b.className = "btn";
-          b.textContent = `Lisää: ${a.displayName}`;
-          b.addEventListener("click", async () => {
-            const r = await addAnglerToSession(session.id, a.id);
-            if (!r.ok) showError(r.reason);
-            await renderHome();
-          });
-          addBox.appendChild(b);
-        }
       }
     }
   }
@@ -1868,9 +1727,6 @@ async function renderHistorySection() {
   }
   emptyEl.hidden = true;
 
-  const anglers = await getAllAnglers();
-  const nameById = Object.fromEntries(anglers.map((a) => [a.id, a.displayName]));
-
   const rows = await Promise.all(
     sessions.map(async (s) => {
       const [sas, catches] = await Promise.all([
@@ -1880,6 +1736,14 @@ async function renderHistorySection() {
       return { session: s, sas, catchCount: catches.length };
     })
   );
+
+  const allAnglerIds = [];
+  for (const { sas } of rows) {
+    for (const sa of sas) {
+      allAnglerIds.push(sa.anglerId);
+    }
+  }
+  const nameById = await fetchProfileDisplayNames(allAnglerIds);
 
   for (const { session: s, sas, catchCount } of rows) {
     const dateStr = formatSessionDateLabel(s.startTime);
@@ -1920,51 +1784,188 @@ async function renderHistorySection() {
 }
 
 /**
- * @param {import('./db.js').Angler[]} anglers
+ * Session start: owner + profile search only (no guest/local anglers).
+ * @param {string | null} selfAnglerId
+ * @param {string} selfDisplayName
  */
-function buildStartAnglerPicks(anglers) {
+function buildStartSessionParticipantPicker(selfAnglerId, selfDisplayName) {
   const box = document.getElementById("start-angler-picks");
   const confirm = document.getElementById("start-confirm");
   if (!box || !confirm) return;
 
   /** @type {Set<string>} */
   const selected = new Set();
+  /** @type {Map<string, string>} */
+  const labelById = new Map();
 
-  function sync() {
-    confirm.disabled = selected.size === 0;
-    box.querySelectorAll("[data-angler-id]").forEach((el) => {
-      const id = el.getAttribute("data-angler-id");
-      if (!id) return;
-      if (selected.has(id)) {
-        el.classList.add("btn-selected");
-      } else {
-        el.classList.remove("btn-selected");
+  /** @type {ReturnType<typeof setTimeout> | null} */
+  let searchTimer = null;
+
+  function hideResults() {
+    const r = box.querySelector("#start-search-results");
+    if (r) {
+      r.innerHTML = "";
+      r.classList.add("hidden");
+    }
+  }
+
+  function renderSelectedChips() {
+    const wrap = box.querySelector("#start-selected-wrap");
+    if (!wrap) return;
+    wrap.innerHTML = "";
+    for (const id of selected) {
+      if (id === selfAnglerId) continue;
+      const chip = document.createElement("div");
+      chip.className = "participant-chip";
+      const label = document.createElement("span");
+      label.textContent = labelById.get(id) || id;
+      const rm = document.createElement("button");
+      rm.type = "button";
+      rm.className = "btn btn-ghost participant-chip-remove";
+      rm.setAttribute("aria-label", "Poista osallistuja");
+      rm.textContent = "×";
+      rm.addEventListener("click", () => {
+        selected.delete(id);
+        labelById.delete(id);
+        renderSelectedChips();
+      });
+      chip.append(label, rm);
+      wrap.appendChild(chip);
+    }
+  }
+
+  /**
+   * @param {string} q
+   */
+  function runSearch(q) {
+    const hint = box.querySelector("#start-search-hint");
+    const resultsEl = box.querySelector("#start-search-results");
+    if (!resultsEl) return;
+    if (!navigator.onLine) {
+      if (hint) hint.textContent = "Käyttäjähaku vaatii verkkoyhteyden.";
+      hideResults();
+      return;
+    }
+    if (hint) hint.textContent = "";
+    const trimmed = q.trim();
+    if (trimmed.length < 1) {
+      if (hint) hint.textContent = "";
+      hideResults();
+      return;
+    }
+    void (async () => {
+      try {
+      const { profiles, error } = await searchProfiles(trimmed, 15);
+      if (error) {
+        if (hint) hint.textContent = error;
+        hideResults();
+        return;
       }
-    });
+      const filtered = profiles.filter((p) => p.id !== selfAnglerId && !selected.has(p.id));
+      resultsEl.innerHTML = "";
+      if (filtered.length === 0) {
+        resultsEl.classList.add("hidden");
+        if (hint) {
+          if (profiles.length === 0) {
+            hint.textContent = "Ei hakutuloksia. Tarkista että RLS sallii profiilien lukemisen (docs: profiles_select_authenticated).";
+          } else {
+            hint.textContent =
+              "Ei lisättäviä tuloksia (vain oma profiili osuu hakuun tai kaikki jo valittu).";
+          }
+        }
+        return;
+      }
+      if (hint) hint.textContent = "";
+      resultsEl.classList.remove("hidden");
+      for (const p of filtered) {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "btn start-search-result-btn";
+        const title = profileDisplayLabel(p, p.id);
+        const un = (p.username || "").trim();
+        btn.textContent = un ? `${title} (@${un})` : title;
+        btn.addEventListener("click", () => {
+          if (selected.has(p.id)) return;
+          selected.add(p.id);
+          labelById.set(p.id, title);
+          const inp = /** @type {HTMLInputElement | null} */ (box.querySelector("#start-profile-search"));
+          if (inp) inp.value = "";
+          hideResults();
+          renderSelectedChips();
+        });
+        resultsEl.appendChild(btn);
+      }
+      } catch (e) {
+        console.error("[start session search]", e);
+        if (hint) {
+          hint.textContent = e instanceof Error ? e.message : "Haku epäonnistui.";
+        }
+        hideResults();
+      }
+    })();
   }
 
   box.innerHTML = "";
-  if (anglers.length === 0) {
-    box.innerHTML = '<p class="meta">Lisää ensin vähintään yksi kalastaja.</p>';
+  if (!selfAnglerId) {
+    box.innerHTML = '<p class="meta">Kirjautuminen puuttuu.</p>';
     confirm.disabled = true;
     return;
   }
 
-  for (const a of anglers) {
-    const b = document.createElement("button");
-    b.type = "button";
-    b.className = "btn";
-    b.dataset.anglerId = a.id;
-    b.textContent = a.displayName;
-    b.addEventListener("click", () => {
-      if (selected.has(a.id)) selected.delete(a.id);
-      else selected.add(a.id);
-      sync();
-    });
-    box.appendChild(b);
-  }
+  selected.add(selfAnglerId);
+
+  const selfRow = document.createElement("p");
+  selfRow.className = "meta start-self-line";
+  selfRow.textContent = `Sinä: ${selfDisplayName || "Käyttäjä"} (aina mukana)`;
+
+  const selWrap = document.createElement("div");
+  selWrap.id = "start-selected-wrap";
+  selWrap.className = "start-selected-chips";
+
+  const searchWrap = document.createElement("div");
+  searchWrap.className = "stack start-search-block";
+  const searchLabel = document.createElement("div");
+  searchLabel.className = "field-label";
+  searchLabel.textContent = "Lisää osallistuja (haku)";
+  const searchInput = document.createElement("input");
+  searchInput.type = "text";
+  searchInput.inputMode = "search";
+  searchInput.id = "start-profile-search";
+  searchInput.autocomplete = "off";
+  searchInput.placeholder = "Käyttäjätunnus tai näyttönimi";
+  searchInput.addEventListener("input", () => {
+    if (searchTimer) clearTimeout(searchTimer);
+    const v = searchInput.value;
+    searchTimer = setTimeout(() => {
+      searchTimer = null;
+      runSearch(v);
+    }, 300);
+  });
+  searchInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      if (searchTimer) clearTimeout(searchTimer);
+      searchTimer = null;
+      runSearch(searchInput.value);
+    }
+  });
+
+  const searchResults = document.createElement("div");
+  searchResults.id = "start-search-results";
+  searchResults.className = "start-search-results hidden";
+
+  const hint = document.createElement("p");
+  hint.id = "start-search-hint";
+  hint.className = "meta";
+
+  searchWrap.append(searchLabel, searchInput, searchResults, hint);
+  box.append(selfRow, selWrap, searchWrap);
+
+  renderSelectedChips();
+  confirm.disabled = false;
 
   confirm.onclick = async () => {
+    selected.add(selfAnglerId);
     const btn = /** @type {HTMLButtonElement | null} */ (document.getElementById("start-confirm"));
     if (btn) {
       btn.disabled = true;
@@ -2035,44 +2036,31 @@ function buildStartAnglerPicks(anglers) {
 
     activeSupabaseAnglerRows = null;
     supabaseAnglerRowByLocalId.clear();
-    if (activeSupabaseSessionId) {
+    if (activeSupabaseSessionId && authUserId) {
       const selectedIds = [...selected];
-      const nameByLocalId = new Map(anglers.map((a) => [a.id, a.displayName]));
-      const insertRows = selectedIds.map((localId) => ({
-        session_id: activeSupabaseSessionId,
-        name: nameByLocalId.get(localId) ?? "",
-        user_id: authUserId,
-      }));
-
-      const {
-        data: sbAnglers,
-        error: anglersError,
-      } = await supabase.from("anglers").insert(insertRows).select();
-
-      if (anglersError) {
-        console.error("[Supabase] anglers insert failed:", anglersError.message, anglersError);
-        showError("Supabase-kalastajia ei voitu tallentaa. Katso konsoli.");
+      const rosterRes = await insertSessionAnglersForSelectedProfiles(
+        activeSupabaseSessionId,
+        selectedIds
+      );
+      if (!rosterRes.ok) {
+        console.error("[Supabase] session_anglers:", rosterRes.error);
+        showError("Supabase-sessioon ei voitu tallentaa kalastajalistaa. Katso konsoli.");
         setSyncStatus(navigator.onLine ? "error" : "offline");
-      } else if (sbAnglers && sbAnglers.length === selectedIds.length) {
-        activeSupabaseAnglerRows = sbAnglers;
-        selectedIds.forEach((localId, i) => {
-          const row = sbAnglers[i];
-          if (row) supabaseAnglerRowByLocalId.set(localId, row);
-        });
-        for (let i = 0; i < selectedIds.length; i++) {
-          const localId = selectedIds[i];
-          const row = sbAnglers[i];
-          if (!row || row.id == null || String(row.id) === "") continue;
+      } else {
+        const rosterSet = new Set(rosterRes.profileIds);
+        activeSupabaseAnglerRows = rosterRes.profileIds.map((user_id) => ({
+          session_id: activeSupabaseSessionId,
+          user_id,
+        }));
+        for (const localId of selectedIds) {
+          if (!rosterSet.has(localId)) continue;
+          supabaseAnglerRowByLocalId.set(localId, { id: localId });
           const sa = await findSessionAngler(r.sessionId, localId);
           if (sa) {
-            await putSessionAngler({ ...sa, supabaseAnglerId: String(row.id) });
+            await putSessionAngler({ ...sa, supabaseAnglerId: localId });
           }
         }
         setSyncStatus("synced");
-      } else {
-        console.error("[Supabase] anglers insert: unexpected response", sbAnglers);
-        showError("Supabase-kalastajia ei voitu tallentaa. Katso konsoli.");
-        setSyncStatus(navigator.onLine ? "error" : "offline");
       }
     }
 
@@ -2082,8 +2070,6 @@ function buildStartAnglerPicks(anglers) {
     closeSessionEndOverlay();
     await renderHome();
   };
-
-  sync();
 }
 
 /**
@@ -2265,8 +2251,7 @@ async function populateFishAnglers() {
   if (!box || !session) return;
   const sas = await getSessionAnglersForSession(session.id);
   const active = sas.filter((x) => x.isActive);
-  const anglers = await getAllAnglers();
-  const nameById = Object.fromEntries(anglers.map((a) => [a.id, a.displayName]));
+  const nameById = await fetchProfileDisplayNames(active.map((sa) => sa.anglerId));
   box.innerHTML = "";
   if (active.length === 0) {
     box.innerHTML = '<p class="meta">Ei aktiivisia kalastajia sessiossa.</p>';
@@ -2347,9 +2332,8 @@ function onAuthSignedOut() {
   sessionTitleNeedsCloudSync = false;
   stopSessionTimer();
   fishState.editingCatchId = null;
-  anglerManageEditId = null;
-  anglerMenuOpenId = null;
   homeAnglersExpanded = false;
+  closeProfileOverlay();
   document.getElementById("fish-overlay")?.classList.add("hidden");
   document.getElementById("catches-overlay")?.classList.add("hidden");
   document.getElementById("start-overlay")?.classList.add("hidden");
@@ -2473,6 +2457,19 @@ async function activateSignedInUser(user) {
   } catch (err) {
     console.warn("[Auth] legacy IndexedDB purge skipped:", err);
   }
+  try {
+    if (navigator.onLine) {
+      const pr = await upsertProfileForUser(user);
+      if (!pr.ok) console.warn("[Auth] profile upsert:", pr.error);
+    }
+  } catch (err) {
+    console.warn("[Auth] profile upsert failed:", err);
+  }
+  try {
+    await ensureLoggedInUserAnglerWithUser(user);
+  } catch (err) {
+    console.warn("[Auth] ensureLoggedInUserAngler:", err);
+  }
   showMainApp();
   updateUserDisplayName(user);
   if (!mainAppStarted) {
@@ -2590,10 +2587,12 @@ function wireAuthUi() {
   document.getElementById("auth-signup-submit")?.addEventListener("click", async () => {
     const fnEl = /** @type {HTMLInputElement | null} */ (document.getElementById("auth-signup-first"));
     const lnEl = /** @type {HTMLInputElement | null} */ (document.getElementById("auth-signup-last"));
+    const unEl = /** @type {HTMLInputElement | null} */ (document.getElementById("auth-signup-username"));
     const emailEl = /** @type {HTMLInputElement | null} */ (document.getElementById("auth-signup-email"));
     const passEl = /** @type {HTMLInputElement | null} */ (document.getElementById("auth-signup-password"));
     const fn = fnEl?.value?.trim() ?? "";
     const ln = lnEl?.value?.trim() ?? "";
+    const usernameRaw = unEl?.value?.trim() ?? "";
     const email = emailEl?.value?.trim() ?? "";
     const password = passEl?.value ?? "";
     setAuthMessage("");
@@ -2605,7 +2604,7 @@ function wireAuthUi() {
       setAuthMessage("Anna sähköposti ja salasana.");
       return;
     }
-    const { data, error } = await signUpWithProfile(email, password, fn, ln);
+    const { data, error } = await signUpWithProfile(email, password, fn, ln, usernameRaw);
     if (error) {
       setAuthMessage(error.message);
       return;
@@ -2615,10 +2614,6 @@ function wireAuthUi() {
     }
   });
 
-  document.getElementById("btn-logout")?.addEventListener("click", async () => {
-    const { error } = await signOut();
-    if (error) showError(error.message);
-  });
 }
 
 async function bootstrap() {
@@ -2658,6 +2653,7 @@ async function handleAuthStateChange(event, session) {
 }
 
 function mainAppInit() {
+  wireProfileUi({ onError: showError });
   wireFishMeasurementInputs();
   wireSessionTitleEditor();
   renderSyncStatusIndicator();
@@ -2670,43 +2666,25 @@ function mainAppInit() {
     setSyncStatus("offline");
   });
 
-  document.addEventListener("click", (e) => {
-    if (anglerMenuOpenId === null) return;
-    const t = e.target;
-    if (!(t instanceof Element)) return;
-    if (t.closest(".angler-item-menu-wrap")) return;
-    anglerMenuOpenId = null;
-    void renderHome();
-  });
-
   document.getElementById("btn-open-start")?.addEventListener("click", async () => {
     closeCatchesOverlay();
     closeSessionEndOverlay();
     closeSessionSummaryOverlay();
-    const anglers = await getAllAnglers();
-    buildStartAnglerPicks(anglers);
+    const selfId = await ensureLoggedInUserAngler();
+    if (!selfId) {
+      showError("Kirjautuminen puuttuu.");
+      return;
+    }
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    const selfName = user ? getDisplayNameFromUser(user) : "";
+    buildStartSessionParticipantPicker(selfId, selfName);
     document.getElementById("start-overlay")?.classList.remove("hidden");
   });
 
   document.getElementById("start-cancel")?.addEventListener("click", () => {
     document.getElementById("start-overlay")?.classList.add("hidden");
-  });
-
-  document.getElementById("btn-add-angler")?.addEventListener("click", async () => {
-    const inp = /** @type {HTMLInputElement | null} */ (document.getElementById("new-angler-name"));
-    const name = normalizeAnglerName(inp?.value || "");
-    if (!name) {
-      showError("Anna kalastajan nimi.");
-      return;
-    }
-    const existing = await getAllAnglers();
-    if (anglerNameTaken(name, existing, null)) {
-      showError("Samanniminen kalastaja on jo olemassa.");
-      return;
-    }
-    await putAngler({ id: newId(), displayName: name });
-    if (inp) inp.value = "";
-    await renderHome();
   });
 
   document.getElementById("btn-end-session")?.addEventListener("click", () => {

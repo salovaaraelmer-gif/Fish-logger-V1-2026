@@ -62,11 +62,45 @@ h1 {
 
 .app-header-user {
   display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 0.35rem;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 0.5rem;
   flex-shrink: 0;
-  max-width: 55%;
+  max-width: 60%;
+}
+
+.user-display-name-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  max-width: 100%;
+  margin: 0;
+  padding: 0.35rem 0.25rem;
+  min-height: var(--tap-min);
+  border: none;
+  border-radius: var(--radius);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  text-align: right;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.user-display-name-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.user-display-name-btn:active {
+  opacity: 0.85;
+}
+
+.user-display-name-btn:hover .user-display-name {
+  color: var(--text);
+  text-decoration: underline;
 }
 
 .user-display-name {
@@ -74,13 +108,7 @@ h1 {
   color: var(--muted);
   text-align: right;
   word-break: break-word;
-}
-
-.btn-logout {
-  width: auto;
-  min-height: 44px;
-  padding: 0.4rem 0.65rem;
-  font-size: 0.95rem;
+  pointer-events: none;
 }
 
 .auth-gate {
@@ -311,6 +339,12 @@ h2 {
 .btn-selected {
   outline: 3px solid var(--accent);
   border-color: var(--accent);
+}
+
+.btn-selected:disabled,
+.btn-self-angler-start:disabled {
+  opacity: 1;
+  cursor: not-allowed;
 }
 
 #btn-toggle-anglers.is-active {
@@ -546,63 +580,17 @@ h2 {
   font-weight: 600;
 }
 
-.angler-item-menu-wrap {
-  position: relative;
-  flex-shrink: 0;
-}
-
-.angler-menu-trigger {
-  min-width: 44px;
-  min-height: 44px;
-  width: 44px;
-  padding: 0;
-  font-size: 1.35rem;
-  line-height: 1;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-}
-
-.angler-menu-trigger.is-active {
-  outline: 2px solid var(--accent);
-  border-color: var(--border);
-}
-
-.angler-menu-dropdown {
-  position: absolute;
-  top: 100%;
-  right: 0;
-  margin-top: 4px;
-  z-index: 30;
-  min-width: 12rem;
-  padding: 0.35rem 0;
-  background: var(--surface);
-  border: 2px solid var(--border);
-  border-radius: var(--radius);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
-}
-
-.angler-menu-item {
-  display: flex;
-  align-items: center;
+.angler-item-manage-row {
   width: 100%;
+  justify-content: space-between;
+}
+
+.angler-delete-btn {
+  flex-shrink: 0;
   min-height: 44px;
-  padding: 0.5rem 0.85rem;
-  border: none;
-  background: transparent;
-  color: var(--text);
-  font: inherit;
-  font-size: 1rem;
+  padding: 0.4rem 0.65rem;
+  font-size: 0.95rem;
   font-weight: 600;
-  text-align: left;
-  cursor: pointer;
-}
-
-.angler-menu-item:active {
-  background: rgba(255, 255, 255, 0.06);
-}
-
-.angler-menu-item-danger {
-  color: #ffa198;
 }
 
 .angler-item-manage .angler-item-actions {
@@ -691,6 +679,40 @@ textarea {
   display: none !important;
 }
 
+#profile-overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--bg);
+  z-index: 57;
+  overflow: auto;
+  padding: 1rem;
+}
+
+#profile-overlay.hidden {
+  display: none !important;
+}
+
+.profile-inner {
+  max-width: 520px;
+  margin: 0 auto;
+}
+
+.profile-value {
+  margin: 0.25rem 0 0;
+  font-size: 1.05rem;
+  font-weight: 600;
+  word-break: break-word;
+}
+
+.profile-fields {
+  margin-bottom: 1.25rem;
+}
+
+.profile-logout-btn {
+  width: 100%;
+  min-height: var(--tap-min);
+}
+
 #fish-overlay {
   position: fixed;
   inset: 0;
@@ -765,6 +787,61 @@ textarea {
   padding: 1rem;
   max-height: 85vh;
   overflow: auto;
+}
+
+.start-self-line {
+  margin: 0 0 0.75rem;
+}
+
+.start-selected-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+  min-height: 0;
+}
+
+.participant-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.5rem;
+  background: var(--surface);
+  border: 2px solid var(--border);
+  border-radius: var(--radius);
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.participant-chip-remove {
+  min-width: 40px;
+  min-height: 40px;
+  padding: 0;
+  font-size: 1.25rem;
+  line-height: 1;
+}
+
+.start-search-block input[type="search"] {
+  width: 100%;
+  min-height: var(--tap-min);
+}
+
+.start-search-results {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-top: 0.35rem;
+  max-height: 220px;
+  overflow: auto;
+}
+
+.start-search-results.hidden {
+  display: none !important;
+}
+
+.start-search-result-btn {
+  text-align: left;
+  justify-content: flex-start;
 }
 
 .fish-inner {

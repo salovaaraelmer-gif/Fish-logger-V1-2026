@@ -1,0 +1,16 @@
+---
+description: Flag Supabase SQL steps clearly in task summaries (CAPS emphasis).
+alwaysApply: true
+---
+
+# Supabase SQL — summary convention
+
+Human-readable documentation: **`docs/SUPABASE_SQL.md`**.
+
+When the user must execute SQL in Supabase (typically **Dashboard → SQL Editor**), make that explicit at the end of the task summary.
+
+Use **ALL CAPS** for the action line so it stands out, for example:
+
+**RUN IN SUPABASE SQL EDITOR:** (then: which file/section, or paste the exact `CREATE POLICY` / migration snippet they need.)
+
+Keep the caps line short; use normal sentence case for surrounding explanation. Do not put entire summaries in caps.

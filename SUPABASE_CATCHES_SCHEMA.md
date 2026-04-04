@@ -16,7 +16,7 @@ The client sends **snake_case** fields aligned with local names. Ensure your tab
 | `id` | `uuid` | Primary key, default `gen_random_uuid()` |
 | `user_id` | `uuid` | Owner; FK to `auth.users`, must equal `auth.uid()` (see `SUPABASE_AUTH_RLS.md`) |
 | `session_id` | `uuid` | FK to your sessions table |
-| `angler_id` | `uuid` | FK to your anglers table |
+| `angler_id` | `uuid` | FK to `public.profiles` (`id` = `auth.users.id` for that angler) |
 | `species` | `text` | App sends `pike`, `perch`, `zander`, `trout`, `other` (same as internal keys) |
 | `length_cm` | `numeric` | Nullable |
 | `weight_kg` | `numeric` | Kilograms, nullable |

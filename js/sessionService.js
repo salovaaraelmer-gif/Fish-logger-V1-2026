@@ -5,7 +5,6 @@
 
 import {
   getActiveSession,
-  getAllAnglers,
   getSessionById,
   getSessionAnglersForSession,
   findSessionAngler,
@@ -13,10 +12,22 @@ import {
   putSessionAngler,
   isAnglerInAnyActiveSession,
 } from "./db.js";
+import { getAuthUserId } from "./auth.js";
 import { defaultSessionTitleFromDate } from "./sessionTitle.js";
 
 function newId() {
   return crypto.randomUUID ? crypto.randomUUID() : `id-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+/**
+ * @param {string} s
+ * @returns {boolean}
+ */
+function isUuid(s) {
+  return (
+    typeof s === "string" &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(s)
+  );
 }
 
 /**
@@ -32,7 +43,12 @@ function newId() {
  * @returns {Promise<{ ok: true, sessionId: string, title: string } | { ok: false, reason: string }>}
  */
 export async function startSession(anglerIds, initialLocation) {
-  const unique = [...new Set(anglerIds)].filter(Boolean);
+  const authId = await getAuthUserId();
+  let raw = [...new Set(anglerIds)].filter(Boolean);
+  if (authId && !raw.includes(authId)) {
+    raw = [authId, ...raw];
+  }
+  const unique = raw;
   if (unique.length === 0) {
     return { ok: false, reason: "Valitse vähintään yksi kalastaja." };
   }
@@ -49,11 +65,9 @@ export async function startSession(anglerIds, initialLocation) {
     }
   }
 
-  const all = await getAllAnglers();
-  const idSet = new Set(all.map((a) => a.id));
   for (const aid of unique) {
-    if (!idSet.has(aid)) {
-      return { ok: false, reason: "Tuntematon kalastaja." };
+    if (!isUuid(aid)) {
+      return { ok: false, reason: "Virheellinen osallistuja." };
     }
   }
 

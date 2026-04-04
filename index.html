@@ -29,6 +29,16 @@
           <input type="text" id="auth-signup-first" autocomplete="given-name" />
           <div class="field-label">Sukunimi</div>
           <input type="text" id="auth-signup-last" autocomplete="family-name" />
+          <div class="field-label">Käyttäjätunnus (profiili)</div>
+          <input
+            type="text"
+            id="auth-signup-username"
+            autocomplete="username"
+            inputmode="text"
+            autocapitalize="none"
+            spellcheck="false"
+            placeholder="vain kirjaimet, numerot ja _"
+          />
           <div class="field-label">Sähköposti</div>
           <input type="email" id="auth-signup-email" autocomplete="email" />
           <div class="field-label">Salasana</div>
@@ -53,8 +63,9 @@
         <div class="app-header-row">
           <h1 class="app-brand-title">AnglrLog</h1>
           <div class="app-header-user">
-            <span id="user-display-name" class="user-display-name" aria-live="polite"></span>
-            <button type="button" class="btn btn-ghost btn-logout" id="btn-logout">Kirjaudu ulos</button>
+            <button type="button" id="btn-open-profile" class="user-display-name-btn" aria-label="Avaa profiili">
+              <span id="user-display-name" class="user-display-name" aria-live="polite"></span>
+            </button>
           </div>
         </div>
         <div id="session-title-block" class="session-title-block hidden">
@@ -100,22 +111,15 @@
           <button type="button" class="btn btn-danger" id="btn-end-session">Lopeta sessio</button>
         </div>
 
-        <button type="button" class="btn" id="btn-toggle-anglers" aria-expanded="false">Näytä kalastajat</button>
+        <button type="button" class="btn" id="btn-toggle-anglers" aria-expanded="false">Näytä osallistujat</button>
 
         <div id="angler-edit-panel" class="stack angler-edit-panel hidden">
-          <h2>Kalastajat</h2>
-          <div id="angler-list" class="stack"></div>
-          <div class="stack" style="margin-top: 1rem">
-            <div class="field-label">Lisää kalastaja</div>
-            <input type="text" id="new-angler-name" placeholder="Nimi" autocomplete="name" />
-            <button type="button" class="btn" id="btn-add-angler">Tallenna kalastaja</button>
-          </div>
+          <h2>Osallistujat</h2>
+          <p class="meta">Osallistujat valitaan session alussa rekisteröityneistä käyttäjistä.</p>
 
           <div id="session-roster" class="hidden" style="margin-top: 1.5rem">
             <h2>Sessiossa nyt</h2>
             <div id="session-angler-rows" class="stack"></div>
-            <h2>Lisää sessioon</h2>
-            <div id="add-to-session" class="stack"></div>
           </div>
         </div>
 
@@ -125,6 +129,31 @@
           <div id="history-session-list" class="stack history-session-list"></div>
         </section>
       </section>
+    </div>
+
+    <!-- Profile (read-only) -->
+    <div id="profile-overlay" class="hidden">
+      <div class="profile-inner">
+        <div class="row-actions" style="margin-bottom: 1rem">
+          <button type="button" class="btn btn-ghost" id="profile-close">Sulje</button>
+        </div>
+        <h2>Profiili</h2>
+        <div class="stack profile-fields" style="margin-top: 1rem">
+          <div>
+            <div class="field-label">Nimi</div>
+            <p id="profile-display-name" class="profile-value">—</p>
+          </div>
+          <div>
+            <div class="field-label">Käyttäjätunnus</div>
+            <p id="profile-username" class="profile-value">—</p>
+          </div>
+          <div>
+            <div class="field-label">Sähköposti</div>
+            <p id="profile-email" class="profile-value">—</p>
+          </div>
+        </div>
+        <button type="button" class="btn btn-danger profile-logout-btn" id="profile-logout">Kirjaudu ulos</button>
+      </div>
     </div>
 
     <!-- Fish entry overlay -->
@@ -292,8 +321,8 @@
     <div id="start-overlay" class="hidden">
       <div class="start-modal-inner">
         <h2>Aloita sessio</h2>
-        <p class="meta">Valitse vähintään yksi kalastaja.</p>
-        <div id="start-angler-picks" class="stack" style="margin-bottom: 1rem"></div>
+        <p class="meta">Sinä olet aina mukana. Lisää muita rekisteröityjä käyttäjiä haulla (käyttäjätunnus tai nimi).</p>
+        <div id="start-angler-picks" class="stack start-angler-picks" style="margin-bottom: 1rem"></div>
         <div class="row-actions">
           <button type="button" class="btn btn-ghost" id="start-cancel">Peruuta</button>
           <button type="button" class="btn btn-primary" id="start-confirm" disabled>Aloita</button>

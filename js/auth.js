@@ -89,11 +89,14 @@ export function getDisplayNameFromUser(user) {
  * @param {string} password
  * @param {string} firstName
  * @param {string} lastName
+ * @param {string} [username] — stored in metadata; app upserts `public.profiles.username` on login
  */
-export async function signUpWithProfile(email, password, firstName, lastName) {
+export async function signUpWithProfile(email, password, firstName, lastName, username) {
   const fn = (firstName || "").trim();
   const ln = (lastName || "").trim();
   const full = [fn, ln].filter(Boolean).join(" ").trim() || fn || ln;
+  const rawU = typeof username === "string" ? username.trim().toLowerCase() : "";
+  const u = rawU.replace(/[^a-z0-9_]/g, "").replace(/_+/g, "_").replace(/^_|_$/g, "");
   return supabase.auth.signUp({
     email: email.trim(),
     password,
@@ -102,6 +105,7 @@ export async function signUpWithProfile(email, password, firstName, lastName) {
         first_name: fn,
         last_name: ln,
         full_name: full,
+        ...(u.length >= 2 ? { username: u } : {}),
       },
     },
   });
