@@ -48,6 +48,8 @@ import {
   getAuthUserId,
   signInWithEmail,
   signUpWithProfile,
+  sendPasswordResetEmail,
+  updatePassword,
 } from "./auth.js";
 import {
   upsertProfileForUser,
@@ -2321,6 +2323,54 @@ function setAuthMessage(msg) {
 
 /** Last user id used for IndexedDB scope; detects account switch without full reload. */
 let lastIndexedDbUserId = /** @type {string | null} */ (null);
+
+/** True while user must set a new password (email recovery link). Blocks normal SIGNED_IN activation. */
+let passwordRecoveryPending = false;
+
+const AUTH_PANEL_IDS = ["auth-login", "auth-signup", "auth-forgot", "auth-reset-password"];
+
+/**
+ * @param {"auth-login" | "auth-signup" | "auth-forgot" | "auth-reset-password"} panelId
+ */
+function showAuthPanel(panelId) {
+  for (const id of AUTH_PANEL_IDS) {
+    document.getElementById(id)?.classList.toggle("hidden", id !== panelId);
+  }
+}
+
+function showAuthLoginPanel() {
+  showAuthPanel("auth-login");
+}
+
+/** Supabase puts auth errors in the URL hash (e.g. expired reset link). */
+function consumeAuthHashErrors() {
+  const hash = window.location.hash;
+  if (!hash || hash.length < 2) return;
+  const params = new URLSearchParams(hash.replace(/^#/, ""));
+  const err = params.get("error");
+  const code = params.get("error_code");
+  if (!err && !code) return;
+  let msg = "Linkki ei toimi tai se on vanhentunut.";
+  if (code === "otp_expired") {
+    msg = "Salasanan palautuslinkki on vanhentunut. Pyydä uusi linkki (Unohtuiko salasana?).";
+  } else {
+    const desc = params.get("error_description");
+    if (desc) {
+      try {
+        msg = decodeURIComponent(desc.replace(/\+/g, " "));
+      } catch {
+        msg = desc;
+      }
+    }
+  }
+  setAuthMessage(msg);
+  try {
+    const path = window.location.pathname + (window.location.search || "");
+    history.replaceState(null, "", path || "/");
+  } catch {
+    /* ignore */
+  }
+}
 let authDebugVisible = false;
 let authDebugLastStep = "idle";
 let authDebugLastError = "";
@@ -2492,14 +2542,68 @@ function wireAuthUi() {
   });
 
   document.getElementById("auth-go-signup")?.addEventListener("click", () => {
-    document.getElementById("auth-login")?.classList.add("hidden");
-    document.getElementById("auth-signup")?.classList.remove("hidden");
+    showAuthPanel("auth-signup");
     setAuthMessage("");
   });
   document.getElementById("auth-go-login")?.addEventListener("click", () => {
-    document.getElementById("auth-signup")?.classList.add("hidden");
-    document.getElementById("auth-login")?.classList.remove("hidden");
+    showAuthLoginPanel();
     setAuthMessage("");
+  });
+  document.getElementById("auth-go-forgot")?.addEventListener("click", () => {
+    showAuthPanel("auth-forgot");
+    setAuthMessage("");
+  });
+  document.getElementById("auth-forgot-back")?.addEventListener("click", () => {
+    showAuthLoginPanel();
+    setAuthMessage("");
+  });
+  document.getElementById("auth-forgot-submit")?.addEventListener("click", async () => {
+    const emailEl = /** @type {HTMLInputElement | null} */ (document.getElementById("auth-forgot-email"));
+    const email = emailEl?.value?.trim() ?? "";
+    setAuthMessage("");
+    if (!email) {
+      setAuthMessage("Anna sähköposti.");
+      return;
+    }
+    const { error } = await sendPasswordResetEmail(email);
+    if (error) {
+      setAuthMessage(error.message);
+      return;
+    }
+    setAuthMessage(
+      "Tarkista sähköposti: lähetimme linkin salasanan vaihtoon. Jos et näe viestiä, tarkista roskaposti."
+    );
+    showAuthLoginPanel();
+  });
+  document.getElementById("auth-reset-submit")?.addEventListener("click", async () => {
+    const p1 = /** @type {HTMLInputElement | null} */ (document.getElementById("auth-reset-pass"));
+    const p2 = /** @type {HTMLInputElement | null} */ (document.getElementById("auth-reset-pass2"));
+    const a = p1?.value ?? "";
+    const b = p2?.value ?? "";
+    setAuthMessage("");
+    if (a.length < 6) {
+      setAuthMessage("Salasanan on oltava vähintään 6 merkkiä.");
+      return;
+    }
+    if (a !== b) {
+      setAuthMessage("Salasanat eivät täsmää.");
+      return;
+    }
+    const { error } = await updatePassword(a);
+    if (error) {
+      setAuthMessage(error.message);
+      return;
+    }
+    passwordRecoveryPending = false;
+    if (p1) p1.value = "";
+    if (p2) p2.value = "";
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (user) {
+      setAuthMessage("");
+      await activateSignedInUser(user);
+    }
   });
 
   document.getElementById("auth-login-submit")?.addEventListener("click", async () => {
@@ -2619,21 +2723,39 @@ function wireAuthUi() {
 async function bootstrap() {
   setAuthDebugStep("bootstrap_start");
   purgeLegacyLocalStorageKeysOnce();
+  const initialHash = window.location.hash || "";
+  const looksLikeRecovery = /type=recovery|type%3Drecovery/i.test(initialHash);
+  if (looksLikeRecovery) {
+    passwordRecoveryPending = true;
+  }
+
+  consumeAuthHashErrors();
+
   wireAuthUi();
+
+  supabase.auth.onAuthStateChange((event, session) => {
+    void handleAuthStateChange(event, session);
+  });
+
   const {
     data: { session },
   } = await supabase.auth.getSession();
   if (session?.user) {
     setAuthDebugStep("bootstrap_session_found");
-    await activateSignedInUser(session.user);
+    if (looksLikeRecovery) {
+      await new Promise((r) => setTimeout(r, 400));
+    }
+    if (passwordRecoveryPending) {
+      showAuthGate();
+      showAuthPanel("auth-reset-password");
+      setAuthMessage("");
+    } else {
+      await activateSignedInUser(session.user);
+    }
   } else {
     setAuthDebugStep("bootstrap_no_session");
     showAuthGate();
   }
-
-  supabase.auth.onAuthStateChange((event, session) => {
-    void handleAuthStateChange(event, session);
-  });
 }
 
 /**
@@ -2642,11 +2764,23 @@ async function bootstrap() {
  */
 async function handleAuthStateChange(event, session) {
   if (event === "INITIAL_SESSION") return;
+  if (event === "PASSWORD_RECOVERY") {
+    passwordRecoveryPending = true;
+    showAuthGate();
+    showAuthPanel("auth-reset-password");
+    setAuthMessage("");
+    return;
+  }
   if (event === "SIGNED_IN" && session?.user) {
+    if (passwordRecoveryPending) {
+      return;
+    }
     await activateSignedInUser(session.user);
   }
   if (event === "SIGNED_OUT") {
+    passwordRecoveryPending = false;
     showAuthGate();
+    showAuthLoginPanel();
     updateUserDisplayName(null);
     if (mainAppStarted) onAuthSignedOut();
   }

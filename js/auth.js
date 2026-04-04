@@ -125,6 +125,33 @@ export async function signOut() {
 }
 
 /**
+ * Site URL for Supabase email links (password reset, etc.). Must match Auth → URL config.
+ * @returns {string}
+ */
+export function getAuthSiteUrl() {
+  if (typeof window === "undefined") return "";
+  const { origin, pathname } = window.location;
+  return pathname && pathname !== "/" ? `${origin}${pathname}` : `${origin}/`;
+}
+
+/**
+ * Sends password reset email (user clicks link → lands on site with recovery session).
+ * @param {string} email
+ * @returns {ReturnType<typeof supabase.auth.resetPasswordForEmail>}
+ */
+export function sendPasswordResetEmail(email) {
+  const redirectTo = getAuthSiteUrl();
+  return supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo });
+}
+
+/**
+ * @param {string} newPassword
+ */
+export function updatePassword(newPassword) {
+  return supabase.auth.updateUser({ password: newPassword });
+}
+
+/**
  * @returns {Promise<string | null>}
  */
 export async function getAuthUserId() {

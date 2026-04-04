@@ -20,7 +20,27 @@
           <div class="field-label">Salasana</div>
           <input type="password" id="auth-login-password" autocomplete="current-password" />
           <button type="button" class="btn btn-primary" id="auth-login-submit">Kirjaudu</button>
+          <button type="button" class="btn btn-ghost" id="auth-go-forgot">Unohtuiko salasana?</button>
           <button type="button" class="btn btn-ghost" id="auth-go-signup">Luo tili</button>
+        </div>
+
+        <div id="auth-forgot" class="auth-panel stack hidden">
+          <h2>Vaihda salasana</h2>
+          <p class="meta">Lähetämme sähköpostiisi linkin, jolla voit asettaa uuden salasanan.</p>
+          <div class="field-label">Sähköposti</div>
+          <input type="email" id="auth-forgot-email" autocomplete="email" />
+          <button type="button" class="btn btn-primary" id="auth-forgot-submit">Lähetä linkki</button>
+          <button type="button" class="btn btn-ghost" id="auth-forgot-back">Takaisin kirjautumiseen</button>
+        </div>
+
+        <div id="auth-reset-password" class="auth-panel stack hidden">
+          <h2>Uusi salasana</h2>
+          <p class="meta">Kirjoita uusi salasana tilillesi.</p>
+          <div class="field-label">Uusi salasana</div>
+          <input type="password" id="auth-reset-pass" autocomplete="new-password" />
+          <div class="field-label">Vahvista salasana</div>
+          <input type="password" id="auth-reset-pass2" autocomplete="new-password" />
+          <button type="button" class="btn btn-primary" id="auth-reset-submit">Tallenna salasana</button>
         </div>
 
         <div id="auth-signup" class="auth-panel stack hidden">
