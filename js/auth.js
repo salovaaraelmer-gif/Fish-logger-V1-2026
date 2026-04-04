@@ -6,6 +6,28 @@
 import { SUPABASE_ANON_KEY, SUPABASE_URL, supabase } from "./supabase.js";
 
 /**
+ * Maps Supabase Auth errors (incl. HTTP 429 rate limits) to readable Finnish UI text.
+ * @param {{ message?: string; status?: number } | null | undefined} error
+ * @returns {string}
+ */
+export function formatAuthErrorForUi(error) {
+  if (!error) return "Tuntematon virhe.";
+  const raw = String(error.message || "");
+  const msg = raw.toLowerCase();
+  const status = typeof error.status === "number" ? error.status : undefined;
+  if (
+    status === 429 ||
+    msg.includes("rate limit") ||
+    msg.includes("too many") ||
+    msg.includes("email rate limit") ||
+    /\b429\b/.test(msg)
+  ) {
+    return "Liian monta yritystä lyhyessä ajassa. Odota muutama minuutti ja yritä uudelleen.";
+  }
+  return raw;
+}
+
+/**
  * @template T
  * @param {Promise<T>} promise
  * @param {number} ms

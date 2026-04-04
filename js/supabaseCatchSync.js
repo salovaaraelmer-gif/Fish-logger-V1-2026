@@ -6,7 +6,7 @@
  * - user_id (uuid, FK to auth.users) — owner; required for RLS
  * - id (uuid, default gen_random_uuid())
  * - session_id (uuid, FK)
- * - angler_id (uuid, FK) — `public.profiles.id` (same as `auth.users.id` for that angler)
+ * - angler_id (uuid, FK) — **`public.anglers.id`** (session-scoped row: `anglers.session_id` + `anglers.user_id`; created at session start)
  * - species (text)
  * - length_cm (numeric, nullable)
  * - weight_kg (numeric, nullable)

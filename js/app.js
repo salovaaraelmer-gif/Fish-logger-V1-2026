@@ -50,6 +50,7 @@ import {
   signUpWithProfile,
   sendPasswordResetEmail,
   updatePassword,
+  formatAuthErrorForUi,
 } from "./auth.js";
 import {
   upsertProfileForUser,
@@ -64,6 +65,10 @@ import {
   updateSupabaseCatch,
   deleteSupabaseCatch,
 } from "./supabaseCatchSync.js";
+import {
+  fetchSessionAnglerIdBySessionAndUser,
+  insertSessionScopedAnglers,
+} from "./legacyAnglers.js";
 
 /** @type {Record<string, string>} */
 const SPECIES_LABELS = {
@@ -96,13 +101,19 @@ function mapSpeciesKeyToSupabaseSpecies(speciesKey) {
 }
 
 /**
- * @param {string} localAnglerId
- * @returns {string | null}
+ * Resolves session-scoped `public.anglers.id` by (`session_id`, `user_id`). Uses `cloudSessionId` or active cloud session.
+ * @param {string} profileUserId — participant profile / auth id
+ * @param {string | null | undefined} [cloudSessionId] — defaults to `activeSupabaseSessionId`
+ * @returns {Promise<string | null>}
  */
-function getSupabaseAnglerIdForSync(localAnglerId) {
-  const row = supabaseAnglerRowByLocalId.get(localAnglerId);
-  if (row?.id == null || String(row.id) === "") return null;
-  return String(row.id);
+async function resolveLegacyAnglerIdForCloudCatch(profileUserId, cloudSessionId) {
+  const sid = cloudSessionId || activeSupabaseSessionId;
+  if (!sid) return null;
+  const id = await fetchSessionAnglerIdBySessionAndUser(sid, profileUserId);
+  if (id) {
+    supabaseAnglerRowByLocalId.set(profileUserId, { id });
+  }
+  return id;
 }
 
 /**
@@ -142,15 +153,20 @@ async function insertSessionAnglersForSelectedProfiles(cloudSessionId, selectedL
 }
 
 /**
- * In-memory map is cleared after a session ends; roster rows store `supabaseAnglerId` for cloud ops.
+ * Session-scoped `public.anglers.id` for deletes / best-effort ops.
  * @param {string} localAnglerId
- * @param {string} sessionId
+ * @param {string} localSessionId
  * @returns {Promise<string | null>}
  */
-async function resolveSupabaseAnglerId(localAnglerId, sessionId) {
-  const fromMap = getSupabaseAnglerIdForSync(localAnglerId);
-  if (fromMap) return fromMap;
-  const sa = await findSessionAngler(sessionId, localAnglerId);
+async function resolveSupabaseAnglerId(localAnglerId, localSessionId) {
+  const sess = await getSessionById(localSessionId);
+  const cloudSid =
+    sess && typeof sess.supabaseSessionId === "string" && sess.supabaseSessionId
+      ? sess.supabaseSessionId
+      : null;
+  const resolved = await resolveLegacyAnglerIdForCloudCatch(localAnglerId, cloudSid);
+  if (resolved) return resolved;
+  const sa = await findSessionAngler(localSessionId, localAnglerId);
   if (typeof sa?.supabaseAnglerId === "string" && sa.supabaseAnglerId) {
     return sa.supabaseAnglerId;
   }
@@ -216,7 +232,7 @@ async function deleteCatchFromSupabaseBestEffort(c) {
 
 /**
  * Finds `public.sessions.id` when the local row has no `supabaseSessionId` (older data, failed persist).
- * Matches by `user_id`, session `title`, and closest `created_at` to local `startTime`.
+ * Matches sessions where the current user appears in `session_anglers`, by `title` and closest `created_at`.
  * @param {import('./db.js').Session} s
  * @returns {Promise<string | null>}
  */
@@ -230,36 +246,37 @@ async function resolveCloudSessionIdForLocalSession(s) {
     typeof s.title === "string" && s.title.trim()
       ? s.title.trim()
       : defaultSessionTitleFromDate(s.startTime);
-  const r1 = await supabase
-    .from("sessions")
-    .select("id, created_at")
-    .eq("user_id", uid)
-    .eq("title", title)
-    .order("created_at", { ascending: false })
-    .limit(20);
-  let rows = r1.data;
-  let err = r1.error;
-  if (err) {
-    const r2 = await supabase
-      .from("sessions")
-      .select("id, created_at")
-      .eq("user_id", uid)
-      .eq("title", title)
-      .order("id", { ascending: false })
-      .limit(20);
-    rows = r2.data;
-    err = r2.error;
-  }
-  if (err) {
-    console.warn("[Session] cloud id lookup:", err.message);
+
+  const { data: rows, error } = await supabase.from("session_anglers").select(
+    `
+      session_id,
+      sessions!inner ( id, created_at, title )
+    `
+  ).eq("user_id", uid);
+
+  if (error) {
+    console.warn("[Session] cloud id lookup (participant):", error.message);
     return null;
   }
-  if (!rows?.length) return null;
-  if (rows.length === 1) return rows[0].id;
+
+  const list = Array.isArray(rows) ? rows : [];
+  /** @type {{ id: string, created_at?: string | null }[]} */
+  const matching = [];
+  for (const row of list) {
+    const sess = row && typeof row === "object" && "sessions" in row ? row.sessions : null;
+    if (!sess || typeof sess !== "object") continue;
+    const sObj = /** @type {{ id?: string, created_at?: string | null, title?: string | null }} */ (sess);
+    const t = typeof sObj.title === "string" ? sObj.title.trim() : "";
+    if (t === title && typeof sObj.id === "string" && sObj.id) {
+      matching.push({ id: sObj.id, created_at: sObj.created_at ?? null });
+    }
+  }
+  if (matching.length === 0) return null;
+  if (matching.length === 1) return matching[0].id;
   const startMs = s.startTime;
-  let bestId = null;
+  let bestId = /** @type {string | null} */ (null);
   let bestDelta = Infinity;
-  for (const row of rows) {
+  for (const row of matching) {
     if (!row.created_at) continue;
     const d = Math.abs(new Date(row.created_at).getTime() - startMs);
     if (d < bestDelta) {
@@ -270,7 +287,7 @@ async function resolveCloudSessionIdForLocalSession(s) {
   if (bestId != null && bestDelta < 20 * 60 * 1000) {
     return bestId;
   }
-  return null;
+  return matching[0].id;
 }
 
 /**
@@ -370,7 +387,13 @@ async function rehydrateSupabaseSessionContext() {
   supabaseAnglerRowByLocalId.clear();
   const sas = await getSessionAnglersForSession(session.id);
   for (const sa of sas) {
-    if (typeof sa.supabaseAnglerId === "string" && sa.supabaseAnglerId) {
+    const scoped = await fetchSessionAnglerIdBySessionAndUser(cloudSid, sa.anglerId);
+    if (scoped) {
+      supabaseAnglerRowByLocalId.set(sa.anglerId, { id: scoped });
+      if (typeof sa.supabaseAnglerId !== "string" || sa.supabaseAnglerId !== scoped) {
+        await putSessionAngler({ ...sa, supabaseAnglerId: scoped });
+      }
+    } else if (typeof sa.supabaseAnglerId === "string" && sa.supabaseAnglerId) {
       supabaseAnglerRowByLocalId.set(sa.anglerId, { id: sa.supabaseAnglerId });
     }
   }
@@ -383,8 +406,15 @@ async function rehydrateSupabaseSessionContext() {
  */
 async function syncCatchCreateToSupabase(record) {
   const speciesForDb = mapSpeciesKeyToSupabaseSpecies(record.species);
-  const sbAnglerId = getSupabaseAnglerIdForSync(record.anglerId);
-  if (!activeSupabaseSessionId || !sbAnglerId || !speciesForDb) return null;
+  if (!activeSupabaseSessionId || !speciesForDb) return null;
+  const sbAnglerId = await resolveLegacyAnglerIdForCloudCatch(record.anglerId);
+  if (!sbAnglerId) {
+    return {
+      ok: false,
+      error:
+        "Kalastajalle ei löydy anglers-riviä tälle sessiolle (session_id + user_id). Käynnistä sessio uudelleen tai tarkista pilvi.",
+    };
+  }
   const authUserId = await getAuthUserId();
   if (!authUserId) {
     return { ok: false, error: "Kirjautuminen puuttuu." };
@@ -401,6 +431,13 @@ async function syncCatchCreateToSupabase(record) {
     speciesForDb,
     authUserId
   );
+  console.log("[catch sync] insert", {
+    localSessionId: record.sessionId,
+    supabaseSessionId: activeSupabaseSessionId,
+    participantUserId: record.anglerId,
+    resolvedSessionScopedAnglersId: sbAnglerId,
+    payload,
+  });
   const ins = await insertSupabaseCatch(payload);
   if (!ins.ok) return { ok: false, error: ins.error };
   await putCatch({ ...record, supabase_id: ins.id });
@@ -414,9 +451,16 @@ async function syncCatchCreateToSupabase(record) {
 async function syncCatchUpdateToSupabase(record) {
   if (!record.supabase_id) return null;
   const speciesForDb = mapSpeciesKeyToSupabaseSpecies(record.species);
-  const sbAnglerId = getSupabaseAnglerIdForSync(record.anglerId);
-  if (!activeSupabaseSessionId || !sbAnglerId || !speciesForDb) {
-    return { ok: false, error: "Supabase-sessio tai kalastajalinkitys puuttuu." };
+  if (!activeSupabaseSessionId || !speciesForDb) {
+    return { ok: false, error: "Supabase-sessio tai lajitieto puuttuu." };
+  }
+  const sbAnglerId = await resolveLegacyAnglerIdForCloudCatch(record.anglerId);
+  if (!sbAnglerId) {
+    return {
+      ok: false,
+      error:
+        "Kalastajalle ei löydy anglers-riviä tälle sessiolle (session_id + user_id).",
+    };
   }
   const authUserId = await getAuthUserId();
   if (!authUserId) {
@@ -434,6 +478,14 @@ async function syncCatchUpdateToSupabase(record) {
     speciesForDb,
     authUserId
   );
+  console.log("[catch sync] update", {
+    localSessionId: record.sessionId,
+    supabaseSessionId: activeSupabaseSessionId,
+    participantUserId: record.anglerId,
+    resolvedSessionScopedAnglersId: sbAnglerId,
+    supabaseCatchId: record.supabase_id,
+    payload,
+  });
   const res = await updateSupabaseCatch(record.supabase_id, payload);
   if (!res.ok) return { ok: false, error: res.error };
   return { ok: true };
@@ -627,7 +679,7 @@ let syncStatus = navigator.onLine ? "synced" : "offline";
 /** Rows returned from the last successful `session_anglers` batch for the active session (optional; cleared when the session ends). */
 let activeSupabaseAnglerRows = null;
 
-/** Local angler id → `{ id: profiles.id }` for the active session (`catches.angler_id`). */
+/** Local participant id (`profiles.id`) → `{ id: public.anglers.id }` (session-scoped row) for `catches.angler_id` sync. */
 const supabaseAnglerRowByLocalId = new Map();
 
 /** @type {ReturnType<typeof setInterval> | null} */
@@ -2040,29 +2092,54 @@ function buildStartSessionParticipantPicker(selfAnglerId, selfDisplayName) {
     supabaseAnglerRowByLocalId.clear();
     if (activeSupabaseSessionId && authUserId) {
       const selectedIds = [...selected];
-      const rosterRes = await insertSessionAnglersForSelectedProfiles(
-        activeSupabaseSessionId,
-        selectedIds
-      );
-      if (!rosterRes.ok) {
-        console.error("[Supabase] session_anglers:", rosterRes.error);
-        showError("Supabase-sessioon ei voitu tallentaa kalastajalistaa. Katso konsoli.");
+      const nameById = await fetchProfileDisplayNames(selectedIds);
+      const anglerEntries = selectedIds.map((uid) => {
+        const label = nameById[uid];
+        const name =
+          typeof label === "string" && label.trim() ? label.trim() : "Kalastaja";
+        return { user_id: uid, name };
+      });
+
+      const angIns = await insertSessionScopedAnglers(activeSupabaseSessionId, anglerEntries);
+      if (!angIns.ok) {
+        console.error("[Supabase] anglers (session-scoped):", angIns.error);
+        showError(`Kalastajien tallennus pilveen epäonnistui: ${angIns.error}`);
         setSyncStatus(navigator.onLine ? "error" : "offline");
       } else {
-        const rosterSet = new Set(rosterRes.profileIds);
-        activeSupabaseAnglerRows = rosterRes.profileIds.map((user_id) => ({
-          session_id: activeSupabaseSessionId,
-          user_id,
-        }));
-        for (const localId of selectedIds) {
-          if (!rosterSet.has(localId)) continue;
-          supabaseAnglerRowByLocalId.set(localId, { id: localId });
-          const sa = await findSessionAngler(r.sessionId, localId);
-          if (sa) {
-            await putSessionAngler({ ...sa, supabaseAnglerId: localId });
+        const rosterRes = await insertSessionAnglersForSelectedProfiles(
+          activeSupabaseSessionId,
+          selectedIds
+        );
+        if (!rosterRes.ok) {
+          console.error("[Supabase] session_anglers:", rosterRes.error);
+          showError("Supabase-sessioon ei voitu tallentaa kalastajalistaa. Katso konsoli.");
+          setSyncStatus(navigator.onLine ? "error" : "offline");
+        } else {
+          const rosterSet = new Set(rosterRes.profileIds);
+          activeSupabaseAnglerRows = rosterRes.profileIds.map((user_id) => ({
+            session_id: activeSupabaseSessionId,
+            user_id,
+          }));
+          let rosterOk = true;
+          for (const localId of selectedIds) {
+            if (!rosterSet.has(localId)) continue;
+            const anglersRowId = angIns.idByUserId.get(localId);
+            if (!anglersRowId) {
+              rosterOk = false;
+              showError("Kalastajan anglers-id puuttui pilvistä. Yritä uudelleen.");
+              setSyncStatus("error");
+              break;
+            }
+            supabaseAnglerRowByLocalId.set(localId, { id: anglersRowId });
+            const sa = await findSessionAngler(r.sessionId, localId);
+            if (sa) {
+              await putSessionAngler({ ...sa, supabaseAnglerId: anglersRowId });
+            }
+          }
+          if (rosterOk) {
+            setSyncStatus("synced");
           }
         }
-        setSyncStatus("synced");
       }
     }
 
@@ -2603,7 +2680,7 @@ function wireAuthUi() {
     }
     const { error } = await sendPasswordResetEmail(email);
     if (error) {
-      setAuthMessage(error.message);
+      setAuthMessage(formatAuthErrorForUi(error));
       return;
     }
     setAuthMessage(
@@ -2627,7 +2704,7 @@ function wireAuthUi() {
     }
     const { error } = await updatePassword(a);
     if (error) {
-      setAuthMessage(error.message);
+      setAuthMessage(formatAuthErrorForUi(error));
       return;
     }
     passwordRecoveryPending = false;
@@ -2685,7 +2762,7 @@ function wireAuthUi() {
         } else if (error.message.toLowerCase().includes("email not confirmed")) {
           setAuthMessage("Sähköpostia ei ole vahvistettu.");
         } else {
-          setAuthMessage(error.message);
+          setAuthMessage(formatAuthErrorForUi(error));
         }
         return;
       }
@@ -2756,7 +2833,7 @@ function wireAuthUi() {
     }
     const { data, error } = await signUpWithProfile(email, password, fn, ln, usernameRaw);
     if (error) {
-      setAuthMessage(error.message);
+      setAuthMessage(formatAuthErrorForUi(error));
       return;
     }
     if (data?.user && !data.session) {
@@ -2884,11 +2961,21 @@ function mainAppInit() {
     const activeBefore = await getActiveSession();
     if (!activeBefore) return;
     const endedSessionId = activeBefore.id;
+    const cloudSidForEnd = activeSupabaseSessionId;
     closeSessionEndOverlay();
     const r = await endActiveSession();
     if (!r.ok) {
       showError(r.reason);
       return;
+    }
+    if (cloudSidForEnd && navigator.onLine) {
+      const { error: endedErr } = await supabase
+        .from("sessions")
+        .update({ ended_at: new Date().toISOString() })
+        .eq("id", cloudSidForEnd);
+      if (endedErr) {
+        console.warn("[Session] ended_at update:", endedErr.message);
+      }
     }
     activeSupabaseSessionId = null;
     activeSupabaseAnglerRows = null;
