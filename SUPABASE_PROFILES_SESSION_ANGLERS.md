@@ -182,6 +182,19 @@ create policy "session_anglers_delete_session_owner"
 
 If you already created **`session_anglers_insert_session_owner`** with `user_id = auth.uid()`, run `drop policy "session_anglers_insert_session_owner" on public.session_anglers;` and recreate the insert policy as above (session owner + `user_id` exists in `profiles`).
 
+**Participants must read `public.sessions`:** add **`sessions_select_participant`** in `SUPABASE_AUTH_RLS.md` (select when a `session_anglers` row exists for `auth.uid()`). That is **not** limited to `sessions.user_id = auth.uid()`.
+
+**Participants must read their `session_anglers` rows:** if roster `SELECT` is owner-only, add e.g. `session_anglers_select_self` so `auth.uid() = user_id` can read their own roster rows (needed for embedded `sessions` queries from `session_anglers`).
+
+```sql
+create policy "session_anglers_select_self"
+  on public.session_anglers for select
+  to authenticated
+  using (auth.uid() = user_id);
+```
+
+(Permissive `SELECT` policies on the same table are OR’d with the owner policy above.)
+
 ---
 
 ## 5. Verify in Supabase

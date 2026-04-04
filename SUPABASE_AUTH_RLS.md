@@ -60,6 +60,28 @@ create policy "sessions_delete_own"
   using (auth.uid() = user_id);
 ```
 
+**Participants (not only the session owner)** must be able to **read** session rows for sessions they joined. Add a separate `SELECT` policy; permissive policies are combined with **OR**, so keep `sessions_select_own` for owners.
+
+Run this **in addition** to the policies above (do **not** remove `sessions_select_own` unless you replace it with equivalent logic):
+
+```sql
+create policy "sessions_select_participant"
+  on public.sessions for select
+  to authenticated
+  using (
+    exists (
+      select 1
+      from public.session_anglers sa
+      where sa.session_id = sessions.id
+        and sa.user_id = auth.uid()
+    )
+  );
+```
+
+If the policy name already exists, run `drop policy "sessions_select_participant" on public.sessions;` first.
+
+**Note:** The app loads participant membership via `public.session_anglers` (`user_id = auth.uid()`). Ensure participants can **select** their own `session_anglers` rows as well (e.g. a policy `using (auth.uid() = user_id)` on `session_anglers` for `select`), in addition to the owner-based policies in `SUPABASE_PROFILES_SESSION_ANGLERS.md`.
+
 ### `anglers`
 
 ```sql
