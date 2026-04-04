@@ -2342,6 +2342,42 @@ function showAuthLoginPanel() {
   showAuthPanel("auth-login");
 }
 
+/**
+ * Recovery sessions carry `amr` with method `recovery` in the access token (implicit + PKCE).
+ * @param {import("@supabase/supabase-js").Session | null} session
+ * @returns {boolean}
+ */
+function sessionIsPasswordRecovery(session) {
+  if (!session?.access_token) return false;
+  try {
+    const part = session.access_token.split(".")[1];
+    if (!part) return false;
+    const json = atob(part.replace(/-/g, "+").replace(/_/g, "/"));
+    const payload = /** @type {Record<string, unknown>} */ (JSON.parse(json));
+    const amr = payload.amr;
+    if (Array.isArray(amr)) {
+      const hit = amr.some((entry) => {
+        if (entry === "recovery") return true;
+        if (entry && typeof entry === "object" && "method" in entry) {
+          return /** @type {{ method?: string }} */ (entry).method === "recovery";
+        }
+        return false;
+      });
+      if (hit) return true;
+    }
+    return payload.role === "recovery";
+  } catch {
+    return false;
+  }
+}
+
+function showPasswordRecoveryUi() {
+  passwordRecoveryPending = true;
+  showAuthGate();
+  showAuthPanel("auth-reset-password");
+  setAuthMessage("");
+}
+
 /** Supabase puts auth errors in the URL hash (e.g. expired reset link). */
 function consumeAuthHashErrors() {
   const hash = window.location.hash;
@@ -2694,11 +2730,13 @@ function wireAuthUi() {
     const unEl = /** @type {HTMLInputElement | null} */ (document.getElementById("auth-signup-username"));
     const emailEl = /** @type {HTMLInputElement | null} */ (document.getElementById("auth-signup-email"));
     const passEl = /** @type {HTMLInputElement | null} */ (document.getElementById("auth-signup-password"));
+    const pass2El = /** @type {HTMLInputElement | null} */ (document.getElementById("auth-signup-password2"));
     const fn = fnEl?.value?.trim() ?? "";
     const ln = lnEl?.value?.trim() ?? "";
     const usernameRaw = unEl?.value?.trim() ?? "";
     const email = emailEl?.value?.trim() ?? "";
     const password = passEl?.value ?? "";
+    const password2 = pass2El?.value ?? "";
     setAuthMessage("");
     if (!fn || !ln) {
       setAuthMessage("Anna etunimi ja sukunimi.");
@@ -2706,6 +2744,14 @@ function wireAuthUi() {
     }
     if (!email || !password) {
       setAuthMessage("Anna sähköposti ja salasana.");
+      return;
+    }
+    if (password.length < 6) {
+      setAuthMessage("Salasanan on oltava vähintään 6 merkkiä.");
+      return;
+    }
+    if (password !== password2) {
+      setAuthMessage("Salasanat eivät täsmää.");
       return;
     }
     const { data, error } = await signUpWithProfile(email, password, fn, ln, usernameRaw);
@@ -2724,7 +2770,10 @@ async function bootstrap() {
   setAuthDebugStep("bootstrap_start");
   purgeLegacyLocalStorageKeysOnce();
   const initialHash = window.location.hash || "";
-  const looksLikeRecovery = /type=recovery|type%3Drecovery/i.test(initialHash);
+  const initialSearch = window.location.search || "";
+  const looksLikeRecovery =
+    /type=recovery|type%3Drecovery/i.test(initialHash) ||
+    /type=recovery|type%3Drecovery/i.test(initialSearch);
   if (looksLikeRecovery) {
     passwordRecoveryPending = true;
   }
@@ -2742,19 +2791,18 @@ async function bootstrap() {
   } = await supabase.auth.getSession();
   if (session?.user) {
     setAuthDebugStep("bootstrap_session_found");
-    if (looksLikeRecovery) {
-      await new Promise((r) => setTimeout(r, 400));
-    }
-    if (passwordRecoveryPending) {
-      showAuthGate();
-      showAuthPanel("auth-reset-password");
-      setAuthMessage("");
+    if (passwordRecoveryPending || sessionIsPasswordRecovery(session)) {
+      showPasswordRecoveryUi();
     } else {
       await activateSignedInUser(session.user);
     }
   } else {
     setAuthDebugStep("bootstrap_no_session");
     showAuthGate();
+    if (passwordRecoveryPending) {
+      showAuthPanel("auth-reset-password");
+      setAuthMessage("");
+    }
   }
 }
 
@@ -2763,16 +2811,19 @@ async function bootstrap() {
  * @param {import("@supabase/supabase-js").Session | null} session
  */
 async function handleAuthStateChange(event, session) {
-  if (event === "INITIAL_SESSION") return;
+  if (event === "INITIAL_SESSION") {
+    if (session && sessionIsPasswordRecovery(session)) {
+      showPasswordRecoveryUi();
+    }
+    return;
+  }
   if (event === "PASSWORD_RECOVERY") {
-    passwordRecoveryPending = true;
-    showAuthGate();
-    showAuthPanel("auth-reset-password");
-    setAuthMessage("");
+    showPasswordRecoveryUi();
     return;
   }
   if (event === "SIGNED_IN" && session?.user) {
-    if (passwordRecoveryPending) {
+    if (passwordRecoveryPending || sessionIsPasswordRecovery(session)) {
+      showPasswordRecoveryUi();
       return;
     }
     await activateSignedInUser(session.user);
