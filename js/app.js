@@ -2054,20 +2054,10 @@ async function renderHistorySection() {
   if (navigator.onLine && getLastParticipantRehydrateOk()) {
     /** @type {import('./db.js').Session[]} */
     const merged = [];
-    const seen = new Set();
     for (const cloud of getParticipantEndedCloudRows()) {
       const local = await getSessionBySupabaseCloudId(cloud.id);
       if (local) {
         merged.push(local);
-        seen.add(local.id);
-      }
-    }
-    const localEnded = await getAllEndedSessions();
-    for (const s of localEnded) {
-      if (seen.has(s.id)) continue;
-      if (typeof s.supabaseSessionId === "string" && s.supabaseSessionId) {
-        merged.push(s);
-        seen.add(s.id);
       }
     }
     merged.sort((a, b) => (b.endTime ?? 0) - (a.endTime ?? 0));
