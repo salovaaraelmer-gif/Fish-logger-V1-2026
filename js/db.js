@@ -78,6 +78,7 @@ export function clearUserIndexedDb() {
  *   csv_exported_at?: string | null,
  *   title?: string | null,
  *   supabaseSessionId?: string | null,
+ *   ownerUserId?: string | null,
  * }} Session
  */
 /** @typedef {{ id: string, sessionId: string, anglerId: string, isActive: boolean, joinedAt: number, leftAt: number | null, supabaseAnglerId?: string | null }} SessionAngler */

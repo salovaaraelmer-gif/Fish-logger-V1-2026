@@ -109,6 +109,49 @@ function mapSpeciesKeyToSupabaseSpecies(speciesKey) {
   return SPECIES_KEY_TO_SUPABASE[speciesKey] ?? null;
 }
 
+/** Shown after the session host’s display name in roster, live stats, history, and catch lists. */
+const SESSION_OWNER_SUFFIX = " (session owner)";
+
+/**
+ * @param {string} name
+ * @param {string} anglerId
+ * @param {string | null | undefined} ownerUserId
+ * @returns {string}
+ */
+function formatAnglerLabelWithOwner(name, anglerId, ownerUserId) {
+  if (!ownerUserId || anglerId !== ownerUserId) return name;
+  return `${name}${SESSION_OWNER_SUFFIX}`;
+}
+
+/**
+ * Resolves `sessions.user_id` from IndexedDB or Supabase and caches it on the session row.
+ * @param {import('./db.js').Session | null | undefined} session
+ * @returns {Promise<string | null>}
+ */
+async function getSessionOwnerUserId(session) {
+  if (!session) return null;
+  if (typeof session.ownerUserId === "string" && session.ownerUserId) {
+    return session.ownerUserId;
+  }
+  const cloudSid =
+    typeof session.supabaseSessionId === "string" && session.supabaseSessionId
+      ? session.supabaseSessionId
+      : null;
+  if (!cloudSid || !navigator.onLine) {
+    return null;
+  }
+  const { data, error } = await supabase
+    .from("sessions")
+    .select("user_id")
+    .eq("id", cloudSid)
+    .maybeSingle();
+  if (error || !data || typeof data.user_id !== "string" || !data.user_id) {
+    return null;
+  }
+  await putSession({ ...session, ownerUserId: data.user_id });
+  return data.user_id;
+}
+
 /**
  * Resolves session-scoped `public.anglers.id` by (`session_id`, `user_id`). Uses `cloudSessionId` or active cloud session.
  * @param {string} profileUserId — participant profile / auth id
@@ -300,6 +343,32 @@ async function resolveCloudSessionIdForLocalSession(s) {
 }
 
 /**
+ * When cloud delete affects 0 rows, explains non-owner case with owner display name if readable.
+ * @param {string} cloudSessionId
+ * @param {string} authUserId
+ * @returns {Promise<string | null>} User-facing message, or null to use generic fallback.
+ */
+async function messageIfSessionDeleteNotOwner(cloudSessionId, authUserId) {
+  const { data, error } = await supabase
+    .from("sessions")
+    .select("user_id")
+    .eq("id", cloudSessionId)
+    .maybeSingle();
+  if (error || !data || typeof data.user_id !== "string" || !data.user_id) {
+    return null;
+  }
+  if (data.user_id === authUserId) {
+    return null;
+  }
+  const names = await fetchProfileDisplayNames([data.user_id]);
+  const ownerLabel =
+    typeof names[data.user_id] === "string" && names[data.user_id].trim()
+      ? names[data.user_id].trim()
+      : data.user_id;
+  return `Et voi poistaa sessiota, koska et ole sen omistaja. Omistaja: ${ownerLabel}.`;
+}
+
+/**
  * Removes cloud rows for a session using the Supabase session UUID, then local IndexedDB cascade.
  * `session_anglers` rows are removed by `ON DELETE CASCADE` when the session row is deleted.
  * @param {string} localSessionId
@@ -354,8 +423,10 @@ async function deleteSessionCloudThenLocal(localSessionId) {
       return false;
     }
     if (!sRes.data || sRes.data.length === 0) {
+      const notOwnerMsg = await messageIfSessionDeleteNotOwner(cloudSid, uid);
       showError(
-        "Pilvestä ei poistunut sessioriviä (0 riviä). Tarkista: RLS DELETE -politiikat ja että riveillä on user_id = kirjautunut käyttäjä."
+        notOwnerMsg ??
+          "Pilvestä ei poistunut sessioriviä (0 riviä). Tarkista: RLS DELETE -politiikat ja että riveillä on user_id = kirjautunut käyttäjä."
       );
       return false;
     }
@@ -1052,7 +1123,7 @@ function formatBiggestFishDisplayLine(c) {
  * @param {Record<string, string>} nameById
  * @returns {{ display: string, anglerName: string } | null}
  */
-function biggestFishSummary(catches, nameById) {
+function biggestFishSummary(catches, nameById, ownerUserId = null) {
   const w = catches.filter(
     (c) => c.weight_kg != null && typeof c.weight_kg === "number" && Number.isFinite(c.weight_kg)
   );
@@ -1061,9 +1132,10 @@ function biggestFishSummary(catches, nameById) {
     for (let i = 1; i < w.length; i++) {
       if (/** @type {number} */ (w[i].weight_kg) > /** @type {number} */ (best.weight_kg)) best = w[i];
     }
+    const rawName = nameById[best.anglerId] || best.anglerId;
     return {
       display: formatBiggestFishDisplayLine(best),
-      anglerName: nameById[best.anglerId] || best.anglerId,
+      anglerName: formatAnglerLabelWithOwner(rawName, best.anglerId, ownerUserId),
     };
   }
   const len = catches.filter((c) => c.length != null && typeof c.length === "number" && c.length >= 1);
@@ -1072,9 +1144,10 @@ function biggestFishSummary(catches, nameById) {
     for (let i = 1; i < len.length; i++) {
       if (/** @type {number} */ (len[i].length) > /** @type {number} */ (best.length)) best = len[i];
     }
+    const rawName = nameById[best.anglerId] || best.anglerId;
     return {
       display: formatBiggestFishDisplayLine(best),
-      anglerName: nameById[best.anglerId] || best.anglerId,
+      anglerName: formatAnglerLabelWithOwner(rawName, best.anglerId, ownerUserId),
     };
   }
   return null;
@@ -1122,8 +1195,9 @@ function appendDashDlRow(dl, label, value) {
  *   byAnglerUl: HTMLUListElement,
  *   bySpeciesUl: HTMLUListElement,
  * }} els
+ * @param {string | null} [ownerUserId]
  */
-function fillEndedSessionDashboardPanels(session, sessionAnglers, catches, nameById, els) {
+function fillEndedSessionDashboardPanels(session, sessionAnglers, catches, nameById, els, ownerUserId = null) {
   const { summaryDl, byAnglerUl, bySpeciesUl } = els;
   summaryDl.innerHTML = "";
   byAnglerUl.innerHTML = "";
@@ -1137,7 +1211,9 @@ function fillEndedSessionDashboardPanels(session, sessionAnglers, catches, nameB
 
   const anglerIds = [...new Set(sessionAnglers.map((sa) => sa.anglerId))];
   const anglerNames = anglerIds.length
-    ? anglerIds.map((id) => nameById[id] || id).join(", ")
+    ? anglerIds
+        .map((id) => formatAnglerLabelWithOwner(nameById[id] || id, id, ownerUserId))
+        .join(", ")
     : "—";
 
   appendDashDlRow(summaryDl, "Päivä", dateLabel);
@@ -1156,7 +1232,7 @@ function fillEndedSessionDashboardPanels(session, sessionAnglers, catches, nameB
     );
   }
 
-  const big = biggestFishSummary(catches, nameById);
+  const big = biggestFishSummary(catches, nameById, ownerUserId);
   if (big) {
     appendDashDlRow(summaryDl, "Isoin kala", big.display);
     appendDashDlRow(summaryDl, "Kalastaja (isoin)", big.anglerName);
@@ -1170,7 +1246,7 @@ function fillEndedSessionDashboardPanels(session, sessionAnglers, catches, nameB
   const uniqueAnglerIds = [...new Set(sessionAnglers.map((sa) => sa.anglerId))];
   const anglerRows = uniqueAnglerIds
     .map((id) => ({
-      name: nameById[id] || id,
+      name: formatAnglerLabelWithOwner(nameById[id] || id, id, ownerUserId),
       count: countByAngler.get(id) || 0,
     }))
     .sort((a, b) => a.name.localeCompare(b.name, "fi"));
@@ -1224,17 +1300,22 @@ function appendSplitItem(row, text) {
 /**
  * @param {import('./db.js').CatchRecord} c
  * @param {Record<string, string>} nameById
- * @param {{ activeSession?: boolean, allowEditDelete?: boolean }} opts
+ * @param {{ activeSession?: boolean, allowEditDelete?: boolean, ownerUserId?: string | null }} opts
  */
 function buildCatchCardEl(c, nameById, opts = {}) {
   const activeSession = opts.activeSession === true;
   const allowEditDelete = opts.allowEditDelete === true;
+  const ownerUserId = opts.ownerUserId ?? null;
 
   const article = document.createElement("article");
   article.className = "catch-card";
   article.setAttribute("role", "listitem");
 
-  const anglerName = nameById[c.anglerId] || c.anglerId;
+  const anglerName = formatAnglerLabelWithOwner(
+    nameById[c.anglerId] || c.anglerId,
+    c.anglerId,
+    ownerUserId
+  );
   const speciesLabel = SPECIES_LABELS[c.species] || c.species;
   const timeStr = formatCatchListTime(c.timestamp, activeSession);
 
@@ -1385,13 +1466,20 @@ function buildCatchCardEl(c, nameById, opts = {}) {
  * @param {HTMLElement | null} container
  * @param {string} sessionId
  * @param {boolean} emptyPlaceholderRow
- * @param {{ activeSession?: boolean, allowEditDelete?: boolean, sortNewestFirst?: boolean }} [listOptions] — activeSession true: catch time HH:MM only; false: date + time; sortNewestFirst false = oldest-first (history)
+ * @param {{ activeSession?: boolean, allowEditDelete?: boolean, sortNewestFirst?: boolean, ownerUserId?: string | null }} [listOptions] — activeSession true: catch time HH:MM only; false: date + time; sortNewestFirst false = oldest-first (history)
  * @returns {Promise<number>} number of catches rendered
  */
 async function renderCatchList(container, sessionId, emptyPlaceholderRow, listOptions = {}) {
   if (!container) return 0;
   const activeSession = listOptions.activeSession === true;
   const allowEditDelete = listOptions.allowEditDelete === true;
+  let ownerUserId = listOptions.ownerUserId;
+  if (typeof ownerUserId === "undefined") {
+    const sessionRow = await getSessionById(sessionId);
+    ownerUserId = await getSessionOwnerUserId(sessionRow);
+  } else {
+    ownerUserId = ownerUserId ?? null;
+  }
   const catches = await getCatchesForSession(sessionId);
   const anglerIds = [...new Set(catches.map((c) => c.anglerId))];
   const nameById = await fetchProfileDisplayNames(anglerIds);
@@ -1410,7 +1498,9 @@ async function renderCatchList(container, sessionId, emptyPlaceholderRow, listOp
     return 0;
   }
   for (const c of sorted) {
-    container.appendChild(buildCatchCardEl(c, nameById, { activeSession, allowEditDelete }));
+    container.appendChild(
+      buildCatchCardEl(c, nameById, { activeSession, allowEditDelete, ownerUserId })
+    );
   }
   return sorted.length;
 }
@@ -1507,11 +1597,19 @@ async function populateCatchesTable(sessionIdOverride) {
         ...new Set([...sessionAnglers.map((sa) => sa.anglerId), ...catches.map((c) => c.anglerId)]),
       ];
       const nameById = await fetchProfileDisplayNames(anglerIds);
-      fillEndedSessionDashboardPanels(session, sessionAnglers, catches, nameById, {
-        summaryDl,
-        byAnglerUl,
-        bySpeciesUl,
-      });
+      const ownerUserId = await getSessionOwnerUserId(session);
+      fillEndedSessionDashboardPanels(
+        session,
+        sessionAnglers,
+        catches,
+        nameById,
+        {
+          summaryDl,
+          byAnglerUl,
+          bySpeciesUl,
+        },
+        ownerUserId
+      );
       dashEl?.classList.remove("hidden");
     } else {
       dashEl?.classList.add("hidden");
@@ -1530,10 +1628,14 @@ async function populateCatchesTable(sessionIdOverride) {
   const active = await getActiveSessionForParticipantUi();
   const allowEditDelete = !!active && active.id === sessionId;
 
+  const sessionForOwner = sessionIdOverride ? await getSessionById(sessionIdOverride) : await getActiveSessionForParticipantUi();
+  const catchListOwnerUserId = await getSessionOwnerUserId(sessionForOwner);
+
   const count = await renderCatchList(listEl, sessionId, false, {
     activeSession: sessionIdOverride == null,
     allowEditDelete,
     sortNewestFirst: !sessionIdOverride,
+    ownerUserId: catchListOwnerUserId,
   });
   if (count === 0) {
     if (emptyEl) emptyEl.textContent = emptyMsg;
@@ -1595,11 +1697,19 @@ async function populateSessionSummaryOverlay(sessionId) {
     ...new Set([...sessionAnglers.map((sa) => sa.anglerId), ...catches.map((c) => c.anglerId)]),
   ];
   const nameById = await fetchProfileDisplayNames(anglerIds);
-  fillEndedSessionDashboardPanels(session, sessionAnglers, catches, nameById, {
-    summaryDl,
-    byAnglerUl,
-    bySpeciesUl,
-  });
+  const ownerUserId = await getSessionOwnerUserId(session);
+  fillEndedSessionDashboardPanels(
+    session,
+    sessionAnglers,
+    catches,
+    nameById,
+    {
+      summaryDl,
+      byAnglerUl,
+      bySpeciesUl,
+    },
+    ownerUserId
+  );
 }
 
 /**
@@ -1639,6 +1749,9 @@ async function renderSessionLiveView(sessionId) {
   const wrap = document.getElementById("session-live-view");
   if (!wrap) return;
 
+  const sessionRow = await getSessionById(sessionId);
+  const ownerUserId = await getSessionOwnerUserId(sessionRow);
+
   const [sas, catches] = await Promise.all([
     getSessionAnglersForSession(sessionId),
     getCatchesForSession(sessionId),
@@ -1673,7 +1786,11 @@ async function renderSessionLiveView(sessionId) {
 
   wrap.innerHTML = "";
   for (const sa of sas) {
-    const name = nameById[sa.anglerId] || sa.anglerId;
+    const name = formatAnglerLabelWithOwner(
+      nameById[sa.anglerId] || sa.anglerId,
+      sa.anglerId,
+      ownerUserId
+    );
     const total = totalByAngler.get(sa.anglerId) || 0;
     const spMap = byAnglerSpecies.get(sa.anglerId);
 
@@ -1751,18 +1868,22 @@ async function ensureLoggedInUserAngler() {
 }
 
 /**
- * @param {{ id: string, title: string | null, ended_at: string | null, created_at: string | null }} cloud
+ * @param {{ id: string, title: string | null, ended_at: string | null, created_at: string | null, user_id?: string | null }} cloud
  */
 async function upsertLocalSessionFromCloudRow(cloud) {
   const existing = await getSessionBySupabaseCloudId(cloud.id);
   const endMs = cloud.ended_at ? new Date(cloud.ended_at).getTime() : null;
   const startMs = cloud.created_at ? new Date(cloud.created_at).getTime() : Date.now();
+  const ownerFromCloud =
+    typeof cloud.user_id === "string" && cloud.user_id ? cloud.user_id : null;
+  const ownerUserId = ownerFromCloud ?? existing?.ownerUserId ?? null;
   if (existing) {
     await putSession({
       ...existing,
       supabaseSessionId: cloud.id,
       title: cloud.title ?? existing.title,
       endTime: endMs,
+      ownerUserId,
     });
   } else {
     await putSession({
@@ -1777,6 +1898,7 @@ async function upsertLocalSessionFromCloudRow(cloud) {
       csv_exported_at: null,
       title: cloud.title ?? null,
       supabaseSessionId: cloud.id,
+      ownerUserId,
     });
   }
 }
@@ -1868,6 +1990,7 @@ async function renderHome() {
   syncHomeAnglersToggleUi();
 
   if (session) {
+    const ownerUserId = await getSessionOwnerUserId(session);
     const sas = await getSessionAnglersForSession(session.id);
     const nameById = await fetchProfileDisplayNames(sas.map((sa) => sa.anglerId));
     const rows = document.getElementById("session-angler-rows");
@@ -1876,7 +1999,11 @@ async function renderHome() {
       for (const sa of sas) {
         const row = document.createElement("div");
         row.className = "angler-item";
-        const name = nameById[sa.anglerId] || sa.anglerId;
+        const name = formatAnglerLabelWithOwner(
+          nameById[sa.anglerId] || sa.anglerId,
+          sa.anglerId,
+          ownerUserId
+        );
         const status = sa.isActive ? "aktiivinen" : "poistunut";
         row.innerHTML = `<span>${escapeHtml(name)} <span class="meta">(${status})</span></span>`;
         if (sa.isActive) {
@@ -1979,9 +2106,12 @@ async function renderHistorySection() {
     const startClock = formatClock24(s.startTime);
     const endClock = s.endTime != null ? formatClock24(s.endTime) : "—";
 
+    const ownerUserId = await getSessionOwnerUserId(s);
     const anglerIds = [...new Set(sas.map((sa) => sa.anglerId))];
     const anglerLabel = anglerIds.length
-      ? anglerIds.map((id) => nameById[id] || id).join(", ")
+      ? anglerIds
+          .map((id) => formatAnglerLabelWithOwner(nameById[id] || id, id, ownerUserId))
+          .join(", ")
       : "—";
 
     const btn = document.createElement("button");
@@ -2220,6 +2350,14 @@ function buildStartSessionParticipantPicker(selfAnglerId, selfDisplayName) {
       return;
     }
 
+    const ownerUidEarly = await getAuthUserId();
+    if (ownerUidEarly) {
+      const justStarted = await getSessionById(r.sessionId);
+      if (justStarted) {
+        await putSession({ ...justStarted, ownerUserId: ownerUidEarly });
+      }
+    }
+
     if (!navigator.onLine) {
       setSyncStatus("offline");
     } else {
@@ -2253,7 +2391,11 @@ function buildStartSessionParticipantPicker(selfAnglerId, selfDisplayName) {
       setSyncStatus("synced");
       const localS = await getSessionById(r.sessionId);
       if (localS) {
-        await putSession({ ...localS, supabaseSessionId: data.id });
+        await putSession({
+          ...localS,
+          supabaseSessionId: data.id,
+          ownerUserId: localS.ownerUserId ?? authUserId,
+        });
       }
     } else {
       console.error("[Supabase] sessions insert: no row id returned", data);
@@ -2503,6 +2645,7 @@ async function populateFishAnglers() {
   const session = await getActiveSessionForParticipantUi();
   const box = document.getElementById("fish-angler-buttons");
   if (!box || !session) return;
+  const ownerUserId = await getSessionOwnerUserId(session);
   const sas = await getSessionAnglersForSession(session.id);
   const active = sas.filter((x) => x.isActive);
   const nameById = await fetchProfileDisplayNames(active.map((sa) => sa.anglerId));
@@ -2516,7 +2659,11 @@ async function populateFishAnglers() {
     b.type = "button";
     b.className = "btn";
     b.dataset.anglerId = sa.anglerId;
-    b.textContent = nameById[sa.anglerId] || sa.anglerId;
+    b.textContent = formatAnglerLabelWithOwner(
+      nameById[sa.anglerId] || sa.anglerId,
+      sa.anglerId,
+      ownerUserId
+    );
     b.addEventListener("click", () => {
       fishState.anglerId = sa.anglerId;
       box.querySelectorAll("button").forEach((el) => el.classList.remove("btn-selected"));
