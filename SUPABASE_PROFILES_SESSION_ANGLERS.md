@@ -117,6 +117,8 @@ alter table public.session_anglers
 
 Enable RLS and policies so users only touch their own profile and session rows they own (tune to match your `sessions.user_id` model).
 
+**Prerequisite:** Create **`is_session_participant`** and **`is_session_owner`** in `SUPABASE_AUTH_RLS.md` (§1b). Inline `EXISTS (SELECT … FROM public.sessions …)` inside **`session_anglers`** policies causes **infinite recursion** with **`sessions_select_participant`** — use **`public.is_session_owner(session_id)`** instead.
+
 ```sql
 alter table public.profiles enable row level security;
 
@@ -144,25 +146,15 @@ create policy "profiles_select_authenticated"
 
 alter table public.session_anglers enable row level security;
 
--- Session owner can read/write roster for their sessions
+-- Session owner can read roster for their sessions (uses SECURITY DEFINER helper — no inline join to sessions)
 create policy "session_anglers_select_session_owner"
   on public.session_anglers for select
-  using (
-    exists (
-      select 1 from public.sessions s
-      where s.id = session_anglers.session_id
-        and s.user_id = auth.uid()
-    )
-  );
+  using (public.is_session_owner(session_id));
 
 create policy "session_anglers_insert_session_owner"
   on public.session_anglers for insert
   with check (
-    exists (
-      select 1 from public.sessions s
-      where s.id = session_anglers.session_id
-        and s.user_id = auth.uid()
-    )
+    public.is_session_owner(session_id)
     and exists (
       select 1 from public.profiles p
       where p.id = session_anglers.user_id
@@ -171,20 +163,24 @@ create policy "session_anglers_insert_session_owner"
 
 create policy "session_anglers_delete_session_owner"
   on public.session_anglers for delete
-  using (
-    exists (
-      select 1 from public.sessions s
-      where s.id = session_anglers.session_id
-        and s.user_id = auth.uid()
-    )
-  );
+  using (public.is_session_owner(session_id));
 ```
 
 If you already created **`session_anglers_insert_session_owner`** with `user_id = auth.uid()`, run `drop policy "session_anglers_insert_session_owner" on public.session_anglers;` and recreate the insert policy as above (session owner + `user_id` exists in `profiles`).
 
-**Participants must read `public.sessions`:** add **`sessions_select_participant`** in `SUPABASE_AUTH_RLS.md` (select when a `session_anglers` row exists for `auth.uid()`). That is **not** limited to `sessions.user_id = auth.uid()`.
+**Migrating from recursive policies:** if you see `infinite recursion detected in policy for relation "sessions"`, run:
 
-**Participants must read their `session_anglers` rows:** if roster `SELECT` is owner-only, add e.g. `session_anglers_select_self` so `auth.uid() = user_id` can read their own roster rows (needed for embedded `sessions` queries from `session_anglers`).
+```sql
+drop policy if exists "session_anglers_select_session_owner" on public.session_anglers;
+drop policy if exists "session_anglers_insert_session_owner" on public.session_anglers;
+drop policy if exists "session_anglers_delete_session_owner" on public.session_anglers;
+```
+
+Then recreate them using **`is_session_owner(session_id)`** as above, and fix **`sessions_select_participant`** in `SUPABASE_AUTH_RLS.md` to use **`is_session_participant(id)`** (not inline `EXISTS`).
+
+**Participants must read `public.sessions`:** **`sessions_select_participant`** in `SUPABASE_AUTH_RLS.md` (via **`is_session_participant(id)`**).
+
+**Participants must read their `session_anglers` rows:**
 
 ```sql
 create policy "session_anglers_select_self"
@@ -193,7 +189,18 @@ create policy "session_anglers_select_self"
   using (auth.uid() = user_id);
 ```
 
-(Permissive `SELECT` policies on the same table are OR’d with the owner policy above.)
+**Full roster for participants:** `session_anglers_select_self` only returns **your** roster row. The app must load **all** participants on the host’s session (for the live dashboard and angler dropdown). Add a **`SELECT`** policy using **`is_session_participant`** from `SUPABASE_AUTH_RLS.md` §1b:
+
+```sql
+drop policy if exists "session_anglers_select_session_participant" on public.session_anglers;
+
+create policy "session_anglers_select_session_participant"
+  on public.session_anglers for select
+  to authenticated
+  using (public.is_session_participant(session_id));
+```
+
+(Permissive `SELECT` policies on the same table are OR’d with the owner and self policies above.)
 
 ---
 

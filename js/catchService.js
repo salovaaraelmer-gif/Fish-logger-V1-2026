@@ -3,7 +3,8 @@
  * @module catchService
  */
 
-import { putCatch, getActiveSession } from "./db.js";
+import { putCatch } from "./db.js";
+import { getActiveSessionForParticipantUi } from "./participantSessionCache.js";
 import { anglerBelongsToActiveSession } from "./sessionService.js";
 import { newId } from "./sessionService.js";
 import { fetchOpenMeteoCurrent } from "./weatherService.js";
@@ -128,7 +129,7 @@ function applyLocationFields(partial, loc) {
  * @returns {Promise<{ ok: true, record: import('./db.js').CatchRecord } | { ok: false, reason: string }>}
  */
 export async function saveCatch(input, deviceLoc) {
-  const session = await getActiveSession();
+  const session = await getActiveSessionForParticipantUi();
   if (!session) {
     return { ok: false, reason: "Ei aktiivista sessiota — saalisvahti ei käytössä." };
   }
@@ -215,7 +216,7 @@ export async function saveCatch(input, deviceLoc) {
  * Updates an existing catch in the active session (same id, same session; timestamp unchanged).
  */
 export async function updateCatch(input, deviceLoc, existing) {
-  const session = await getActiveSession();
+  const session = await getActiveSessionForParticipantUi();
   if (!session) {
     return { ok: false, reason: "Ei aktiivista sessiota — saalisvahti ei käytössä." };
   }

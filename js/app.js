@@ -5,7 +5,6 @@
 import {
   putAngler,
   getSessionAnglersForSession,
-  getActiveSession,
   getSessionById,
   getSessionBySupabaseCloudId,
   getAllEndedSessions,
@@ -72,6 +71,13 @@ import {
   insertSessionScopedAnglers,
 } from "./legacyAnglers.js";
 import { fetchParticipantSessionsForUser } from "./supabaseParticipantSessions.js";
+import {
+  setParticipantSessionFetchResult,
+  getActiveSessionForParticipantUi,
+  getLastParticipantRehydrateOk,
+  getParticipantEndedCloudRows,
+} from "./participantSessionCache.js";
+import { pullSessionRosterAndCatchesFromCloud } from "./supabaseParticipantSync.js";
 
 /** @type {Record<string, string>} */
 const SPECIES_LABELS = {
@@ -368,7 +374,7 @@ async function deleteSessionCloudThenLocal(localSessionId) {
  * `activeSupabaseSessionId` and angler UUIDs were only in RAM, so catches never synced.
  */
 async function rehydrateSupabaseSessionContext() {
-  const session = await getActiveSession();
+  const session = await getActiveSessionForParticipantUi();
   if (!session || session.endTime != null) {
     activeSupabaseSessionId = null;
     activeSupabaseAnglerRows = null;
@@ -522,7 +528,7 @@ async function pushSessionTitleToSupabase(title) {
 
 async function syncPendingSessionTitleToCloud() {
   if (!sessionTitleNeedsCloudSync || !activeSupabaseSessionId) return;
-  const s = await getActiveSession();
+  const s = await getActiveSessionForParticipantUi();
   if (!s) return;
   const title = getSessionDisplayTitle(s);
   await pushSessionTitleToSupabase(title);
@@ -551,14 +557,14 @@ async function exitSessionTitleEdit() {
   const display = document.getElementById("session-title-display");
   const input = /** @type {HTMLInputElement | null} */ (document.getElementById("session-title-input"));
   if (!display || !input) return;
-  const s = await getActiveSession();
+  const s = await getActiveSessionForParticipantUi();
   display.textContent = title != null ? title : s ? getSessionDisplayTitle(s) : "";
   input.classList.add("hidden");
   display.classList.remove("hidden");
 }
 
 async function beginSessionTitleEdit() {
-  const session = await getActiveSession();
+  const session = await getActiveSessionForParticipantUi();
   if (!session) return;
   const display = document.getElementById("session-title-display");
   const input = /** @type {HTMLInputElement | null} */ (document.getElementById("session-title-input"));
@@ -679,11 +685,66 @@ let sessionTitleNeedsCloudSync = false;
 /** @type {"synced" | "syncing" | "offline" | "error"} */
 let syncStatus = navigator.onLine ? "synced" : "offline";
 
-/** Participant-based session list from `session_anglers` + `sessions` (not owner-only). */
-let participantActiveCloudRows = [];
-let participantEndedCloudRows = [];
-/** True after a successful online `fetchParticipantSessionsForUser` in this tab. */
-let lastParticipantRehydrateOk = false;
+/** @type {ReturnType<typeof setInterval> | null} */
+let participantSessionPollIntervalId = null;
+
+function clearParticipantSessionPoll() {
+  if (participantSessionPollIntervalId !== null) {
+    clearInterval(participantSessionPollIntervalId);
+    participantSessionPollIntervalId = null;
+  }
+}
+
+/**
+ * Merges `session_anglers` + `catches` from Supabase into IndexedDB for the active session.
+ * Runs for **both** host and participants: the host’s second device has no local roster/catches
+ * until this runs (we must not skip when `sessions.user_id === auth.uid()`).
+ */
+async function syncParticipantSessionFromCloudIfNeeded() {
+  if (!navigator.onLine || !getLastParticipantRehydrateOk()) return;
+  const uid = await getAuthUserId();
+  if (!uid) return;
+  const session = await getActiveSessionForParticipantUi();
+  if (!session || session.endTime != null) return;
+  const cloudSid =
+    typeof session.supabaseSessionId === "string" && session.supabaseSessionId
+      ? session.supabaseSessionId
+      : null;
+  if (!cloudSid) return;
+  const res = await pullSessionRosterAndCatchesFromCloud(session.id, cloudSid);
+  if (!res.ok) {
+    console.warn("[participantSync] pull failed:", res.error);
+  }
+}
+
+async function maybeStartParticipantSessionPoll(localSessionId) {
+  clearParticipantSessionPoll();
+  if (!navigator.onLine || !getLastParticipantRehydrateOk()) return;
+  const uid = await getAuthUserId();
+  if (!uid) return;
+  const sessRow = await getSessionById(localSessionId);
+  const cloudSid =
+    sessRow && typeof sessRow.supabaseSessionId === "string" && sessRow.supabaseSessionId
+      ? sessRow.supabaseSessionId
+      : null;
+  if (!cloudSid) return;
+
+  participantSessionPollIntervalId = setInterval(async () => {
+    try {
+      await syncParticipantSessionFromCloudIfNeeded();
+      const s = await getActiveSessionForParticipantUi();
+      if (!s || s.endTime != null || s.id !== localSessionId) {
+        clearParticipantSessionPoll();
+        return;
+      }
+      await rehydrateSupabaseSessionContext();
+      await renderSessionLiveView(s.id);
+      await refreshCatchesTableIfOpen();
+    } catch (e) {
+      console.warn("[participantSync] poll:", e);
+    }
+  }, 12000);
+}
 
 /** Rows returned from the last successful `session_anglers` batch for the active session (optional; cleared when the session ends). */
 let activeSupabaseAnglerRows = null;
@@ -1387,7 +1448,7 @@ async function populateCatchesTable(sessionIdOverride) {
     catchesSessionMenuSessionId = null;
     syncCatchesSessionMenuUi();
     dashEl?.classList.add("hidden");
-    const session = await getActiveSession();
+    const session = await getActiveSessionForParticipantUi();
     if (!session) {
       listEl.innerHTML = "";
       if (stripEl) {
@@ -1415,6 +1476,15 @@ async function populateCatchesTable(sessionIdOverride) {
     listEl.setAttribute("aria-label", overlayTitle);
 
     const session = await getSessionById(sessionIdOverride);
+    if (session && session.endTime != null && navigator.onLine && session.supabaseSessionId) {
+      const uid = await getAuthUserId();
+      if (uid) {
+        const pr = await pullSessionRosterAndCatchesFromCloud(session.id, session.supabaseSessionId);
+        if (!pr.ok) {
+          console.warn("[participantSync] ended session pull:", pr.error);
+        }
+      }
+    }
     const isEndedSession = session != null && session.endTime != null;
     if (isEndedSession) {
       detailMenuBtn?.classList.remove("hidden");
@@ -1457,7 +1527,7 @@ async function populateCatchesTable(sessionIdOverride) {
     stripEl.removeAttribute("hidden");
   }
 
-  const active = await getActiveSession();
+  const active = await getActiveSessionForParticipantUi();
   const allowEditDelete = !!active && active.id === sessionId;
 
   const count = await renderCatchList(listEl, sessionId, false, {
@@ -1481,7 +1551,7 @@ async function populateCatchesTable(sessionIdOverride) {
 }
 
 async function populateSessionEndCatchesTable() {
-  const session = await getActiveSession();
+  const session = await getActiveSessionForParticipantUi();
   const listEl = document.getElementById("session-end-table-body");
   const wrap = document.getElementById("session-end-table-wrap");
   const stripEl = document.getElementById("session-end-session-strip");
@@ -1495,7 +1565,7 @@ async function populateSessionEndCatchesTable() {
 }
 
 async function openSessionEndOverlay() {
-  const session = await getActiveSession();
+  const session = await getActiveSessionForParticipantUi();
   if (!session) return;
   closeCatchesOverlay();
   await populateSessionEndCatchesTable();
@@ -1714,9 +1784,7 @@ async function upsertLocalSessionFromCloudRow(cloud) {
 async function rehydrateSupabaseParticipantSessions() {
   const uid = await getAuthUserId();
   console.log("[participantSessions] currentUserId", uid || "(none)");
-  participantActiveCloudRows = [];
-  participantEndedCloudRows = [];
-  lastParticipantRehydrateOk = false;
+  setParticipantSessionFetchResult(false, [], []);
   if (!uid) {
     return;
   }
@@ -1729,9 +1797,7 @@ async function rehydrateSupabaseParticipantSessions() {
     console.warn("[participantSessions] fetch failed:", res.error);
     return;
   }
-  lastParticipantRehydrateOk = true;
-  participantActiveCloudRows = res.active;
-  participantEndedCloudRows = res.ended;
+  setParticipantSessionFetchResult(true, res.active, res.ended);
   console.log(
     "[participantSessions] active (participant-based) count:",
     res.active.length,
@@ -1750,23 +1816,10 @@ async function rehydrateSupabaseParticipantSessions() {
   }
 }
 
-/**
- * Prefer active session from participant-based cloud list when online; else local `getActiveSession`.
- * @returns {Promise<import('./db.js').Session | null>}
- */
-async function getActiveSessionForParticipantUi() {
-  if (navigator.onLine && lastParticipantRehydrateOk && participantActiveCloudRows.length > 0) {
-    const primary = participantActiveCloudRows[0];
-    const local = await getSessionBySupabaseCloudId(primary.id);
-    if (local && local.endTime == null) {
-      return local;
-    }
-  }
-  return getActiveSession();
-}
-
 async function renderHome() {
+  clearParticipantSessionPoll();
   await rehydrateSupabaseParticipantSessions();
+  await syncParticipantSessionFromCloudIfNeeded();
   await rehydrateSupabaseSessionContext();
   const session = await getActiveSessionForParticipantUi();
   const meta = document.getElementById("session-meta");
@@ -1809,6 +1862,7 @@ async function renderHome() {
     startSessionTimer(session.startTime);
     syncSessionTitleHeader(session);
     await renderSessionLiveView(session.id);
+    await maybeStartParticipantSessionPoll(session.id);
   }
 
   syncHomeAnglersToggleUi();
@@ -1869,9 +1923,9 @@ async function renderHistorySection() {
 
   /** @type {import('./db.js').Session[]} */
   let sessions;
-  if (navigator.onLine && lastParticipantRehydrateOk) {
+  if (navigator.onLine && getLastParticipantRehydrateOk()) {
     sessions = [];
-    for (const cloud of participantEndedCloudRows) {
+    for (const cloud of getParticipantEndedCloudRows()) {
       const local = await getSessionBySupabaseCloudId(cloud.id);
       if (local) {
         sessions.push(local);
@@ -2313,7 +2367,7 @@ async function prefillTelemetryFromLastCatch() {
   tempEl.value = "";
   fishState.depthStr = "";
   fishState.waterTempStr = "";
-  const session = await getActiveSession();
+  const session = await getActiveSessionForParticipantUi();
   if (!session) return;
   const catches = await getCatchesForSession(session.id);
   const last = catches[0];
@@ -2434,7 +2488,7 @@ async function openFishOverlay() {
 }
 
 async function populateFishAnglers() {
-  const session = await getActiveSession();
+  const session = await getActiveSessionForParticipantUi();
   const box = document.getElementById("fish-angler-buttons");
   if (!box || !session) return;
   const sas = await getSessionAnglersForSession(session.id);
@@ -2601,9 +2655,8 @@ function onAuthSignedOut() {
   activeSupabaseSessionId = null;
   activeSupabaseAnglerRows = null;
   supabaseAnglerRowByLocalId.clear();
-  participantActiveCloudRows = [];
-  participantEndedCloudRows = [];
-  lastParticipantRehydrateOk = false;
+  setParticipantSessionFetchResult(false, [], []);
+  clearParticipantSessionPoll();
   sessionTitleNeedsCloudSync = false;
   stopSessionTimer();
   fishState.editingCatchId = null;
@@ -3075,7 +3128,7 @@ function mainAppInit() {
   });
 
   document.getElementById("session-end-final")?.addEventListener("click", async () => {
-    const activeBefore = await getActiveSession();
+    const activeBefore = await getActiveSessionForParticipantUi();
     if (!activeBefore) return;
     const endedSessionId = activeBefore.id;
     const cloudSidForEnd = activeSupabaseSessionId;

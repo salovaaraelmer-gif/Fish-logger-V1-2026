@@ -4,7 +4,6 @@
  */
 
 import {
-  getActiveSession,
   getSessionById,
   getSessionAnglersForSession,
   findSessionAngler,
@@ -13,6 +12,7 @@ import {
   isAnglerInAnyActiveSession,
 } from "./db.js";
 import { getAuthUserId } from "./auth.js";
+import { getActiveSessionForParticipantUi } from "./participantSessionCache.js";
 import { defaultSessionTitleFromDate } from "./sessionTitle.js";
 
 function newId() {
@@ -53,7 +53,7 @@ export async function startSession(anglerIds, initialLocation) {
     return { ok: false, reason: "Valitse vähintään yksi kalastaja." };
   }
 
-  const existing = await getActiveSession();
+  const existing = await getActiveSessionForParticipantUi();
   if (existing) {
     return { ok: false, reason: "Aktiivinen sessio on jo käynnissä." };
   }
@@ -113,7 +113,7 @@ export async function startSession(anglerIds, initialLocation) {
  * @returns {Promise<{ ok: true, title: string } | { ok: false, reason: string }>}
  */
 export async function saveActiveSessionTitle(rawTitle) {
-  const s = await getActiveSession();
+  const s = await getActiveSessionForParticipantUi();
   if (!s) {
     return { ok: false, reason: "Ei aktiivista sessiota." };
   }
@@ -127,7 +127,7 @@ export async function saveActiveSessionTitle(rawTitle) {
  * @returns {Promise<{ ok: true } | { ok: false, reason: string }>}
  */
 export async function endActiveSession() {
-  const s = await getActiveSession();
+  const s = await getActiveSessionForParticipantUi();
   if (!s) {
     return { ok: false, reason: "Ei aktiivista sessiota." };
   }
@@ -143,7 +143,7 @@ export async function endActiveSession() {
  * @returns {Promise<{ ok: true } | { ok: false, reason: string }>}
  */
 export async function markActiveSessionCsvExported() {
-  const s = await getActiveSession();
+  const s = await getActiveSessionForParticipantUi();
   if (!s) {
     return { ok: false, reason: "Ei aktiivista sessiota." };
   }
@@ -178,7 +178,7 @@ export async function markSessionCsvExportedById(sessionId) {
  * @param {string} anglerId
  */
 export async function addAnglerToSession(sessionId, anglerId) {
-  const active = await getActiveSession();
+  const active = await getActiveSessionForParticipantUi();
   if (!active || active.id !== sessionId) {
     return { ok: false, reason: "Virheellinen sessio." };
   }
