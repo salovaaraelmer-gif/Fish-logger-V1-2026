@@ -1,5 +1,7 @@
 /**
- * Participant-based session listing via `public.session_anglers` (not `sessions.user_id` only).
+ * Session listing for the signed-in user: `session_anglers` (participant) **plus**
+ * `sessions` rows where `user_id` is the host. The second device needs host rows when
+ * roster sync missed `session_anglers` but the session exists in `sessions`.
  * @module supabaseParticipantSessions
  */
 
@@ -36,7 +38,8 @@ function normalizeSessionEmbed(row) {
 }
 
 /**
- * Fetches sessions where the user is a participant (`session_anglers.user_id = uid`).
+ * Fetches sessions for the user: participant rows (`session_anglers`) and host-owned
+ * rows (`sessions.user_id`). Merged and deduped by session id.
  * Splits into active (`ended_at` is null) and ended.
  * @param {string} uid — `auth.users.id`
  * @returns {Promise<{ ok: true, active: CloudSessionRow[], ended: CloudSessionRow[] } | { ok: false, error: string }>}
@@ -77,6 +80,23 @@ export async function fetchParticipantSessionsForUser(uid) {
     const norm = normalizeSessionEmbed(sess);
     if (norm) {
       bySessionId.set(norm.id, norm);
+    }
+  }
+
+  const { data: hostSessions, error: hostErr } = await supabase
+    .from("sessions")
+    .select("id, title, ended_at, created_at, user_id, notes")
+    .eq("user_id", uid);
+
+  if (hostErr) {
+    console.warn("[participantSessions] host sessions query failed:", hostErr.message);
+  } else {
+    const hostRows = Array.isArray(hostSessions) ? hostSessions : [];
+    for (const row of hostRows) {
+      const norm = normalizeSessionEmbed(row);
+      if (norm) {
+        bySessionId.set(norm.id, norm);
+      }
     }
   }
 

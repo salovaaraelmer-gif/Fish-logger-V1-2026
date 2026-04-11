@@ -1924,14 +1924,26 @@ async function renderHistorySection() {
   /** @type {import('./db.js').Session[]} */
   let sessions;
   if (navigator.onLine && getLastParticipantRehydrateOk()) {
-    sessions = [];
+    /** @type {import('./db.js').Session[]} */
+    const merged = [];
+    const seen = new Set();
     for (const cloud of getParticipantEndedCloudRows()) {
       const local = await getSessionBySupabaseCloudId(cloud.id);
       if (local) {
-        sessions.push(local);
+        merged.push(local);
+        seen.add(local.id);
       }
     }
-    sessions.sort((a, b) => (b.endTime ?? 0) - (a.endTime ?? 0));
+    const localEnded = await getAllEndedSessions();
+    for (const s of localEnded) {
+      if (seen.has(s.id)) continue;
+      if (typeof s.supabaseSessionId === "string" && s.supabaseSessionId) {
+        merged.push(s);
+        seen.add(s.id);
+      }
+    }
+    merged.sort((a, b) => (b.endTime ?? 0) - (a.endTime ?? 0));
+    sessions = merged;
   } else {
     sessions = await getAllEndedSessions();
   }
