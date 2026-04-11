@@ -18,6 +18,7 @@ import {
   deleteSessionCascade,
   setIndexedDbUserId,
   purgeLegacyFishLoggerDatabase,
+  clearUserIndexedDb,
 } from "./db.js";
 import {
   startSession,
@@ -2810,7 +2811,13 @@ let authDebugVisible = false;
 let authDebugLastStep = "idle";
 let authDebugLastError = "";
 
-function onAuthSignedOut() {
+async function onAuthSignedOut() {
+  try {
+    await clearUserIndexedDb();
+  } catch (err) {
+    console.warn("[Auth] IndexedDB clear on logout:", err);
+  }
+  setIndexedDbUserId(null);
   activeSupabaseSessionId = null;
   activeSupabaseAnglerRows = null;
   supabaseAnglerRowByLocalId.clear();
@@ -2826,7 +2833,6 @@ function onAuthSignedOut() {
   document.getElementById("start-overlay")?.classList.add("hidden");
   document.getElementById("session-end-overlay")?.classList.add("hidden");
   document.getElementById("session-summary-overlay")?.classList.add("hidden");
-  setIndexedDbUserId(null);
   lastIndexedDbUserId = null;
 }
 
@@ -3234,7 +3240,7 @@ async function handleAuthStateChange(event, session) {
     showAuthGate();
     showAuthLoginPanel();
     updateUserDisplayName(null);
-    if (mainAppStarted) onAuthSignedOut();
+    if (mainAppStarted) await onAuthSignedOut();
   }
 }
 
