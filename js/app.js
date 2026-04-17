@@ -2862,7 +2862,7 @@ function wireFishMeasurementInputs() {
 }
 
 /**
- * Prefill depth and water temperature from the most recent catch in the active session.
+ * Prefill species, depth, and water temperature from the most recent catch in the active session.
  */
 async function prefillTelemetryFromLastCatch() {
   const depthEl = /** @type {HTMLInputElement | null} */ (document.getElementById("fish-input-depth"));
@@ -2877,6 +2877,16 @@ async function prefillTelemetryFromLastCatch() {
   const catches = await getCatchesForSession(session.id);
   const last = catches[0];
   if (!last) return;
+  if (typeof last.species === "string" && SPECIES_OPTIONS.includes(last.species)) {
+    fishState.species = last.species;
+    const sbox = document.getElementById("species-buttons");
+    sbox?.querySelectorAll("button").forEach((el) => {
+      const key = el.dataset.species;
+      el.classList.toggle("btn-selected", key === last.species);
+    });
+    const next = document.getElementById("fish-next-2");
+    if (next) next.disabled = false;
+  }
   const d = last.depth_m;
   const t = last.water_temp_c;
   if (d != null && Number.isFinite(d)) {
@@ -3813,10 +3823,25 @@ function mainAppInit() {
       timestamp: /** @type {number | null} */ (null),
       source: /** @type {string | null} */ (null),
     };
-    try {
-      loc = await fetchDeviceLocationBestEffort();
-    } catch {
-      /* save without location */
+    /** @type {import('./db.js').CatchRecord | null} */
+    let existingCatch = null;
+    if (fishState.editingCatchId) {
+      existingCatch = await getCatchById(fishState.editingCatchId);
+      if (existingCatch) {
+        loc = {
+          lat: existingCatch.location_lat,
+          lng: existingCatch.location_lng,
+          accuracyM: existingCatch.location_accuracy_m,
+          timestamp: existingCatch.location_timestamp,
+          source: existingCatch.location_source,
+        };
+      }
+    } else {
+      try {
+        loc = await fetchDeviceLocationBestEffort();
+      } catch {
+        /* save without location */
+      }
     }
 
     const inputPayload = {
@@ -3830,8 +3855,7 @@ function mainAppInit() {
     };
 
     if (fishState.editingCatchId) {
-      const existing = await getCatchById(fishState.editingCatchId);
-      if (!existing) {
+      if (!existingCatch) {
         if (btn) {
           btn.disabled = false;
           btn.textContent = "Tallenna";
@@ -3839,7 +3863,7 @@ function mainAppInit() {
         showError("Saalista ei löytynyt.");
         return;
       }
-      const result = await updateCatch(inputPayload, loc, existing);
+      const result = await updateCatch(inputPayload, loc, existingCatch);
       if (btn) {
         btn.disabled = false;
         btn.textContent = "Tallenna";
