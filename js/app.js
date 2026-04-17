@@ -39,6 +39,8 @@ import {
   saveCatch,
   updateCatch,
   fetchDeviceLocationBestEffort,
+  startSessionLocationWatch,
+  stopSessionLocationWatch,
   parseOptionalLengthCm,
   parseOptionalDepthM,
   parseOptionalWaterTempC,
@@ -532,10 +534,15 @@ async function syncCatchCreateToSupabase(record) {
 async function syncCatchUpdateToSupabase(record) {
   if (!record.supabase_id) return null;
   const speciesForDb = mapSpeciesKeyToSupabaseSpecies(record.species);
-  if (!activeSupabaseSessionId || !speciesForDb) {
+  const sess = record.sessionId ? await getSessionById(record.sessionId) : null;
+  const cloudSid =
+    sess && typeof sess.supabaseSessionId === "string" && sess.supabaseSessionId
+      ? sess.supabaseSessionId
+      : activeSupabaseSessionId;
+  if (!cloudSid || !speciesForDb) {
     return { ok: false, error: "Supabase-sessio tai lajitieto puuttuu." };
   }
-  const sbAnglerId = await resolveLegacyAnglerIdForCloudCatch(record.anglerId);
+  const sbAnglerId = await resolveLegacyAnglerIdForCloudCatch(record.anglerId, cloudSid);
   if (!sbAnglerId) {
     return {
       ok: false,
@@ -554,14 +561,14 @@ async function syncCatchUpdateToSupabase(record) {
   setSyncStatus("syncing");
   const payload = catchRecordToSupabasePayload(
     record,
-    activeSupabaseSessionId,
+    cloudSid,
     sbAnglerId,
     speciesForDb,
     authUserId
   );
   console.log("[catch sync] update", {
     localSessionId: record.sessionId,
-    supabaseSessionId: activeSupabaseSessionId,
+    supabaseSessionId: cloudSid,
     participantUserId: record.anglerId,
     resolvedSessionScopedAnglersId: sbAnglerId,
     supabaseCatchId: record.supabase_id,
@@ -1626,8 +1633,20 @@ async function populateCatchesTable(sessionIdOverride) {
     stripEl.removeAttribute("hidden");
   }
 
-  const active = await getActiveSessionForParticipantUi();
-  const allowEditDelete = !!active && active.id === sessionId;
+  let allowEditDelete = false;
+  if (sessionIdOverride) {
+    const sRow = await getSessionById(sessionIdOverride);
+    if (sRow && sRow.endTime != null) {
+      const uid = await getAuthUserId();
+      if (uid) {
+        const sa = await findSessionAngler(sessionIdOverride, uid);
+        allowEditDelete = !!sa;
+      }
+    }
+  } else {
+    const active = await getActiveSessionForParticipantUi();
+    allowEditDelete = !!active && active.id === sessionId;
+  }
 
   const sessionForOwner = sessionIdOverride ? await getSessionById(sessionIdOverride) : await getActiveSessionForParticipantUi();
   const catchListOwnerUserId = await getSessionOwnerUserId(sessionForOwner);
@@ -2027,10 +2046,16 @@ async function renderHome() {
   }
 
   await renderHistorySection();
+
+  if (session && session.endTime == null) {
+    startSessionLocationWatch();
+  } else {
+    stopSessionLocationWatch();
+  }
 }
 
 /**
- * Opens read-only catches for a past session (newest-first sort off; no edit/delete).
+ * Opens catches for a past session. Edit/delete when your profile is on the session roster.
  * @param {string} sessionId
  */
 async function openHistorySessionCatches(sessionId) {
@@ -2042,7 +2067,7 @@ async function openHistorySessionCatches(sessionId) {
 }
 
 /**
- * Lists ended sessions (newest end time first); tap opens read-only catch list.
+ * Lists ended sessions (newest end time first); tap opens catch list (editable if roster member).
  */
 async function renderHistorySection() {
   const listEl = document.getElementById("history-session-list");
@@ -2633,19 +2658,34 @@ async function openFishOverlay() {
 }
 
 async function populateFishAnglers() {
-  const session = await getActiveSessionForParticipantUi();
   const box = document.getElementById("fish-angler-buttons");
-  if (!box || !session) return;
+  if (!box) return;
+
+  /** @type {import('./db.js').Session | null} */
+  let session = await getActiveSessionForParticipantUi();
+  let useFullRoster = false;
+  if (fishState.editingCatchId) {
+    const editing = await getCatchById(fishState.editingCatchId);
+    if (editing?.sessionId) {
+      const s = await getSessionById(editing.sessionId);
+      if (s) {
+        session = s;
+        useFullRoster = s.endTime != null;
+      }
+    }
+  }
+
+  if (!session) return;
   const ownerUserId = await getSessionOwnerUserId(session);
   const sas = await getSessionAnglersForSession(session.id);
-  const active = sas.filter((x) => x.isActive);
-  const nameById = await fetchProfileDisplayNames(active.map((sa) => sa.anglerId));
+  const listed = useFullRoster ? sas : sas.filter((x) => x.isActive);
+  const nameById = await fetchProfileDisplayNames(listed.map((sa) => sa.anglerId));
   box.innerHTML = "";
-  if (active.length === 0) {
-    box.innerHTML = '<p class="meta">Ei aktiivisia kalastajia sessiossa.</p>';
+  if (listed.length === 0) {
+    box.innerHTML = '<p class="meta">Ei kalastajia sessiossa.</p>';
     return;
   }
-  for (const sa of active) {
+  for (const sa of listed) {
     const b = document.createElement("button");
     b.type = "button";
     b.className = "btn";
@@ -2815,6 +2855,7 @@ async function onAuthSignedOut() {
   clearParticipantSessionPoll();
   sessionTitleNeedsCloudSync = false;
   stopSessionTimer();
+  stopSessionLocationWatch();
   fishState.editingCatchId = null;
   homeAnglersExpanded = false;
   closeProfileOverlay();

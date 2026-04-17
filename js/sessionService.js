@@ -236,4 +236,17 @@ export async function anglerBelongsToActiveSession(sessionId, anglerId) {
   return !!(sa && sa.isActive);
 }
 
+/**
+ * True if this angler appears on the session roster (including left / inactive rows).
+ * Used for editing catches in ended sessions.
+ *
+ * @param {string} sessionId
+ * @param {string} anglerId
+ * @returns {Promise<boolean>}
+ */
+export async function anglerBelongsToSessionRoster(sessionId, anglerId) {
+  const sa = await findSessionAngler(sessionId, anglerId);
+  return !!sa;
+}
+
 export { newId };
