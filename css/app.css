@@ -198,6 +198,18 @@ h1 {
   outline: none;
 }
 
+.session-title-display.session-title-display--readonly {
+  cursor: default;
+}
+
+.catches-ended-title-wrap {
+  margin-bottom: 0.75rem;
+}
+
+.catches-ended-title-label {
+  margin: 0 0 0.25rem;
+}
+
 .session-title-display:focus-visible {
   box-shadow: 0 0 0 2px var(--accent-dim);
 }

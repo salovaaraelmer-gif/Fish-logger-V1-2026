@@ -26,6 +26,7 @@ import {
   markAnglerInactive,
   markSessionCsvExportedById,
   saveActiveSessionTitle,
+  saveSessionTitleIfParticipant,
   newId,
 } from "./sessionService.js";
 import { defaultSessionTitleFromDate, getSessionDisplayTitle } from "./sessionTitle.js";
@@ -581,12 +582,19 @@ async function syncCatchUpdateToSupabase(record) {
 
 /**
  * @param {string} title
+ * @param {string | null | undefined} [cloudSessionId] — defaults to active cloud session id
  * @returns {Promise<{ ok: true } | { ok: false, error: string } | { skipped: true } | { ok: true, offline: true }>}
  */
-async function pushSessionTitleToSupabase(title) {
-  if (!activeSupabaseSessionId) return { skipped: true };
+async function pushSessionTitleToSupabase(title, cloudSessionId) {
+  const sid =
+    typeof cloudSessionId === "string" && cloudSessionId.length > 0
+      ? cloudSessionId
+      : activeSupabaseSessionId;
+  if (!sid) return { skipped: true };
   if (!navigator.onLine) {
-    sessionTitleNeedsCloudSync = true;
+    if (typeof cloudSessionId !== "string" || !cloudSessionId.length) {
+      sessionTitleNeedsCloudSync = true;
+    }
     setSyncStatus("offline");
     return { ok: true, offline: true };
   }
@@ -594,13 +602,17 @@ async function pushSessionTitleToSupabase(title) {
   const { error } = await supabase
     .from("sessions")
     .update({ title })
-    .eq("id", activeSupabaseSessionId);
+    .eq("id", sid);
   if (error) {
-    sessionTitleNeedsCloudSync = true;
+    if (typeof cloudSessionId !== "string" || !cloudSessionId.length) {
+      sessionTitleNeedsCloudSync = true;
+    }
     setSyncStatus("error");
     return { ok: false, error: error.message };
   }
-  sessionTitleNeedsCloudSync = false;
+  if (typeof cloudSessionId !== "string" || !cloudSessionId.length) {
+    sessionTitleNeedsCloudSync = false;
+  }
   setSyncStatus("synced");
   return { ok: true };
 }
@@ -732,6 +744,142 @@ function wireSessionTitleEditor() {
 }
 
 /**
+ * @param {string | null | undefined} sessionIdOverride
+ * @param {import('./db.js').Session | null} sessionForOwner
+ * @param {boolean} allowEditDelete
+ */
+function syncEndedSessionTitleRowInCatchesOverlay(sessionIdOverride, sessionForOwner, allowEditDelete) {
+  const wrap = document.getElementById("catches-ended-title-wrap");
+  const display = document.getElementById("catches-ended-title-display");
+  const input = /** @type {HTMLInputElement | null} */ (document.getElementById("catches-ended-title-input"));
+  if (!wrap || !display || !input) return;
+  if (!sessionIdOverride || !sessionForOwner || sessionForOwner.endTime == null) {
+    wrap.classList.add("hidden");
+    wrap.setAttribute("aria-hidden", "true");
+    return;
+  }
+  wrap.classList.remove("hidden");
+  wrap.setAttribute("aria-hidden", "false");
+  if (!endedSessionTitleEditing) {
+    display.textContent = getSessionDisplayTitle(sessionForOwner);
+  }
+  if (allowEditDelete) {
+    display.setAttribute("tabindex", "0");
+    display.setAttribute("role", "button");
+    display.setAttribute("aria-label", "Session otsikko, muokkaa napauttamalla");
+    display.classList.remove("session-title-display--readonly");
+  } else {
+    display.setAttribute("tabindex", "-1");
+    display.removeAttribute("role");
+    display.setAttribute("aria-label", "");
+    display.classList.add("session-title-display--readonly");
+  }
+}
+
+async function flushEndedSessionTitleSave() {
+  const ov = document.getElementById("catches-overlay");
+  const sid = ov?.dataset.viewSessionId;
+  const input = /** @type {HTMLInputElement | null} */ (document.getElementById("catches-ended-title-input"));
+  if (!sid || !input || input.classList.contains("hidden")) return null;
+  const r = await saveSessionTitleIfParticipant(sid, input.value);
+  if (!r.ok) {
+    showError(r.reason);
+    return null;
+  }
+  input.value = r.title;
+  const s = await getSessionById(sid);
+  const cloudSid =
+    s && typeof s.supabaseSessionId === "string" && s.supabaseSessionId ? s.supabaseSessionId : null;
+  const cloud = await pushSessionTitleToSupabase(r.title, cloudSid);
+  if (cloud && "ok" in cloud && cloud.ok === false && "error" in cloud) {
+    showError(`Otsikon synkronointi epäonnistui: ${cloud.error}`);
+  }
+  void renderHistorySection();
+  return r.title;
+}
+
+async function exitEndedSessionTitleEdit() {
+  const title = await flushEndedSessionTitleSave();
+  endedSessionTitleEditing = false;
+  const display = document.getElementById("catches-ended-title-display");
+  const input = /** @type {HTMLInputElement | null} */ (document.getElementById("catches-ended-title-input"));
+  if (!display || !input) return;
+  const ov = document.getElementById("catches-overlay");
+  const sid = ov?.dataset.viewSessionId;
+  if (sid) {
+    const s = await getSessionById(sid);
+    display.textContent = title != null ? title : (s ? getSessionDisplayTitle(s) : "");
+  }
+  input.classList.add("hidden");
+  display.classList.remove("hidden");
+}
+
+async function beginEndedSessionTitleEdit() {
+  const ov = document.getElementById("catches-overlay");
+  const sid = ov?.dataset.viewSessionId;
+  if (!sid) return;
+  const session = await getSessionById(sid);
+  if (!session || session.endTime == null) return;
+  const uid = await getAuthUserId();
+  if (!uid) return;
+  const sa = await findSessionAngler(sid, uid);
+  if (!sa) return;
+  const display = document.getElementById("catches-ended-title-display");
+  const input = /** @type {HTMLInputElement | null} */ (document.getElementById("catches-ended-title-input"));
+  if (!display || !input) return;
+  endedSessionTitleEditing = true;
+  display.classList.add("hidden");
+  input.classList.remove("hidden");
+  input.value = getSessionDisplayTitle(session);
+  requestAnimationFrame(() => {
+    input.focus();
+    input.select();
+  });
+}
+
+function wireEndedSessionTitleEditor() {
+  const display = document.getElementById("catches-ended-title-display");
+  const input = /** @type {HTMLInputElement | null} */ (document.getElementById("catches-ended-title-input"));
+  if (!display || !input) return;
+
+  display.addEventListener("click", (e) => {
+    e.preventDefault();
+    if (display.classList.contains("session-title-display--readonly")) return;
+    void beginEndedSessionTitleEdit();
+  });
+  display.addEventListener("keydown", (e) => {
+    if (display.classList.contains("session-title-display--readonly")) return;
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      void beginEndedSessionTitleEdit();
+    }
+  });
+
+  input.addEventListener("input", () => {
+    if (endedSessionTitleDebounceTimer) clearTimeout(endedSessionTitleDebounceTimer);
+    endedSessionTitleDebounceTimer = setTimeout(() => {
+      endedSessionTitleDebounceTimer = null;
+      void flushEndedSessionTitleSave();
+    }, 400);
+  });
+
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      input.blur();
+    }
+  });
+
+  input.addEventListener("blur", () => {
+    if (endedSessionTitleDebounceTimer) {
+      clearTimeout(endedSessionTitleDebounceTimer);
+      endedSessionTitleDebounceTimer = null;
+    }
+    void exitEndedSessionTitleEdit();
+  });
+}
+
+/**
  * @type {{
  *   step: number,
  *   anglerId: string | null,
@@ -757,6 +905,12 @@ let sessionTitleEditing = false;
 
 /** @type {ReturnType<typeof setTimeout> | null} */
 let sessionTitleDebounceTimer = null;
+
+/** True while ended-session title overlay is in edit mode. */
+let endedSessionTitleEditing = false;
+
+/** @type {ReturnType<typeof setTimeout> | null} */
+let endedSessionTitleDebounceTimer = null;
 
 /** True if local title may not be synced to Supabase yet (offline or failed push). */
 let sessionTitleNeedsCloudSync = false;
@@ -1519,6 +1673,10 @@ async function renderCatchList(container, sessionId, emptyPlaceholderRow, listOp
  */
 async function populateCatchesTable(sessionIdOverride) {
   const catchesOv = document.getElementById("catches-overlay");
+  const prevViewSid = catchesOv?.dataset.viewSessionId;
+  if (String(prevViewSid || "") !== String(sessionIdOverride || "")) {
+    endedSessionTitleEditing = false;
+  }
   if (catchesOv) {
     if (sessionIdOverride) {
       catchesOv.dataset.viewSessionId = sessionIdOverride;
@@ -1558,6 +1716,7 @@ async function populateCatchesTable(sessionIdOverride) {
       if (titleEl) titleEl.textContent = "Saaliit tässä sessiossa";
       if (emptyEl) emptyEl.textContent = "Ei aktiivista sessiota.";
       listEl.setAttribute("aria-label", "Saaliit tässä sessiossa");
+      syncEndedSessionTitleRowInCatchesOverlay(undefined, null, false);
       return;
     }
     sessionId = session.id;
@@ -1650,6 +1809,8 @@ async function populateCatchesTable(sessionIdOverride) {
 
   const sessionForOwner = sessionIdOverride ? await getSessionById(sessionIdOverride) : await getActiveSessionForParticipantUi();
   const catchListOwnerUserId = await getSessionOwnerUserId(sessionForOwner);
+
+  syncEndedSessionTitleRowInCatchesOverlay(sessionIdOverride, sessionForOwner, allowEditDelete);
 
   const count = await renderCatchList(listEl, sessionId, false, {
     activeSession: sessionIdOverride == null,
@@ -3284,6 +3445,7 @@ function mainAppInit() {
   });
   wireFishMeasurementInputs();
   wireSessionTitleEditor();
+  wireEndedSessionTitleEditor();
   renderSyncStatusIndicator();
   window.addEventListener("online", () => {
     setSyncStatus("syncing");

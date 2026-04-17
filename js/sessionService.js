@@ -124,6 +124,31 @@ export async function saveActiveSessionTitle(rawTitle) {
 }
 
 /**
+ * Sets session title when the user is on the session roster (works for ended sessions).
+ *
+ * @param {string} sessionId
+ * @param {string} rawTitle
+ * @returns {Promise<{ ok: true, title: string } | { ok: false, reason: string }>}
+ */
+export async function saveSessionTitleIfParticipant(sessionId, rawTitle) {
+  const s = await getSessionById(sessionId);
+  if (!s) {
+    return { ok: false, reason: "Sessiota ei löytynyt." };
+  }
+  const authId = await getAuthUserId();
+  if (!authId) {
+    return { ok: false, reason: "Kirjautuminen puuttuu." };
+  }
+  if (!(await anglerBelongsToSessionRoster(sessionId, authId))) {
+    return { ok: false, reason: "Voit muokata vain sessioita, joissa olet mukana." };
+  }
+  const trimmed = (rawTitle || "").trim();
+  const title = trimmed || defaultSessionTitleFromDate(s.startTime);
+  await putSession({ ...s, title });
+  return { ok: true, title };
+}
+
+/**
  * @returns {Promise<{ ok: true } | { ok: false, reason: string }>}
  */
 export async function endActiveSession() {
