@@ -88,6 +88,11 @@ import {
   renderSpeciesLegend,
   invalidateActiveCatchesMapSize,
 } from "./catchesMap.js";
+import {
+  destroyFishEditLocationMap,
+  mountFishEditLocationMap,
+  invalidateFishEditMapSize,
+} from "./fishEditLocationMap.js";
 
 /** @type {Parameters<typeof mountCatchesMap>[1] | null} */
 let pendingCatchesOverlayMap = null;
@@ -901,9 +906,16 @@ function wireEndedSessionTitleEditor() {
  *   waterTempStr: string,
  *   notes: string,
  *   editingCatchId: string | null,
+ *   editMapTouched: boolean,
+ *   editMapLat: number | null,
+ *   editMapLng: number | null,
  * }}
  */
 let fishState = freshFishState();
+
+function destroyFishEditMapUi() {
+  destroyFishEditLocationMap(document.getElementById("fish-edit-location-map"));
+}
 
 /** Home screen: anglers block (list + session roster) expanded. Persists across re-renders. */
 let homeAnglersExpanded = false;
@@ -1063,6 +1075,12 @@ function freshFishState() {
     waterTempStr: "",
     notes: "",
     editingCatchId: null,
+    /** Set when user drags the edit map marker */
+    editMapTouched: false,
+    /** @type {number | null} */
+    editMapLat: null,
+    /** @type {number | null} */
+    editMapLng: null,
   };
 }
 
@@ -1314,6 +1332,7 @@ function navigateHomeFromSessionDetail() {
   syncCatchesSessionMenuUi();
   closeSessionSummaryOverlay();
   closeSessionEndOverlay();
+  destroyFishEditMapUi();
   document.getElementById("fish-overlay")?.classList.add("hidden");
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
@@ -2394,6 +2413,7 @@ async function renderHome() {
  * @param {string} sessionId
  */
 async function openHistorySessionCatches(sessionId) {
+  destroyFishEditMapUi();
   document.getElementById("fish-overlay")?.classList.add("hidden");
   closeSessionEndOverlay();
   closeSessionSummaryOverlay();
@@ -2905,6 +2925,47 @@ function showFishStep(n) {
     const el = document.getElementById(`fish-step-${i}`);
     if (el) el.classList.toggle("hidden", i !== n);
   }
+  const editWrap = document.getElementById("fish-edit-location-wrap");
+  const hintEl = document.getElementById("fish-location-hint");
+  if (n === 3 && fishState.editingCatchId) {
+    editWrap?.classList.remove("hidden");
+    if (hintEl) {
+      hintEl.textContent = "Muistiinpanot. Voit säätää sijaintia kartalla yllä.";
+    }
+    void scheduleFishEditMapMount();
+  } else {
+    editWrap?.classList.add("hidden");
+    destroyFishEditMapUi();
+    if (hintEl && n === 3) {
+      hintEl.textContent =
+        "Sijainti ja sää haetaan automaattisesti tallennuksessa, jos sijainti on käytettävissä.";
+    }
+  }
+}
+
+/**
+ * Satellite map + draggable marker for editing catch location (step 3 only).
+ */
+async function scheduleFishEditMapMount() {
+  await new Promise((r) => requestAnimationFrame(r));
+  const container = document.getElementById("fish-edit-location-map");
+  if (!container || !fishState.editingCatchId) return;
+  const record = await getCatchById(fishState.editingCatchId);
+  if (!record) return;
+  const lat = fishState.editMapTouched ? fishState.editMapLat : record.location_lat;
+  const lng = fishState.editMapTouched ? fishState.editMapLng : record.location_lng;
+  mountFishEditLocationMap(container, {
+    initialLat: lat,
+    initialLng: lng,
+    species: fishState.species || record.species || "other",
+    onMove: (la, ln) => {
+      fishState.editMapLat = la;
+      fishState.editMapLng = ln;
+      fishState.editMapTouched = true;
+    },
+  });
+  invalidateFishEditMapSize();
+  setTimeout(() => invalidateFishEditMapSize(), 250);
 }
 
 /**
@@ -3204,6 +3265,7 @@ async function onAuthSignedOut() {
   fishState.editingCatchId = null;
   homeAnglersExpanded = false;
   closeProfileOverlay();
+  destroyFishEditMapUi();
   document.getElementById("fish-overlay")?.classList.add("hidden");
   document.getElementById("catches-overlay")?.classList.add("hidden");
   document.getElementById("start-overlay")?.classList.add("hidden");
@@ -3772,6 +3834,7 @@ function mainAppInit() {
 
   document.getElementById("fish-close")?.addEventListener("click", () => {
     fishState.editingCatchId = null;
+    destroyFishEditMapUi();
     document.getElementById("fish-overlay")?.classList.add("hidden");
   });
 
@@ -3828,13 +3891,29 @@ function mainAppInit() {
     if (fishState.editingCatchId) {
       existingCatch = await getCatchById(fishState.editingCatchId);
       if (existingCatch) {
-        loc = {
-          lat: existingCatch.location_lat,
-          lng: existingCatch.location_lng,
-          accuracyM: existingCatch.location_accuracy_m,
-          timestamp: existingCatch.location_timestamp,
-          source: existingCatch.location_source,
-        };
+        if (
+          fishState.editMapTouched &&
+          fishState.editMapLat != null &&
+          fishState.editMapLng != null &&
+          Number.isFinite(fishState.editMapLat) &&
+          Number.isFinite(fishState.editMapLng)
+        ) {
+          loc = {
+            lat: fishState.editMapLat,
+            lng: fishState.editMapLng,
+            accuracyM: null,
+            timestamp: Date.now(),
+            source: "map_edit",
+          };
+        } else {
+          loc = {
+            lat: existingCatch.location_lat,
+            lng: existingCatch.location_lng,
+            accuracyM: existingCatch.location_accuracy_m,
+            timestamp: existingCatch.location_timestamp,
+            source: existingCatch.location_source,
+          };
+        }
       }
     } else {
       try {
@@ -3880,6 +3959,7 @@ function mainAppInit() {
         setSyncStatus("synced");
       }
       fishState.editingCatchId = null;
+      destroyFishEditMapUi();
       document.getElementById("fish-overlay")?.classList.add("hidden");
       showSuccess("Muutokset tallennettu");
       await refreshCatchesTableIfOpen();
@@ -3923,6 +4003,7 @@ function mainAppInit() {
 
   document.getElementById("fish-back-home")?.addEventListener("click", () => {
     fishState.editingCatchId = null;
+    destroyFishEditMapUi();
     document.getElementById("fish-overlay")?.classList.add("hidden");
   });
 
