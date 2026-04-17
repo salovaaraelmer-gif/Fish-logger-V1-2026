@@ -82,6 +82,17 @@ import {
   getParticipantEndedCloudRows,
 } from "./participantSessionCache.js";
 import { pullSessionRosterAndCatchesFromCloud } from "./supabaseParticipantSync.js";
+import {
+  destroyCatchesMap,
+  mountCatchesMap,
+  renderSpeciesLegend,
+  invalidateActiveCatchesMapSize,
+} from "./catchesMap.js";
+
+/** @type {Parameters<typeof mountCatchesMap>[1] | null} */
+let pendingCatchesOverlayMap = null;
+/** @type {Parameters<typeof mountCatchesMap>[1] | null} */
+let pendingSessionEndMap = null;
 
 /** @type {Record<string, string>} */
 const SPECIES_LABELS = {
@@ -1136,6 +1147,157 @@ function showSuccess(msg) {
 
 function closeCatchesOverlay() {
   document.getElementById("catches-overlay")?.classList.add("hidden");
+  destroyCatchesMap(document.getElementById("catches-map-container"));
+  pendingCatchesOverlayMap = null;
+}
+
+/**
+ * @param {"list" | "map"} which
+ */
+function setCatchesOverlayTab(which) {
+  const listPanel = document.getElementById("catches-list-panel");
+  const mapPanel = document.getElementById("catches-map-panel");
+  const btnList = document.getElementById("catches-tab-list");
+  const btnMap = document.getElementById("catches-tab-map");
+  const container = document.getElementById("catches-map-container");
+  if (!listPanel || !mapPanel) return;
+  if (which === "map") {
+    listPanel.classList.add("hidden");
+    mapPanel.classList.remove("hidden");
+    btnList?.setAttribute("aria-selected", "false");
+    btnMap?.setAttribute("aria-selected", "true");
+    if (pendingCatchesOverlayMap && container) {
+      mountCatchesMap(container, pendingCatchesOverlayMap);
+    }
+    invalidateActiveCatchesMapSize();
+  } else {
+    listPanel.classList.remove("hidden");
+    mapPanel.classList.add("hidden");
+    btnList?.setAttribute("aria-selected", "true");
+    btnMap?.setAttribute("aria-selected", "false");
+  }
+}
+
+/**
+ * @param {"list" | "map"} which
+ */
+function setSessionEndViewTab(which) {
+  const listPanel = document.getElementById("session-end-list-panel");
+  const mapPanel = document.getElementById("session-end-map-panel");
+  const btnList = document.getElementById("session-end-tab-list");
+  const btnMap = document.getElementById("session-end-tab-map");
+  const container = document.getElementById("session-end-map-container");
+  if (!listPanel || !mapPanel) return;
+  if (which === "map") {
+    listPanel.classList.add("hidden");
+    mapPanel.classList.remove("hidden");
+    btnList?.setAttribute("aria-selected", "false");
+    btnMap?.setAttribute("aria-selected", "true");
+    if (pendingSessionEndMap && container) {
+      mountCatchesMap(container, pendingSessionEndMap);
+    }
+    invalidateActiveCatchesMapSize();
+  } else {
+    listPanel.classList.remove("hidden");
+    mapPanel.classList.add("hidden");
+    btnList?.setAttribute("aria-selected", "true");
+    btnMap?.setAttribute("aria-selected", "false");
+  }
+}
+
+/**
+ * @param {string | null | undefined} sessionId
+ * @param {import('./db.js').Session | null} sessionForOwner
+ * @param {string | undefined} sessionIdOverride
+ */
+async function syncCatchesOverlayMap(sessionId, sessionForOwner, sessionIdOverride) {
+  const container = document.getElementById("catches-map-container");
+  const noLoc = /** @type {HTMLParagraphElement | null} */ (document.getElementById("catches-map-no-loc"));
+  const legend = document.getElementById("catches-map-legend");
+  const mapPanel = document.getElementById("catches-map-panel");
+  if (!container) return;
+  destroyCatchesMap(container);
+  pendingCatchesOverlayMap = null;
+  if (!sessionId || !sessionForOwner) {
+    if (noLoc) {
+      noLoc.textContent = "Ei aktiivista sessiota.";
+      noLoc.hidden = false;
+    }
+    return;
+  }
+  if (noLoc) {
+    noLoc.textContent =
+      "Yhdelläkään saaliilla ei ole sijaintitietoa. Kartta näyttää vain kirjatut koordinaatit.";
+  }
+  const catches = await getCatchesForSession(sessionId);
+  const sessionAnglers = await getSessionAnglersForSession(sessionId);
+  const anglerIds = [
+    ...new Set([...sessionAnglers.map((sa) => sa.anglerId), ...catches.map((c) => c.anglerId)]),
+  ];
+  const nameById = await fetchProfileDisplayNames(anglerIds);
+  const ownerUserId = await getSessionOwnerUserId(sessionForOwner);
+  renderSpeciesLegend(legend);
+  const payload = {
+    catches,
+    nameById,
+    ownerUserId,
+    activeSession: sessionIdOverride == null,
+  };
+  pendingCatchesOverlayMap = payload;
+  const hasLoc = catches.some(
+    (c) =>
+      typeof c.location_lat === "number" &&
+      typeof c.location_lng === "number" &&
+      Number.isFinite(c.location_lat) &&
+      Number.isFinite(c.location_lng)
+  );
+  if (noLoc) {
+    noLoc.hidden = hasLoc;
+  }
+  if (hasLoc && mapPanel && !mapPanel.classList.contains("hidden")) {
+    mountCatchesMap(container, payload);
+  }
+}
+
+/**
+ * @param {import('./db.js').Session} session
+ */
+async function syncSessionEndMap(session) {
+  const container = document.getElementById("session-end-map-container");
+  const noLoc = /** @type {HTMLParagraphElement | null} */ (document.getElementById("session-end-map-no-loc"));
+  const legend = document.getElementById("session-end-map-legend");
+  const mapPanel = document.getElementById("session-end-map-panel");
+  if (!container) return;
+  destroyCatchesMap(container);
+  pendingSessionEndMap = null;
+  const catches = await getCatchesForSession(session.id);
+  const sessionAnglers = await getSessionAnglersForSession(session.id);
+  const anglerIds = [
+    ...new Set([...sessionAnglers.map((sa) => sa.anglerId), ...catches.map((c) => c.anglerId)]),
+  ];
+  const nameById = await fetchProfileDisplayNames(anglerIds);
+  const ownerUserId = await getSessionOwnerUserId(session);
+  renderSpeciesLegend(legend);
+  const payload = {
+    catches,
+    nameById,
+    ownerUserId,
+    activeSession: true,
+  };
+  pendingSessionEndMap = payload;
+  const hasLoc = catches.some(
+    (c) =>
+      typeof c.location_lat === "number" &&
+      typeof c.location_lng === "number" &&
+      Number.isFinite(c.location_lat) &&
+      Number.isFinite(c.location_lng)
+  );
+  if (noLoc) {
+    noLoc.hidden = hasLoc;
+  }
+  if (hasLoc && mapPanel && !mapPanel.classList.contains("hidden")) {
+    mountCatchesMap(container, payload);
+  }
 }
 
 /**
@@ -1676,6 +1838,7 @@ async function populateCatchesTable(sessionIdOverride) {
   const prevViewSid = catchesOv?.dataset.viewSessionId;
   if (String(prevViewSid || "") !== String(sessionIdOverride || "")) {
     endedSessionTitleEditing = false;
+    setCatchesOverlayTab("list");
   }
   if (catchesOv) {
     if (sessionIdOverride) {
@@ -1717,6 +1880,9 @@ async function populateCatchesTable(sessionIdOverride) {
       if (emptyEl) emptyEl.textContent = "Ei aktiivista sessiota.";
       listEl.setAttribute("aria-label", "Saaliit tässä sessiossa");
       syncEndedSessionTitleRowInCatchesOverlay(undefined, null, false);
+      document.getElementById("catches-view-tabs")?.classList.add("hidden");
+      setCatchesOverlayTab("list");
+      await syncCatchesOverlayMap(null, null, undefined);
       return;
     }
     sessionId = session.id;
@@ -1792,6 +1958,8 @@ async function populateCatchesTable(sessionIdOverride) {
     stripEl.removeAttribute("hidden");
   }
 
+  document.getElementById("catches-view-tabs")?.classList.remove("hidden");
+
   let allowEditDelete = false;
   if (sessionIdOverride) {
     const sRow = await getSessionById(sessionIdOverride);
@@ -1826,11 +1994,13 @@ async function populateCatchesTable(sessionIdOverride) {
     } else {
       wrap?.classList.remove("hidden");
     }
+    await syncCatchesOverlayMap(sessionId, sessionForOwner, sessionIdOverride);
     return;
   }
 
   emptyEl?.classList.add("hidden");
   wrap?.classList.remove("hidden");
+  await syncCatchesOverlayMap(sessionId, sessionForOwner, sessionIdOverride);
 }
 
 async function populateSessionEndCatchesTable() {
@@ -1843,8 +2013,10 @@ async function populateSessionEndCatchesTable() {
     stripEl.textContent = formatSessionStripLabel(session.id);
     stripEl.removeAttribute("hidden");
   }
+  setSessionEndViewTab("list");
   await renderCatchList(listEl, session.id, true, { activeSession: true, allowEditDelete: true });
   wrap?.classList.remove("hidden");
+  await syncSessionEndMap(session);
 }
 
 async function openSessionEndOverlay() {
@@ -1857,6 +2029,8 @@ async function openSessionEndOverlay() {
 
 function closeSessionEndOverlay() {
   document.getElementById("session-end-overlay")?.classList.add("hidden");
+  destroyCatchesMap(document.getElementById("session-end-map-container"));
+  pendingSessionEndMap = null;
 }
 
 /**
@@ -3446,6 +3620,18 @@ function mainAppInit() {
   wireFishMeasurementInputs();
   wireSessionTitleEditor();
   wireEndedSessionTitleEditor();
+  document.getElementById("catches-tab-list")?.addEventListener("click", () => {
+    setCatchesOverlayTab("list");
+  });
+  document.getElementById("catches-tab-map")?.addEventListener("click", () => {
+    setCatchesOverlayTab("map");
+  });
+  document.getElementById("session-end-tab-list")?.addEventListener("click", () => {
+    setSessionEndViewTab("list");
+  });
+  document.getElementById("session-end-tab-map")?.addEventListener("click", () => {
+    setSessionEndViewTab("map");
+  });
   renderSyncStatusIndicator();
   window.addEventListener("online", () => {
     setSyncStatus("syncing");

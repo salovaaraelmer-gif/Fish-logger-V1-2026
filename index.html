@@ -7,6 +7,7 @@
     <!-- Suositeltu: paikallinen HTTP-palvelin (ES-moduulit + sijainti). Esim. VS Code Live Server tai: npx serve -->
     <title>AnglrLog — saalisvahti</title>
     <link rel="stylesheet" href="css/app.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
   </head>
   <body>
     <div id="auth-gate" class="auth-gate">
@@ -331,6 +332,15 @@
             </div>
           </div>
         </div>
+        <div id="catches-view-tabs" class="catches-view-tabs hidden" role="tablist" aria-label="Saaliit lista tai kartta">
+          <button type="button" class="btn catches-tab-btn" id="catches-tab-list" role="tab" aria-selected="true" data-tab="list">
+            Lista
+          </button>
+          <button type="button" class="btn catches-tab-btn" id="catches-tab-map" role="tab" aria-selected="false" data-tab="map">
+            Kartta
+          </button>
+        </div>
+        <div id="catches-list-panel">
         <div id="catches-ended-title-wrap" class="session-title-block catches-ended-title-wrap hidden" aria-hidden="true">
           <p class="meta catches-ended-title-label">Otsikko</p>
           <div class="session-title-row">
@@ -375,6 +385,14 @@
             aria-label="Saaliit"
           ></div>
         </div>
+        </div>
+        <div id="catches-map-panel" class="catches-map-panel hidden" role="tabpanel" aria-label="Satelliittikartta">
+          <p class="meta" id="catches-map-no-loc" hidden>
+            Yhdelläkään saaliilla ei ole sijaintitietoa. Kartta näyttää vain kirjatut koordinaatit.
+          </p>
+          <div id="catches-map-legend" class="catches-map-legend" aria-label="Lajit"></div>
+          <div id="catches-map-container" class="catches-map-container"></div>
+        </div>
       </div>
     </div>
 
@@ -401,6 +419,15 @@
           <button type="button" class="btn btn-danger" id="session-end-final">End session</button>
           <button type="button" class="btn btn-ghost" id="session-end-cancel">Peruuta</button>
         </div>
+        <div id="session-end-view-tabs" class="catches-view-tabs" role="tablist" aria-label="Saaliit lista tai kartta">
+          <button type="button" class="btn catches-tab-btn" id="session-end-tab-list" role="tab" aria-selected="true" data-tab="list">
+            Lista
+          </button>
+          <button type="button" class="btn catches-tab-btn" id="session-end-tab-map" role="tab" aria-selected="false" data-tab="map">
+            Kartta
+          </button>
+        </div>
+        <div id="session-end-list-panel">
         <div class="catches-table-wrap" id="session-end-table-wrap">
           <div
             class="catch-list"
@@ -408,6 +435,14 @@
             role="list"
             aria-label="Saaliit ennen session päättymistä"
           ></div>
+        </div>
+        </div>
+        <div id="session-end-map-panel" class="catches-map-panel hidden" role="tabpanel" aria-label="Satelliittikartta">
+          <p class="meta" id="session-end-map-no-loc" hidden>
+            Yhdelläkään saaliilla ei ole sijaintitietoa. Kartta näyttää vain kirjatut koordinaatit.
+          </p>
+          <div id="session-end-map-legend" class="catches-map-legend" aria-label="Lajit"></div>
+          <div id="session-end-map-container" class="catches-map-container"></div>
         </div>
       </div>
     </div>
