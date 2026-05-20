@@ -7,7 +7,7 @@
 const DB_NAME_BASE = "FishLoggerV1";
 /** Pre–user-scoping database; removed on startup after login. */
 const LEGACY_DB_NAME = "FishLoggerV1";
-const DB_VERSION = 5;
+const DB_VERSION = 6;
 
 /** @type {string | null} */
 let scopedUserId = null;
@@ -109,6 +109,10 @@ export function clearUserIndexedDb() {
  *   supabase_id: string | null,
  * }} CatchRecord
  */
+/** @typedef {{ id: string, userId: string, name: string, userNumber: number, supabaseId?: string | null }} UserFishingLocation */
+/** @typedef {{ id: string, userId: string, name: string, userNumber: number, supabaseId?: string | null }} UserTargetSpecies */
+/** @typedef {{ id: string, sessionId: string, locationId: string }} SessionFishingLocationLink */
+/** @typedef {{ id: string, sessionId: string, targetSpeciesId: string }} SessionTargetSpeciesLink */
 
 /**
  * @param {any} c
@@ -247,6 +251,23 @@ function openDb() {
           }
           cursor.continue();
         };
+      }
+
+      if (oldVersion < 6) {
+        if (!db.objectStoreNames.contains("userFishingLocations")) {
+          db.createObjectStore("userFishingLocations", { keyPath: "id" });
+        }
+        if (!db.objectStoreNames.contains("userTargetSpecies")) {
+          db.createObjectStore("userTargetSpecies", { keyPath: "id" });
+        }
+        if (!db.objectStoreNames.contains("sessionFishingLocations")) {
+          const sl = db.createObjectStore("sessionFishingLocations", { keyPath: "id" });
+          sl.createIndex("bySession", "sessionId", { unique: false });
+        }
+        if (!db.objectStoreNames.contains("sessionTargetSpecies")) {
+          const st = db.createObjectStore("sessionTargetSpecies", { keyPath: "id" });
+          st.createIndex("bySession", "sessionId", { unique: false });
+        }
       }
     };
   });
@@ -530,10 +551,149 @@ export async function findSessionAngler(sessionId, anglerId) {
  * @param {string} sessionId
  * @returns {Promise<void>}
  */
+export async function getAllUserFishingLocations() {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const r = db.transaction("userFishingLocations", "readonly").objectStore("userFishingLocations").getAll();
+    r.onerror = () => reject(r.error);
+    r.onsuccess = () => resolve(/** @type {UserFishingLocation[]} */ (r.result || []));
+  });
+}
+
+/**
+ * @param {UserFishingLocation} row
+ */
+export async function putUserFishingLocation(row) {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const r = db.transaction("userFishingLocations", "readwrite").objectStore("userFishingLocations").put(row);
+    r.onerror = () => reject(r.error);
+    r.onsuccess = () => resolve();
+  });
+}
+
+export async function getAllUserTargetSpecies() {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const r = db.transaction("userTargetSpecies", "readonly").objectStore("userTargetSpecies").getAll();
+    r.onerror = () => reject(r.error);
+    r.onsuccess = () => resolve(/** @type {UserTargetSpecies[]} */ (r.result || []));
+  });
+}
+
+/**
+ * @param {UserTargetSpecies} row
+ */
+export async function putUserTargetSpecies(row) {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const r = db.transaction("userTargetSpecies", "readwrite").objectStore("userTargetSpecies").put(row);
+    r.onerror = () => reject(r.error);
+    r.onsuccess = () => resolve();
+  });
+}
+
+/**
+ * @param {string} sessionId
+ * @returns {Promise<SessionFishingLocationLink[]>}
+ */
+export async function getSessionFishingLocationLinks(sessionId) {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const idx = db
+      .transaction("sessionFishingLocations", "readonly")
+      .objectStore("sessionFishingLocations")
+      .index("bySession");
+    const r = idx.getAll(sessionId);
+    r.onerror = () => reject(r.error);
+    r.onsuccess = () => resolve(/** @type {SessionFishingLocationLink[]} */ (r.result || []));
+  });
+}
+
+/**
+ * @param {string} sessionId
+ * @returns {Promise<SessionTargetSpeciesLink[]>}
+ */
+export async function getSessionTargetSpeciesLinks(sessionId) {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const idx = db
+      .transaction("sessionTargetSpecies", "readonly")
+      .objectStore("sessionTargetSpecies")
+      .index("bySession");
+    const r = idx.getAll(sessionId);
+    r.onerror = () => reject(r.error);
+    r.onsuccess = () => resolve(/** @type {SessionTargetSpeciesLink[]} */ (r.result || []));
+  });
+}
+
+/**
+ * @param {SessionFishingLocationLink} link
+ */
+export async function putSessionFishingLocationLink(link) {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const r = db.transaction("sessionFishingLocations", "readwrite").objectStore("sessionFishingLocations").put(link);
+    r.onerror = () => reject(r.error);
+    r.onsuccess = () => resolve();
+  });
+}
+
+/**
+ * @param {SessionTargetSpeciesLink} link
+ */
+export async function putSessionTargetSpeciesLink(link) {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const r = db.transaction("sessionTargetSpecies", "readwrite").objectStore("sessionTargetSpecies").put(link);
+    r.onerror = () => reject(r.error);
+    r.onsuccess = () => resolve();
+  });
+}
+
+/**
+ * @param {string} sessionId
+ * @returns {Promise<void>}
+ */
+export async function deleteSessionFishingLocationLinksForSession(sessionId) {
+  const links = await getSessionFishingLocationLinks(sessionId);
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("sessionFishingLocations", "readwrite");
+    tx.onerror = () => reject(tx.error);
+    tx.oncomplete = () => resolve();
+    const store = tx.objectStore("sessionFishingLocations");
+    for (const link of links) {
+      store.delete(link.id);
+    }
+  });
+}
+
+/**
+ * @param {string} sessionId
+ * @returns {Promise<void>}
+ */
+export async function deleteSessionTargetSpeciesLinksForSession(sessionId) {
+  const links = await getSessionTargetSpeciesLinks(sessionId);
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("sessionTargetSpecies", "readwrite");
+    tx.onerror = () => reject(tx.error);
+    tx.oncomplete = () => resolve();
+    const store = tx.objectStore("sessionTargetSpecies");
+    for (const link of links) {
+      store.delete(link.id);
+    }
+  });
+}
+
 export async function deleteSessionCascade(sessionId) {
   const db = await openDb();
   return new Promise((resolve, reject) => {
-    const tx = db.transaction(["sessions", "sessionAnglers", "catches"], "readwrite");
+    const tx = db.transaction(
+      ["sessions", "sessionAnglers", "catches", "sessionFishingLocations", "sessionTargetSpecies"],
+      "readwrite"
+    );
     tx.onerror = () => reject(tx.error);
     tx.onabort = () => reject(tx.error);
     tx.oncomplete = () => resolve();
@@ -565,5 +725,27 @@ export async function deleteSessionCascade(sessionId) {
       }
     };
     cReq.onerror = () => reject(cReq.error);
+
+    const slReq = tx.objectStore("sessionFishingLocations").getAll();
+    slReq.onsuccess = () => {
+      const rows = /** @type {SessionFishingLocationLink[]} */ (slReq.result || []);
+      for (const row of rows) {
+        if (row.sessionId === sessionId) {
+          tx.objectStore("sessionFishingLocations").delete(row.id);
+        }
+      }
+    };
+    slReq.onerror = () => reject(slReq.error);
+
+    const stReq = tx.objectStore("sessionTargetSpecies").getAll();
+    stReq.onsuccess = () => {
+      const rows = /** @type {SessionTargetSpeciesLink[]} */ (stReq.result || []);
+      for (const row of rows) {
+        if (row.sessionId === sessionId) {
+          tx.objectStore("sessionTargetSpecies").delete(row.id);
+        }
+      }
+    };
+    stReq.onerror = () => reject(stReq.error);
   });
 }

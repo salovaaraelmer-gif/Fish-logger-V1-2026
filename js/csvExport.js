@@ -60,10 +60,16 @@ function numField(n) {
 
 /**
  * @param {import('./db.js').CatchRecord[]} catches
+ * @param {{ locationNames?: string[], targetNames?: string[] }} [meta]
  * @returns {string}
  */
-export function buildSessionCatchesCsv(catches) {
-  const lines = [HEADERS.join(",")];
+export function buildSessionCatchesCsv(catches, meta = {}) {
+  const lines = [];
+  const locs = meta.locationNames?.length ? meta.locationNames.join(", ") : "";
+  const targets = meta.targetNames?.length ? meta.targetNames.join(", ") : "";
+  if (locs) lines.push(`# session_locations,${escapeField(locs)}`);
+  if (targets) lines.push(`# session_target_species,${escapeField(targets)}`);
+  lines.push(HEADERS.join(","));
   const sorted = [...catches].sort((a, b) => a.timestamp - b.timestamp);
   for (const c of sorted) {
     const caughtAtUtc = new Date(c.timestamp).toISOString();

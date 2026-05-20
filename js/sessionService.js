@@ -149,6 +149,41 @@ export async function saveSessionTitleIfParticipant(sessionId, rawTitle) {
 }
 
 /**
+ * Updates session start/end (ms). Roster members may edit ended sessions; active session may adjust start.
+ *
+ * @param {string} sessionId
+ * @param {number} startMs
+ * @param {number | null} endMs — null while session is active
+ * @returns {Promise<{ ok: true } | { ok: false, reason: string }>}
+ */
+export async function updateSessionTimesIfParticipant(sessionId, startMs, endMs) {
+  const s = await getSessionById(sessionId);
+  if (!s) {
+    return { ok: false, reason: "Sessiota ei löytynyt." };
+  }
+  const authId = await getAuthUserId();
+  if (!authId) {
+    return { ok: false, reason: "Kirjautuminen puuttuu." };
+  }
+  if (!(await anglerBelongsToSessionRoster(sessionId, authId))) {
+    return { ok: false, reason: "Voit muokata vain sessioita, joissa olet mukana." };
+  }
+  if (!Number.isFinite(startMs)) {
+    return { ok: false, reason: "Virheellinen alkuaika." };
+  }
+  const effectiveEnd = endMs != null ? endMs : s.endTime;
+  if (effectiveEnd != null && effectiveEnd < startMs) {
+    return { ok: false, reason: "Loppuajan täytyy olla alkuajan jälkeen." };
+  }
+  await putSession({
+    ...s,
+    startTime: startMs,
+    endTime: s.endTime == null ? null : effectiveEnd,
+  });
+  return { ok: true };
+}
+
+/**
  * @returns {Promise<{ ok: true } | { ok: false, reason: string }>}
  */
 export async function endActiveSession() {

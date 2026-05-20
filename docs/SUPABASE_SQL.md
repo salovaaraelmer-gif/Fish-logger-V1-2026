@@ -26,3 +26,4 @@ The same expectation is encoded for Cursor in **`.cursor/rules/supabase-sql-summ
 | `SUPABASE_PROFILES_SESSION_ANGLERS.md` | `profiles`, `session_anglers`, RLS including search policy |
 | `SUPABASE_CATCHES_SCHEMA.md` | `catches` columns and examples |
 | `SUPABASE_AUTH_RLS.md` | Auth / RLS notes (if present) |
+| `docs/SUPABASE_SESSION_LOCATIONS_TARGETS.md` | Session locations, target species, `started_at`, GRANTs |

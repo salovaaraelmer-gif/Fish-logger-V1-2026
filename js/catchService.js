@@ -5,7 +5,6 @@
 
 import { getSessionById, putCatch } from "./db.js";
 import { getAuthUserId } from "./auth.js";
-import { getActiveSessionForParticipantUi } from "./participantSessionCache.js";
 import {
   anglerBelongsToActiveSession,
   anglerBelongsToSessionRoster,
@@ -14,7 +13,7 @@ import { newId } from "./sessionService.js";
 import { fetchOpenMeteoCurrent } from "./weatherService.js";
 
 /** @type {readonly string[]} */
-export const SPECIES_OPTIONS = ["pike", "perch", "zander", "trout", "other"];
+export const SPECIES_OPTIONS = ["pike", "perch", "zander", "trout", "salmon", "other"];
 
 /**
  * Length (cm): optional; if set, whole number greater than 0.
@@ -322,19 +321,21 @@ export async function updateCatch(input, deviceLoc, existing) {
   return { ok: true, record };
 }
 
-/** Keep the best (smallest radius) fix while the session is active — tab open, foreground. */
-const SESSION_WARM_MAX_AGE_MS = 90_000;
+/** How long a fix from the fish-logging watch remains usable as a seed on save. */
+const FISH_LOGGING_BEST_MAX_AGE_MS = 90_000;
 
-/** Convergence window when resolving a point for save / session start. */
-const CONVERGENCE_MAX_MS = 14_000;
+/** Max time to hunt for a fix (fish overlay + save / session start). */
+const CONVERGENCE_MAX_MS = 30_000;
 
-/** If we see this horizontal accuracy (m) or better, stop waiting. */
-const CONVERGENCE_GOOD_ENOUGH_M = 12;
+/** Target accuracy (m); ~10 m is often optimistic on boats — we stop early when reached. */
+const CONVERGENCE_GOOD_ENOUGH_M = 10;
 
 /** @type {number | null} */
-let sessionWatchId = null;
+let fishLoggingWatchId = null;
+/** @type {ReturnType<typeof setTimeout> | null} */
+let fishLoggingWatchTimeoutId = null;
 /** @type {DeviceLocation | null} */
-let sessionWarmBest = null;
+let fishLoggingBest = null;
 
 /**
  * @returns {DeviceLocation}
@@ -363,39 +364,60 @@ function positionToDeviceLocation(pos) {
 }
 
 /**
- * While an active fishing session is shown, keep GNSS warm and track the best recent fix.
- * Idempotent: safe to call on every home render.
+ * While the add-fish overlay is open, track the best GNSS fix (high accuracy, up to CONVERGENCE_MAX_MS).
+ * Idempotent: safe to call when opening the fish flow.
  */
-export function startSessionLocationWatch() {
-  if (sessionWatchId != null) return;
+export function startFishLoggingLocationWatch() {
+  if (fishLoggingWatchId != null) return;
   if (typeof navigator === "undefined" || !navigator.geolocation) return;
-  sessionWarmBest = null;
-  sessionWatchId = navigator.geolocation.watchPosition(
+  fishLoggingBest = null;
+  fishLoggingWatchId = navigator.geolocation.watchPosition(
     (pos) => {
       const loc = positionToDeviceLocation(pos);
       if (!loc) return;
-      if (!sessionWarmBest || loc.accuracyM < sessionWarmBest.accuracyM) {
-        sessionWarmBest = loc;
+      if (!fishLoggingBest || loc.accuracyM < fishLoggingBest.accuracyM) {
+        fishLoggingBest = loc;
+      }
+      if (loc.accuracyM <= CONVERGENCE_GOOD_ENOUGH_M) {
+        stopFishLoggingLocationWatch();
       }
     },
     () => {},
     { enableHighAccuracy: true, maximumAge: 0 }
   );
+  if (fishLoggingWatchTimeoutId != null) {
+    clearTimeout(fishLoggingWatchTimeoutId);
+  }
+  fishLoggingWatchTimeoutId = setTimeout(() => {
+    fishLoggingWatchTimeoutId = null;
+    stopFishLoggingLocationWatch();
+  }, CONVERGENCE_MAX_MS);
 }
 
 /**
- * Stops the session background watch (logout, no active session, etc.).
+ * Stops the fish-logging watch (overlay closed, save, logout). Keeps the best fix for a short save window.
  */
-export function stopSessionLocationWatch() {
-  if (sessionWatchId != null) {
+export function stopFishLoggingLocationWatch() {
+  if (fishLoggingWatchTimeoutId != null) {
+    clearTimeout(fishLoggingWatchTimeoutId);
+    fishLoggingWatchTimeoutId = null;
+  }
+  if (fishLoggingWatchId != null) {
     try {
-      navigator.geolocation.clearWatch(sessionWatchId);
+      navigator.geolocation.clearWatch(fishLoggingWatchId);
     } catch {
       /* ignore */
     }
-    sessionWatchId = null;
+    fishLoggingWatchId = null;
   }
-  sessionWarmBest = null;
+}
+
+/**
+ * Clears any cached fix from the fish-logging watch (e.g. logout).
+ */
+export function clearFishLoggingLocationCache() {
+  stopFishLoggingLocationWatch();
+  fishLoggingBest = null;
 }
 
 /**
@@ -413,7 +435,7 @@ function runConvergenceWatch(seedBest) {
     if (
       best &&
       best.timestamp != null &&
-      Date.now() - best.timestamp > SESSION_WARM_MAX_AGE_MS
+      Date.now() - best.timestamp > FISH_LOGGING_BEST_MAX_AGE_MS
     ) {
       best = null;
     }
@@ -470,9 +492,9 @@ function runConvergenceWatch(seedBest) {
 }
 
 /**
- * Best-effort device location: watches fixes for a short window and keeps the most accurate
- * point (unlike a single `getCurrentPosition`, which often returns the first coarse network fix).
- * Seeds from session warm data when available. Restarts session watch after resolving.
+ * Best-effort device location: watches fixes for up to CONVERGENCE_MAX_MS and keeps the most
+ * accurate point (unlike a single `getCurrentPosition`, which often returns a coarse fix).
+ * Seeds from the fish-logging overlay watch when available.
  *
  * @returns {Promise<DeviceLocation>}
  */
@@ -481,26 +503,22 @@ export async function fetchDeviceLocationBestEffort() {
     return emptyDeviceLocation();
   }
 
-  const hadSessionWatch = sessionWatchId != null;
-  const warmSeed =
-    sessionWarmBest &&
-    sessionWarmBest.timestamp != null &&
-    Date.now() - sessionWarmBest.timestamp <= SESSION_WARM_MAX_AGE_MS
-      ? { ...sessionWarmBest }
+  const seed =
+    fishLoggingBest &&
+    fishLoggingBest.timestamp != null &&
+    Date.now() - fishLoggingBest.timestamp <= FISH_LOGGING_BEST_MAX_AGE_MS
+      ? { ...fishLoggingBest }
       : null;
 
-  if (hadSessionWatch) {
-    stopSessionLocationWatch();
+  stopFishLoggingLocationWatch();
+
+  if (
+    seed &&
+    seed.accuracyM != null &&
+    seed.accuracyM <= CONVERGENCE_GOOD_ENOUGH_M
+  ) {
+    return seed;
   }
 
-  const loc = await runConvergenceWatch(warmSeed);
-
-  if (hadSessionWatch) {
-    const active = await getActiveSessionForParticipantUi();
-    if (active && active.endTime == null) {
-      startSessionLocationWatch();
-    }
-  }
-
-  return loc;
+  return runConvergenceWatch(seed);
 }

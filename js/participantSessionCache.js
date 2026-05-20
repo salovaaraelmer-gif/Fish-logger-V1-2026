@@ -6,7 +6,7 @@
 
 import { getActiveSession, getSessionBySupabaseCloudId } from "./db.js";
 
-/** @typedef {{ id: string, title: string | null, ended_at: string | null, created_at: string | null }} CloudSessionRow */
+/** @typedef {{ id: string, title: string | null, ended_at: string | null, created_at: string | null, started_at?: string | null }} CloudSessionRow */
 
 /** @type {CloudSessionRow[]} */
 let participantActiveCloudRows = [];

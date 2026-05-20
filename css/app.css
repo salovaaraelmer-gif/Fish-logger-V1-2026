@@ -1309,3 +1309,83 @@ textarea {
 .catch-card-menu-item--danger {
   color: #ffa198;
 }
+
+.session-metadata-edit {
+  gap: 0.75rem;
+  margin: 0.5rem 0 0.75rem;
+}
+
+.session-times-edit {
+  gap: 0.5rem;
+}
+
+.session-time-input {
+  width: 100%;
+  max-width: 20rem;
+}
+
+.creatable-multi-select {
+  gap: 0.35rem;
+}
+
+.creatable-multi-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.creatable-multi-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.25rem 0.5rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  font-size: 0.9rem;
+}
+
+.creatable-multi-chip-remove {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0 0.15rem;
+  font-size: 1.1rem;
+  line-height: 1;
+}
+
+.creatable-multi-row,
+.creatable-multi-new-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.creatable-multi-select-input,
+.creatable-multi-new-input {
+  flex: 1;
+  min-width: 8rem;
+}
+
+.dash-top-fish {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.dash-top-fish-species-title {
+  margin: 0 0 0.35rem;
+  font-size: 1rem;
+  font-weight: 650;
+}
+
+.dash-top-fish-list {
+  margin: 0;
+  padding-left: 1.25rem;
+}
+
+.dash-top-fish-total {
+  margin: 0.35rem 0 0;
+}

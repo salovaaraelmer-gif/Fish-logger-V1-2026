@@ -85,7 +85,7 @@ alter table public.catches
 alter table public.catches
   add constraint catches_species_allowed
   check (
-    species in ('pike', 'perch', 'zander', 'trout', 'other')
+    species in ('pike', 'perch', 'zander', 'trout', 'salmon', 'other')
   );
 ```
 

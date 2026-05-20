@@ -12,7 +12,7 @@ The UI is in **Finnish**. The code and data model follow the spec in `Plan v1.in
 - **Sessiot** — one active session at a time; start with at least one angler, end when done.
 - **Saalis** — guided flow: angler → species (required) → optional length (cm) / weight (kg) → optional notes → confirmation.
 - **Tallennus** — data persisted in the browser with **IndexedDB** (`FishLoggerV1`).
-- **Sijainti** — GPS is requested best-effort when logging a catch (permission required).
+- **Sijainti** — GPS runs only while the add-catch flow is open (and briefly when starting a session), not in the background during an active session.
 
 Species options: hauki, ahven, kuha, taimen, muu (mapped internally to pike, perch, zander, trout, other).
 

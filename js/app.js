@@ -27,8 +27,23 @@ import {
   markSessionCsvExportedById,
   saveActiveSessionTitle,
   saveSessionTitleIfParticipant,
+  updateSessionTimesIfParticipant,
+  anglerBelongsToSessionRoster,
   newId,
 } from "./sessionService.js";
+import {
+  ensureDefaultTargetSpeciesCatalog,
+  syncUserCatalogsFromCloud,
+  getUserCatalogDisplayLists,
+  getSessionSelectedCatalogIds,
+  setSessionCatalogSelections,
+  createCatalogItem,
+  getSessionMetadataDisplayBySessionIds,
+  loadSessionLinksFromCloud,
+  syncSessionLinksToCloud,
+} from "./sessionMetadataService.js";
+import { mountCreatableMultiSelect } from "./creatableMultiSelect.js";
+import { formatHistorySessionHeader, formatSessionDuration } from "./sessionHistoryFormat.js";
 import { defaultSessionTitleFromDate, getSessionDisplayTitle } from "./sessionTitle.js";
 import {
   buildSessionCatchesCsv,
@@ -40,8 +55,9 @@ import {
   saveCatch,
   updateCatch,
   fetchDeviceLocationBestEffort,
-  startSessionLocationWatch,
-  stopSessionLocationWatch,
+  startFishLoggingLocationWatch,
+  stopFishLoggingLocationWatch,
+  clearFishLoggingLocationCache,
   parseOptionalLengthCm,
   parseOptionalDepthM,
   parseOptionalWaterTempC,
@@ -105,6 +121,7 @@ const SPECIES_LABELS = {
   perch: "Ahven",
   zander: "Kuha",
   trout: "Taimen",
+  salmon: "Lohi",
   other: "Muu",
 };
 
@@ -117,6 +134,7 @@ const SPECIES_KEY_TO_SUPABASE = {
   perch: "perch",
   zander: "zander",
   trout: "trout",
+  salmon: "salmon",
   other: "other",
 };
 
@@ -631,6 +649,203 @@ async function pushSessionTitleToSupabase(title, cloudSessionId) {
   }
   setSyncStatus("synced");
   return { ok: true };
+}
+
+/**
+ * @param {number} ms
+ * @returns {string}
+ */
+function msToDatetimeLocalValue(ms) {
+  const d = new Date(ms);
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+/**
+ * @param {string} value
+ * @returns {number | null}
+ */
+function parseDatetimeLocalValue(value) {
+  if (!value || !value.trim()) return null;
+  const t = new Date(value).getTime();
+  return Number.isFinite(t) ? t : null;
+}
+
+/**
+ * @param {number} startMs
+ * @param {number | null} endMs
+ * @param {string | null | undefined} cloudSessionId
+ */
+async function pushSessionTimesToSupabase(startMs, endMs, cloudSessionId) {
+  const sid =
+    typeof cloudSessionId === "string" && cloudSessionId.length > 0
+      ? cloudSessionId
+      : activeSupabaseSessionId;
+  if (!sid) return { skipped: true };
+  if (!navigator.onLine) {
+    setSyncStatus("offline");
+    return { ok: true, offline: true };
+  }
+  setSyncStatus("syncing");
+  const payload = {
+    started_at: new Date(startMs).toISOString(),
+    ended_at: endMs != null ? new Date(endMs).toISOString() : null,
+  };
+  const { error } = await supabase.from("sessions").update(payload).eq("id", sid);
+  if (error) {
+    setSyncStatus("error");
+    return { ok: false, error: error.message };
+  }
+  setSyncStatus("synced");
+  return { ok: true };
+}
+
+/**
+ * @param {string} sessionId
+ * @param {HTMLElement | null} container
+ * @param {boolean} editable
+ */
+async function renderSessionMetadataPickers(sessionId, container, editable) {
+  if (!container) return;
+  container.innerHTML = "";
+  if (!sessionId) {
+    container.classList.add("hidden");
+    return;
+  }
+  container.classList.remove("hidden");
+  await ensureDefaultTargetSpeciesCatalog();
+  if (navigator.onLine) {
+    await syncUserCatalogsFromCloud();
+  }
+  const catalogs = await getUserCatalogDisplayLists();
+  const selected = await getSessionSelectedCatalogIds(sessionId);
+
+  const locWrap = document.createElement("div");
+  const tgtWrap = document.createElement("div");
+  container.append(locWrap, tgtWrap);
+
+  const locItems = [...catalogs.locations];
+  const tgtItems = [...catalogs.targets];
+
+  mountCreatableMultiSelect({
+    container: locWrap,
+    label: "Kalapaikat",
+    items: locItems,
+    selectedIds: selected.locationIds,
+    disabled: !editable,
+    onChange: async (ids) => {
+      const cur = await getSessionSelectedCatalogIds(sessionId);
+      const r = await setSessionCatalogSelections(sessionId, ids, cur.targetSpeciesIds);
+      if (!r.ok) showError(r.error);
+      void renderHistorySection();
+    },
+    onCreateNew: async (name) => {
+      const r = await createCatalogItem("location", name);
+      return r.ok ? r.item : null;
+    },
+  });
+
+  mountCreatableMultiSelect({
+    container: tgtWrap,
+    label: "Tavoitelajit",
+    items: tgtItems,
+    selectedIds: selected.targetSpeciesIds,
+    disabled: !editable,
+    onChange: async (ids) => {
+      const cur = await getSessionSelectedCatalogIds(sessionId);
+      const r = await setSessionCatalogSelections(sessionId, cur.locationIds, ids);
+      if (!r.ok) showError(r.error);
+      void renderHistorySection();
+    },
+    onCreateNew: async (name) => {
+      const r = await createCatalogItem("target", name);
+      return r.ok ? r.item : null;
+    },
+  });
+}
+
+/**
+ * @param {import('./db.js').Session} session
+ * @param {HTMLElement | null} container
+ * @param {boolean} editable
+ */
+async function renderSessionTimesEditor(session, container, editable) {
+  if (!container) return;
+  container.innerHTML = "";
+  if (!session) {
+    container.classList.add("hidden");
+    return;
+  }
+  container.classList.remove("hidden");
+
+  const startLabel = document.createElement("label");
+  startLabel.className = "field-label";
+  startLabel.textContent = "Alku";
+  const startInput = document.createElement("input");
+  startInput.type = "datetime-local";
+  startInput.className = "session-time-input";
+  startInput.value = msToDatetimeLocalValue(session.startTime);
+  startInput.disabled = !editable;
+
+  container.append(startLabel, startInput);
+
+  if (session.endTime != null) {
+    const endLabel = document.createElement("label");
+    endLabel.className = "field-label";
+    endLabel.textContent = "Loppu";
+    const endInput = document.createElement("input");
+    endInput.type = "datetime-local";
+    endInput.className = "session-time-input";
+    endInput.value = msToDatetimeLocalValue(session.endTime);
+    endInput.disabled = !editable;
+    container.append(endLabel, endInput);
+
+    const flushTimes = async () => {
+      const startMs = parseDatetimeLocalValue(startInput.value);
+      const endMs = parseDatetimeLocalValue(endInput.value);
+      if (startMs == null) return;
+      const r = await updateSessionTimesIfParticipant(session.id, startMs, endMs);
+      if (!r.ok) {
+        showError(r.reason);
+        return;
+      }
+      const cloudSid =
+        typeof session.supabaseSessionId === "string" ? session.supabaseSessionId : null;
+      const cloud = await pushSessionTimesToSupabase(startMs, endMs, cloudSid);
+      if (cloud && "ok" in cloud && cloud.ok === false && "error" in cloud) {
+        showError(`Aikojen synkronointi epäonnistui: ${cloud.error}`);
+      }
+      void renderHome();
+      void renderHistorySection();
+      const ov = document.getElementById("catches-overlay");
+      if (ov && !ov.classList.contains("hidden")) {
+        const sid = ov.dataset.viewSessionId;
+        if (sid) void populateCatchesTable(sid);
+      }
+    };
+
+    startInput.addEventListener("change", () => void flushTimes());
+    endInput.addEventListener("change", () => void flushTimes());
+  } else {
+    const flushStart = async () => {
+      const startMs = parseDatetimeLocalValue(startInput.value);
+      if (startMs == null) return;
+      const r = await updateSessionTimesIfParticipant(session.id, startMs, null);
+      if (!r.ok) {
+        showError(r.reason);
+        return;
+      }
+      const cloudSid =
+        typeof session.supabaseSessionId === "string" ? session.supabaseSessionId : null;
+      const cloud = await pushSessionTimesToSupabase(startMs, null, cloudSid);
+      if (cloud && "ok" in cloud && cloud.ok === false && "error" in cloud) {
+        showError(`Aloitusajan synkronointi epäonnistui: ${cloud.error}`);
+      }
+      startSessionTimer(startMs);
+      void renderHome();
+    };
+    startInput.addEventListener("change", () => void flushStart());
+  }
 }
 
 async function syncPendingSessionTitleToCloud() {
@@ -1333,8 +1548,14 @@ function navigateHomeFromSessionDetail() {
   closeSessionSummaryOverlay();
   closeSessionEndOverlay();
   destroyFishEditMapUi();
-  document.getElementById("fish-overlay")?.classList.add("hidden");
+  closeFishOverlay();
   window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+/** Hides the fish entry overlay and stops any in-progress GPS watch for logging. */
+function closeFishOverlay() {
+  stopFishLoggingLocationWatch();
+  document.getElementById("fish-overlay")?.classList.add("hidden");
 }
 
 /**
@@ -1353,7 +1574,12 @@ async function handleExportEndedSessionCsv(sessionId) {
   }
   try {
     const catches = await getCatchesForSession(sessionId);
-    const csv = buildSessionCatchesCsv(catches);
+    const metaMap = await getSessionMetadataDisplayBySessionIds([sessionId]);
+    const meta = metaMap.get(sessionId);
+    const csv = buildSessionCatchesCsv(catches, {
+      locationNames: meta?.locationNames ?? [],
+      targetNames: meta?.targetNames ?? [],
+    });
     triggerCsvDownload(defaultFishLogFilename(), csv);
     const r = await markSessionCsvExportedById(sessionId);
     if (!r.ok) {
@@ -1414,21 +1640,6 @@ function formatSessionDateLabel(ts) {
     month: "numeric",
     year: "numeric",
   });
-}
-
-/**
- * @param {number} startMs
- * @param {number} endMs
- * @returns {string | null}
- */
-function formatSessionDuration(startMs, endMs) {
-  const ms = endMs - startMs;
-  if (!Number.isFinite(ms) || ms < 0) return null;
-  const totalMin = Math.floor(ms / 60000);
-  const h = Math.floor(totalMin / 60);
-  const m = totalMin % 60;
-  if (h > 0) return `${h} h ${m} min`;
-  return `${m} min`;
 }
 
 /**
@@ -1529,6 +1740,90 @@ function appendDashDlRow(dl, label, value) {
 }
 
 /**
+ * @param {import('./db.js').CatchRecord} c
+ * @param {Record<string, string>} nameById
+ * @param {string | null} ownerUserId
+ */
+function formatTopFishRowLine(c, nameById, ownerUserId) {
+  const parts = [];
+  if (c.length != null && c.length >= 1) {
+    parts.push(`${c.length} cm`);
+  }
+  if (c.weight_kg != null && Number.isFinite(c.weight_kg)) {
+    parts.push(
+      `${c.weight_kg.toLocaleString("fi-FI", { maximumFractionDigits: 2 })} kg`
+    );
+  }
+  const rawName = nameById[c.anglerId] || c.anglerId;
+  const catcher = formatAnglerLabelWithOwner(rawName, c.anglerId, ownerUserId);
+  if (catcher) parts.push(catcher);
+  return parts.join(" · ");
+}
+
+/**
+ * @param {HTMLElement | null} container
+ * @param {import('./db.js').CatchRecord[]} catches
+ * @param {Record<string, string>} nameById
+ * @param {string | null} [ownerUserId]
+ */
+function renderTopFishBySpecies(container, catches, nameById, ownerUserId = null) {
+  if (!container) return;
+  container.innerHTML = "";
+
+  /** @type {Map<string, import('./db.js').CatchRecord[]>} */
+  const bySpecies = new Map();
+  for (const c of catches) {
+    if (c.length == null || typeof c.length !== "number" || c.length < 1) continue;
+    const list = bySpecies.get(c.species) || [];
+    list.push(c);
+    bySpecies.set(c.species, list);
+  }
+
+  const speciesKeys = [...bySpecies.keys()].sort(
+    (a, b) => SPECIES_OPTIONS.indexOf(a) - SPECIES_OPTIONS.indexOf(b)
+  );
+
+  if (speciesKeys.length === 0) {
+    const p = document.createElement("p");
+    p.className = "meta";
+    p.textContent = "Ei pituustietoja saaliista.";
+    container.appendChild(p);
+    return;
+  }
+
+  for (const key of speciesKeys) {
+    const list = bySpecies.get(key);
+    if (!list) continue;
+    list.sort((a, b) => /** @type {number} */ (b.length) - /** @type {number} */ (a.length));
+    const top = list.slice(0, 5);
+    const totalCm = top.reduce((sum, c) => sum + /** @type {number} */ (c.length), 0);
+
+    const block = document.createElement("div");
+    block.className = "dash-top-fish-species";
+    const h = document.createElement("h4");
+    h.className = "dash-top-fish-species-title";
+    h.textContent = SPECIES_LABELS[key] || key;
+    block.appendChild(h);
+
+    const ol = document.createElement("ol");
+    ol.className = "dash-top-fish-list";
+    top.forEach((c, i) => {
+      const li = document.createElement("li");
+      li.textContent = `${i + 1}. ${formatTopFishRowLine(c, nameById, ownerUserId)}`;
+      ol.appendChild(li);
+    });
+    block.appendChild(ol);
+
+    const total = document.createElement("p");
+    total.className = "meta dash-top-fish-total";
+    total.textContent = `Yhteensä: ${totalCm} cm`;
+    block.appendChild(total);
+
+    container.appendChild(block);
+  }
+}
+
+/**
  * @param {import('./db.js').Session} session
  * @param {import('./db.js').SessionAngler[]} sessionAnglers
  * @param {import('./db.js').CatchRecord[]} catches
@@ -1537,11 +1832,12 @@ function appendDashDlRow(dl, label, value) {
  *   summaryDl: HTMLDListElement,
  *   byAnglerUl: HTMLUListElement,
  *   bySpeciesUl: HTMLUListElement,
+ *   topFishEl?: HTMLElement | null,
  * }} els
  * @param {string | null} [ownerUserId]
  */
-function fillEndedSessionDashboardPanels(session, sessionAnglers, catches, nameById, els, ownerUserId = null) {
-  const { summaryDl, byAnglerUl, bySpeciesUl } = els;
+async function fillEndedSessionDashboardPanels(session, sessionAnglers, catches, nameById, els, ownerUserId = null) {
+  const { summaryDl, byAnglerUl, bySpeciesUl, topFishEl } = els;
   summaryDl.innerHTML = "";
   byAnglerUl.innerHTML = "";
   bySpeciesUl.innerHTML = "";
@@ -1564,6 +1860,20 @@ function fillEndedSessionDashboardPanels(session, sessionAnglers, catches, nameB
   appendDashDlRow(summaryDl, "Päättyi", endClock);
   if (duration) appendDashDlRow(summaryDl, "Kesto", duration);
   appendDashDlRow(summaryDl, "Kalastajat", anglerNames);
+
+  const metaMap = await getSessionMetadataDisplayBySessionIds([session.id]);
+  const meta = metaMap.get(session.id);
+  if (meta) {
+    appendDashDlRow(
+      summaryDl,
+      "Kalapaikat",
+      meta.locationNames.length ? meta.locationNames.join(", ") : "Ei paikkaa"
+    );
+    if (meta.targetNames.length) {
+      appendDashDlRow(summaryDl, "Tavoitelajit", meta.targetNames.join(", "));
+    }
+  }
+
   appendDashDlRow(summaryDl, "Saaliit yhteensä", String(catches.length));
 
   const avgW = averageWaterTempC(catches);
@@ -1627,6 +1937,10 @@ function fillEndedSessionDashboardPanels(session, sessionAnglers, catches, nameB
       li.textContent = `${label}: ${countBySpecies.get(key)}`;
       bySpeciesUl.appendChild(li);
     }
+  }
+
+  if (topFishEl) {
+    renderTopFishBySpecies(topFishEl, catches, nameById, ownerUserId);
   }
 }
 
@@ -1950,7 +2264,8 @@ async function populateCatchesTable(sessionIdOverride) {
       ];
       const nameById = await fetchProfileDisplayNames(anglerIds);
       const ownerUserId = await getSessionOwnerUserId(session);
-      fillEndedSessionDashboardPanels(
+      const topFishEl = document.getElementById("ended-dash-top-fish");
+      await fillEndedSessionDashboardPanels(
         session,
         sessionAnglers,
         catches,
@@ -1959,12 +2274,29 @@ async function populateCatchesTable(sessionIdOverride) {
           summaryDl,
           byAnglerUl,
           bySpeciesUl,
+          topFishEl,
         },
         ownerUserId
       );
       dashEl?.classList.remove("hidden");
+      const metaEnded = document.getElementById("session-metadata-ended");
+      if (metaEnded) {
+        metaEnded.classList.remove("hidden");
+        metaEnded.innerHTML = "";
+        const uid = await getAuthUserId();
+        const canEdit =
+          !!uid && (await anglerBelongsToSessionRoster(sessionIdOverride, uid));
+        const timesWrap = document.createElement("div");
+        timesWrap.className = "session-times-edit stack";
+        const pickWrap = document.createElement("div");
+        pickWrap.className = "session-metadata-pickers stack";
+        metaEnded.append(timesWrap, pickWrap);
+        await renderSessionTimesEditor(session, timesWrap, canEdit);
+        await renderSessionMetadataPickers(sessionIdOverride, pickWrap, canEdit);
+      }
     } else {
       dashEl?.classList.add("hidden");
+      document.getElementById("session-metadata-ended")?.classList.add("hidden");
     }
     if (stripEl) {
       stripEl.setAttribute("hidden", "");
@@ -2072,7 +2404,8 @@ async function populateSessionSummaryOverlay(sessionId) {
   ];
   const nameById = await fetchProfileDisplayNames(anglerIds);
   const ownerUserId = await getSessionOwnerUserId(session);
-  fillEndedSessionDashboardPanels(
+  const topFishEl = document.getElementById("session-summary-dash-top-fish");
+  await fillEndedSessionDashboardPanels(
     session,
     sessionAnglers,
     catches,
@@ -2081,6 +2414,7 @@ async function populateSessionSummaryOverlay(sessionId) {
       summaryDl,
       byAnglerUl,
       bySpeciesUl,
+      topFishEl,
     },
     ownerUserId
   );
@@ -2242,26 +2576,39 @@ async function ensureLoggedInUserAngler() {
 }
 
 /**
- * @param {{ id: string, title: string | null, ended_at: string | null, created_at: string | null, user_id?: string | null }} cloud
+ * @param {{ id: string, title: string | null, ended_at: string | null, created_at: string | null, started_at?: string | null, user_id?: string | null }} cloud
  */
 async function upsertLocalSessionFromCloudRow(cloud) {
   const existing = await getSessionBySupabaseCloudId(cloud.id);
   const endMs = cloud.ended_at ? new Date(cloud.ended_at).getTime() : null;
-  const startMs = cloud.created_at ? new Date(cloud.created_at).getTime() : Date.now();
+  const startedAtMs =
+    cloud.started_at && String(cloud.started_at).length > 0
+      ? new Date(cloud.started_at).getTime()
+      : null;
+  const startMs =
+    startedAtMs != null && Number.isFinite(startedAtMs)
+      ? startedAtMs
+      : cloud.created_at
+        ? new Date(cloud.created_at).getTime()
+        : Date.now();
   const ownerFromCloud =
     typeof cloud.user_id === "string" && cloud.user_id ? cloud.user_id : null;
   const ownerUserId = ownerFromCloud ?? existing?.ownerUserId ?? null;
+  let localId;
   if (existing) {
+    localId = existing.id;
     await putSession({
       ...existing,
       supabaseSessionId: cloud.id,
       title: cloud.title ?? existing.title,
+      startTime: startMs,
       endTime: endMs,
       ownerUserId,
     });
   } else {
+    localId = newId();
     await putSession({
-      id: newId(),
+      id: localId,
       startTime: startMs,
       endTime: endMs,
       initialLocationLat: null,
@@ -2275,6 +2622,7 @@ async function upsertLocalSessionFromCloudRow(cloud) {
       ownerUserId,
     });
   }
+  await loadSessionLinksFromCloud(localId, cloud.id);
 }
 
 async function rehydrateSupabaseParticipantSessions() {
@@ -2359,6 +2707,22 @@ async function renderHome() {
     syncSessionTitleHeader(session);
     await renderSessionLiveView(session.id);
     await maybeStartParticipantSessionPoll(session.id);
+
+    const authId = await getAuthUserId();
+    const canEdit = authId ? await anglerBelongsToSessionRoster(session.id, authId) : false;
+    await renderSessionTimesEditor(
+      session,
+      document.getElementById("session-times-active"),
+      canEdit
+    );
+    await renderSessionMetadataPickers(
+      session.id,
+      document.getElementById("session-metadata-active"),
+      canEdit
+    );
+  } else {
+    document.getElementById("session-times-active")?.classList.add("hidden");
+    document.getElementById("session-metadata-active")?.classList.add("hidden");
   }
 
   syncHomeAnglersToggleUi();
@@ -2400,12 +2764,6 @@ async function renderHome() {
   }
 
   await renderHistorySection();
-
-  if (session && session.endTime == null) {
-    startSessionLocationWatch();
-  } else {
-    stopSessionLocationWatch();
-  }
 }
 
 /**
@@ -2414,7 +2772,7 @@ async function renderHome() {
  */
 async function openHistorySessionCatches(sessionId) {
   destroyFishEditMapUi();
-  document.getElementById("fish-overlay")?.classList.add("hidden");
+  closeFishOverlay();
   closeSessionEndOverlay();
   closeSessionSummaryOverlay();
   await populateCatchesTable(sessionId);
@@ -2471,12 +2829,11 @@ async function renderHistorySection() {
     }
   }
   const nameById = await fetchProfileDisplayNames(allAnglerIds);
+  const metaBySession = await getSessionMetadataDisplayBySessionIds(
+    rows.map((r) => r.session.id)
+  );
 
   for (const { session: s, sas, catchCount } of rows) {
-    const dateStr = formatSessionDateLabel(s.startTime);
-    const startClock = formatClock24(s.startTime);
-    const endClock = s.endTime != null ? formatClock24(s.endTime) : "—";
-
     const ownerUserId = await getSessionOwnerUserId(s);
     const anglerIds = [...new Set(sas.map((sa) => sa.anglerId))];
     const anglerLabel = anglerIds.length
@@ -2485,27 +2842,31 @@ async function renderHistorySection() {
           .join(", ")
       : "—";
 
+    const meta = metaBySession.get(s.id);
+    const header = formatHistorySessionHeader({
+      anglerLabel,
+      locationNames: meta?.locationNames ?? [],
+      startTime: s.startTime,
+      endTime: s.endTime,
+    });
+
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "history-session-row";
     btn.setAttribute(
       "aria-label",
-      `Sessio ${dateStr}, ${startClock}–${endClock}, ${catchCount} ${catchCount === 1 ? "saalis" : "saalista"}`
+      `${header}, ${catchCount} ${catchCount === 1 ? "saalis" : "saalista"}`
     );
 
     const line1 = document.createElement("div");
     line1.className = "history-session-line1";
-    line1.textContent = `${dateStr} · ${startClock}–${endClock}`;
+    line1.textContent = header;
 
     const line2 = document.createElement("div");
     line2.className = "history-session-line2 meta";
-    line2.textContent = anglerLabel;
+    line2.textContent = catchCount === 1 ? "1 saalis" : `${catchCount} saalista`;
 
-    const line3 = document.createElement("div");
-    line3.className = "history-session-line3";
-    line3.textContent = catchCount === 1 ? "1 saalis" : `${catchCount} saalista`;
-
-    btn.append(line1, line2, line3);
+    btn.append(line1, line2);
     btn.addEventListener("click", async () => {
       await openHistorySessionCatches(s.id);
     });
@@ -2740,6 +3101,10 @@ function buildStartSessionParticipantPicker(selfAnglerId, selfDisplayName) {
       activeSupabaseSessionId = null;
       setSyncStatus("error");
     } else {
+    const localForStart = await getSessionById(r.sessionId);
+    const startedAtIso = localForStart
+      ? new Date(localForStart.startTime).toISOString()
+      : new Date().toISOString();
     const { data, error } = await supabase
       .from("sessions")
       .insert([
@@ -2747,6 +3112,7 @@ function buildStartSessionParticipantPicker(selfAnglerId, selfDisplayName) {
           title: r.title,
           notes: null,
           user_id: authUserId,
+          started_at: startedAtIso,
         },
       ])
       .select()
@@ -2767,6 +3133,7 @@ function buildStartSessionParticipantPicker(selfAnglerId, selfDisplayName) {
           supabaseSessionId: data.id,
           ownerUserId: localS.ownerUserId ?? authUserId,
         });
+        await syncSessionLinksToCloud(r.sessionId, data.id);
       }
     } else {
       console.error("[Supabase] sessions insert: no row id returned", data);
@@ -3061,6 +3428,7 @@ async function openFishOverlay() {
   await prefillTelemetryFromLastCatch();
   showFishStep(1);
   document.getElementById("fish-overlay")?.classList.remove("hidden");
+  startFishLoggingLocationWatch();
 }
 
 async function populateFishAnglers() {
@@ -3261,12 +3629,12 @@ async function onAuthSignedOut() {
   clearParticipantSessionPoll();
   sessionTitleNeedsCloudSync = false;
   stopSessionTimer();
-  stopSessionLocationWatch();
+  clearFishLoggingLocationCache();
   fishState.editingCatchId = null;
   homeAnglersExpanded = false;
   closeProfileOverlay();
   destroyFishEditMapUi();
-  document.getElementById("fish-overlay")?.classList.add("hidden");
+  closeFishOverlay();
   document.getElementById("catches-overlay")?.classList.add("hidden");
   document.getElementById("start-overlay")?.classList.add("hidden");
   document.getElementById("session-end-overlay")?.classList.add("hidden");
@@ -3400,6 +3768,14 @@ async function activateSignedInUser(user) {
     await ensureLoggedInUserAnglerWithUser(user);
   } catch (err) {
     console.warn("[Auth] ensureLoggedInUserAngler:", err);
+  }
+  try {
+    await ensureDefaultTargetSpeciesCatalog();
+    if (navigator.onLine) {
+      await syncUserCatalogsFromCloud();
+    }
+  } catch (err) {
+    console.warn("[Auth] session metadata catalogs:", err);
   }
   showMainApp();
   updateUserDisplayName(user);
@@ -3755,12 +4131,16 @@ function mainAppInit() {
       return;
     }
     if (cloudSidForEnd && navigator.onLine) {
-      const { error: endedErr } = await supabase
-        .from("sessions")
-        .update({ ended_at: new Date().toISOString() })
-        .eq("id", cloudSidForEnd);
-      if (endedErr) {
-        console.warn("[Session] ended_at update:", endedErr.message);
+      const endedRow = await getSessionById(endedSessionId);
+      if (endedRow && endedRow.endTime != null) {
+        const cloud = await pushSessionTimesToSupabase(
+          endedRow.startTime,
+          endedRow.endTime,
+          cloudSidForEnd
+        );
+        if (cloud && "ok" in cloud && cloud.ok === false && "error" in cloud) {
+          console.warn("[Session] times update:", cloud.error);
+        }
       }
     }
     activeSupabaseSessionId = null;
@@ -3835,7 +4215,7 @@ function mainAppInit() {
   document.getElementById("fish-close")?.addEventListener("click", () => {
     fishState.editingCatchId = null;
     destroyFishEditMapUi();
-    document.getElementById("fish-overlay")?.classList.add("hidden");
+    closeFishOverlay();
   });
 
   document.getElementById("fish-back-2")?.addEventListener("click", () => showFishStep(1));
@@ -3960,7 +4340,7 @@ function mainAppInit() {
       }
       fishState.editingCatchId = null;
       destroyFishEditMapUi();
-      document.getElementById("fish-overlay")?.classList.add("hidden");
+      closeFishOverlay();
       showSuccess("Muutokset tallennettu");
       await refreshCatchesTableIfOpen();
       await renderHome();
@@ -4004,7 +4384,7 @@ function mainAppInit() {
   document.getElementById("fish-back-home")?.addEventListener("click", () => {
     fishState.editingCatchId = null;
     destroyFishEditMapUi();
-    document.getElementById("fish-overlay")?.classList.add("hidden");
+    closeFishOverlay();
   });
 
   document.addEventListener("click", (e) => {

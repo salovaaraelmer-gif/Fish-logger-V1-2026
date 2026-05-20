@@ -13,6 +13,7 @@ import { supabase } from "./supabase.js";
  *   title: string | null,
  *   ended_at: string | null,
  *   created_at: string | null,
+ *   started_at?: string | null,
  *   user_id?: string | null,
  *   notes?: string | null,
  * }} CloudSessionRow
@@ -32,6 +33,7 @@ function normalizeSessionEmbed(row) {
     title: typeof o.title === "string" ? o.title : null,
     ended_at: o.ended_at == null ? null : String(o.ended_at),
     created_at: o.created_at == null ? null : String(o.created_at),
+    started_at: o.started_at == null ? null : String(o.started_at),
     user_id: typeof o.user_id === "string" ? o.user_id : null,
     notes: typeof o.notes === "string" ? o.notes : null,
   };
@@ -58,6 +60,7 @@ export async function fetchParticipantSessionsForUser(uid) {
         title,
         ended_at,
         created_at,
+        started_at,
         user_id,
         notes
       )
@@ -85,7 +88,7 @@ export async function fetchParticipantSessionsForUser(uid) {
 
   const { data: hostSessions, error: hostErr } = await supabase
     .from("sessions")
-    .select("id, title, ended_at, created_at, user_id, notes")
+    .select("id, title, ended_at, created_at, started_at, user_id, notes")
     .eq("user_id", uid);
 
   if (hostErr) {

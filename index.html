@@ -149,6 +149,8 @@
 
         <div id="block-active-session" class="stack hidden">
           <p class="session-timer" id="session-timer" aria-live="polite"></p>
+          <div id="session-times-active" class="session-times-edit stack hidden" aria-label="Session ajat"></div>
+          <div id="session-metadata-active" class="session-metadata-edit stack"></div>
           <h2 class="session-live-title">Sessio</h2>
           <div id="session-live-view" class="session-live-view stack" aria-live="polite"></div>
           <button type="button" class="btn btn-primary" id="btn-log-catch">Kirjaa saalis</button>
@@ -364,10 +366,15 @@
         </div>
         <p class="catch-session-strip meta" id="catches-session-strip" hidden></p>
 
+        <div id="session-metadata-ended" class="session-metadata-edit stack hidden"></div>
         <div id="catches-ended-dashboard" class="ended-session-dashboard hidden">
           <section class="dash-panel" aria-labelledby="ended-dash-summary-h">
             <h3 id="ended-dash-summary-h" class="dash-panel-title">Yhteenveto</h3>
             <dl class="dash-dl" id="ended-dash-summary-dl"></dl>
+          </section>
+          <section class="dash-panel" aria-labelledby="ended-dash-top-fish-h">
+            <h3 id="ended-dash-top-fish-h" class="dash-panel-title">Suurimmat kalat lajeittain</h3>
+            <div id="ended-dash-top-fish" class="dash-top-fish"></div>
           </section>
           <section class="dash-panel" aria-labelledby="ended-dash-anglers-h">
             <h3 id="ended-dash-anglers-h" class="dash-panel-title">Saaliit kalastajittain</h3>
@@ -469,6 +476,10 @@
           <section class="dash-panel" aria-labelledby="session-summary-dash-species-h">
             <h3 id="session-summary-dash-species-h" class="dash-panel-title">Saaliit lajeittain</h3>
             <ul id="session-summary-dash-by-species" class="dash-list"></ul>
+          </section>
+          <section class="dash-panel" aria-labelledby="session-summary-dash-top-fish-h">
+            <h3 id="session-summary-dash-top-fish-h" class="dash-panel-title">Suurimmat kalat lajeittain</h3>
+            <div id="session-summary-dash-top-fish" class="dash-top-fish"></div>
           </section>
         </div>
 
