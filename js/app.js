@@ -2686,6 +2686,8 @@ async function renderHome() {
     noS.classList.remove("hidden");
     act.classList.add("hidden");
     roster.classList.add("hidden");
+    document.getElementById("session-times-active")?.classList.add("hidden");
+    document.getElementById("session-metadata-active")?.classList.add("hidden");
   } else {
     const start = new Date(session.startTime);
     let line = `Sessio käynnissä (alkoi ${start.toLocaleString("fi-FI")}).`;
@@ -2720,9 +2722,6 @@ async function renderHome() {
       document.getElementById("session-metadata-active"),
       canEdit
     );
-  } else {
-    document.getElementById("session-times-active")?.classList.add("hidden");
-    document.getElementById("session-metadata-active")?.classList.add("hidden");
   }
 
   syncHomeAnglersToggleUi();
