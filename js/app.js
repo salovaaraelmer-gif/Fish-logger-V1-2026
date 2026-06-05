@@ -67,6 +67,8 @@ import { supabase } from "./supabase.js";
 import {
   getDisplayNameFromUser,
   getAuthUserId,
+  setCachedAuthUserId,
+  clearCachedAuthUserId,
   signInWithEmail,
   signUpWithProfile,
   sendPasswordResetEmail,
@@ -2638,10 +2640,11 @@ async function rehydrateSupabaseParticipantSessions() {
   }
   const res = await fetchParticipantSessionsForUser(uid);
   if (!res.ok) {
-    console.warn("[participantSessions] fetch failed:", res.error);
+    console.warn("[Session] session recovery failed:", res.error);
     return;
   }
   setParticipantSessionFetchResult(true, res.active, res.ended);
+  console.log("[Session] session recovery ok — active:", res.active.length, "ended:", res.ended.length);
   console.log(
     "[participantSessions] active (participant-based) count:",
     res.active.length,
@@ -2662,10 +2665,22 @@ async function rehydrateSupabaseParticipantSessions() {
 
 async function renderHome() {
   clearParticipantSessionPoll();
-  await rehydrateSupabaseParticipantSessions();
-  await syncParticipantSessionFromCloudIfNeeded();
-  await rehydrateSupabaseSessionContext();
+  try {
+    await rehydrateSupabaseParticipantSessions();
+    await syncParticipantSessionFromCloudIfNeeded();
+    await rehydrateSupabaseSessionContext();
+  } catch (err) {
+    console.error("[Session] recovery cloud sync failed (continuing with local):", err);
+  }
   const session = await getActiveSessionForParticipantUi();
+  console.log("[Session] active session query result:", session
+    ? {
+        id: session.id,
+        endTime: session.endTime,
+        supabaseSessionId: session.supabaseSessionId ?? null,
+        startTime: session.startTime,
+      }
+    : null);
   const meta = document.getElementById("session-meta");
   const noS = document.getElementById("block-no-session");
   const act = document.getElementById("block-active-session");
@@ -3615,6 +3630,7 @@ let authDebugLastStep = "idle";
 let authDebugLastError = "";
 
 async function onAuthSignedOut() {
+  clearCachedAuthUserId();
   try {
     await clearUserIndexedDb();
   } catch (err) {
@@ -3742,6 +3758,8 @@ async function tryActivateExistingSession() {
  */
 async function activateSignedInUser(user) {
   const uid = user.id;
+  console.log("[Auth] activateSignedInUser — current user id:", uid);
+  setCachedAuthUserId(uid);
   if (lastIndexedDbUserId && lastIndexedDbUserId !== uid) {
     activeSupabaseSessionId = null;
     activeSupabaseAnglerRows = null;
@@ -3778,11 +3796,16 @@ async function activateSignedInUser(user) {
   }
   showMainApp();
   updateUserDisplayName(user);
+  console.log("[Auth] login success — main app visible for user:", uid);
   if (!mainAppStarted) {
     mainAppInit();
     mainAppStarted = true;
   } else {
-    await renderHome();
+    try {
+      await renderHome();
+    } catch (err) {
+      console.error("[Session] renderHome failed after login (non-blocking):", err);
+    }
   }
 }
 
@@ -3900,6 +3923,7 @@ function wireAuthUi() {
       if (error) {
         setAuthDebugStep("sign_in_error");
         setAuthDebugError(error.message || "unknown");
+        console.error("[Auth] login failure:", error.message || error);
         if (error.message.toLowerCase().includes("invalid login credentials")) {
           setAuthMessage("Virheellinen sähköposti tai salasana.");
         } else if (error.message.toLowerCase().includes("email not confirmed")) {
@@ -3913,7 +3937,14 @@ function wireAuthUi() {
       if (data?.user) {
         setAuthDebugStep("sign_in_user_payload");
         setAuthDebugError("");
-        await activateSignedInUser(data.user);
+        console.log("[Auth] login success — user payload received, id:", data.user.id);
+        try {
+          await activateSignedInUser(data.user);
+        } catch (err) {
+          console.error("[Auth] activateSignedInUser failed:", err);
+          setAuthMessage("Kirjautuminen epäonnistui käynnistyksessä. Yritä uudelleen.");
+          return;
+        }
         setAuthMessage("");
       } else {
         setAuthDebugStep("sign_in_no_user_payload");
@@ -4006,18 +4037,38 @@ async function bootstrap() {
     void handleAuthStateChange(event, session);
   });
 
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
+  const sessionProbe = await withTimeout(supabase.auth.getSession(), 6000);
+  const session =
+    sessionProbe && !(typeof sessionProbe === "object" && "timedOut" in sessionProbe)
+      ? sessionProbe.data?.session ?? null
+      : null;
+  if (sessionProbe && typeof sessionProbe === "object" && "timedOut" in sessionProbe) {
+    console.warn("[Auth] bootstrap getSession timed out — showing login gate");
+    setAuthDebugStep("bootstrap_get_session_timeout");
+    showAuthGate();
+    if (passwordRecoveryPending) {
+      showAuthPanel("auth-reset-password");
+      setAuthMessage("");
+    }
+    return;
+  }
   if (session?.user) {
     setAuthDebugStep("bootstrap_session_found");
+    console.log("[Auth] bootstrap session found — user id:", session.user.id);
     if (passwordRecoveryPending || sessionIsPasswordRecovery(session)) {
       showPasswordRecoveryUi();
     } else {
-      await activateSignedInUser(session.user);
+      try {
+        await activateSignedInUser(session.user);
+      } catch (err) {
+        console.error("[Auth] bootstrap activateSignedInUser failed:", err);
+        showAuthGate();
+        setAuthMessage("Sovelluksen käynnistys epäonnistui. Yritä kirjautua uudelleen.");
+      }
     }
   } else {
     setAuthDebugStep("bootstrap_no_session");
+    console.log("[Auth] bootstrap — no existing session");
     showAuthGate();
     if (passwordRecoveryPending) {
       showAuthPanel("auth-reset-password");
@@ -4031,6 +4082,10 @@ async function bootstrap() {
  * @param {import("@supabase/supabase-js").Session | null} session
  */
 async function handleAuthStateChange(event, session) {
+  console.log("[Auth] state change:", event, {
+    userId: session?.user?.id ?? null,
+    email: session?.user?.email ?? null,
+  });
   if (event === "INITIAL_SESSION") {
     if (session && sessionIsPasswordRecovery(session)) {
       showPasswordRecoveryUi();
@@ -4046,7 +4101,11 @@ async function handleAuthStateChange(event, session) {
       showPasswordRecoveryUi();
       return;
     }
-    await activateSignedInUser(session.user);
+    try {
+      await activateSignedInUser(session.user);
+    } catch (err) {
+      console.error("[Auth] SIGNED_IN activateSignedInUser failed:", err);
+    }
   }
   if (event === "SIGNED_OUT") {
     passwordRecoveryPending = false;
@@ -4297,7 +4356,8 @@ function mainAppInit() {
     } else {
       try {
         loc = await fetchDeviceLocationBestEffort();
-      } catch {
+      } catch (err) {
+        console.error("[GPS] location fetch threw during save (non-blocking):", err);
         /* save without location */
       }
     }
@@ -4346,12 +4406,24 @@ function mainAppInit() {
       return;
     }
 
-    const result = await saveCatch(inputPayload, loc);
+    let result;
+    try {
+      result = await saveCatch(inputPayload, loc);
+    } catch (err) {
+      console.error("[catch] saveCatch threw:", err);
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = "Tallenna";
+      }
+      showError("Saaliin tallennus epäonnistui.");
+      return;
+    }
     if (btn) {
       btn.disabled = false;
       btn.textContent = "Tallenna";
     }
     if (!result.ok) {
+      console.error("[catch] saveCatch rejected:", result.reason);
       showError(result.reason);
       return;
     }
@@ -4362,8 +4434,10 @@ function mainAppInit() {
 
     const savedCatch = result.record;
     const syncCreate = await syncCatchCreateToSupabase(savedCatch);
-    if (syncCreate && !syncCreate.ok) {
-      console.error("[Supabase] catches insert failed:", syncCreate.error);
+    if (syncCreate && syncCreate.ok) {
+      console.log("[catch] insert ok (supabase)");
+    } else if (syncCreate && !syncCreate.ok) {
+      console.error("[catch] insert error (supabase):", syncCreate.error);
       setSyncStatus(navigator.onLine ? "error" : "offline");
       showError(`Supabase-tallennus epäonnistui: ${syncCreate.error}`);
     } else if (syncCreate && syncCreate.ok) {
@@ -4404,7 +4478,13 @@ function mainAppInit() {
     syncCatchesSessionMenuUi();
   });
 
-  renderHome();
+  void renderHome().catch((err) => {
+    console.error("[Session] renderHome failed on init (non-blocking):", err);
+  });
 }
 
-void bootstrap();
+void bootstrap().catch((err) => {
+  console.error("[Auth] bootstrap failed:", err);
+  showAuthGate();
+  setAuthMessage("Sovelluksen käynnistys epäonnistui. Yritä kirjautua uudelleen.");
+});

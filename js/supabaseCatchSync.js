@@ -91,10 +91,13 @@ export function catchRecordToSupabasePayload(
  * @returns {Promise<{ ok: true, id: string } | { ok: false, error: string }>}
  */
 export async function insertSupabaseCatch(payload) {
+  console.log("[catch] insert payload (supabase)", payload);
   const { data, error } = await supabase.from("catches").insert([payload]).select("id").single();
   if (error) {
+    console.error("[catch] insert error (supabase):", error.message, error);
     return { ok: false, error: error.message };
   }
+  console.log("[catch] insert response (supabase)", data);
   const id = data && typeof data.id === "string" ? data.id : null;
   if (!id) {
     return { ok: false, error: "Supabase ei palauttanut saaliin id:tä." };

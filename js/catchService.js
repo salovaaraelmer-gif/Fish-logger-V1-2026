@@ -5,6 +5,7 @@
 
 import { getSessionById, putCatch } from "./db.js";
 import { getAuthUserId } from "./auth.js";
+import { getActiveSessionForParticipantUi } from "./participantSessionCache.js";
 import {
   anglerBelongsToActiveSession,
   anglerBelongsToSessionRoster,
@@ -132,7 +133,14 @@ function applyLocationFields(partial, loc) {
  * @returns {Promise<{ ok: true, record: import('./db.js').CatchRecord } | { ok: false, reason: string }>}
  */
 export async function saveCatch(input, deviceLoc) {
-  const session = await getActiveSessionForParticipantUi();
+  let session;
+  try {
+    session = await getActiveSessionForParticipantUi();
+    console.log("[catch] active session query", session ? { id: session.id, endTime: session.endTime } : null);
+  } catch (err) {
+    console.error("[catch] active session query failed:", err);
+    return { ok: false, reason: "Sessiotietojen haku epäonnistui." };
+  }
   if (!session) {
     return { ok: false, reason: "Ei aktiivista sessiota — saalisvahti ei käytössä." };
   }
@@ -189,6 +197,17 @@ export async function saveCatch(input, deviceLoc) {
   };
 
   applyLocationFields(record, deviceLoc);
+  console.log("[catch] insert payload (local)", {
+    sessionId: record.sessionId,
+    anglerId: record.anglerId,
+    species: record.species,
+    location: {
+      lat: record.location_lat,
+      lng: record.location_lng,
+      accuracyM: record.location_accuracy_m,
+      source: record.location_source,
+    },
+  });
 
   let weather = null;
   if (
@@ -199,7 +218,8 @@ export async function saveCatch(input, deviceLoc) {
   ) {
     try {
       weather = await fetchOpenMeteoCurrent(record.location_lat, record.location_lng);
-    } catch {
+    } catch (err) {
+      console.warn("[catch] weather fetch failed (non-blocking):", err);
       weather = null;
     }
   }
@@ -210,9 +230,14 @@ export async function saveCatch(input, deviceLoc) {
     record.wind_direction_deg = weather.wind_direction_deg;
   }
 
-  await putCatch(record);
-
-  return { ok: true, record };
+  try {
+    await putCatch(record);
+    console.log("[catch] insert ok (local)", { id: record.id });
+    return { ok: true, record };
+  } catch (err) {
+    console.error("[catch] insert failed (local):", err);
+    return { ok: false, reason: "Paikallinen tallennus epäonnistui." };
+  }
 }
 
 /**
@@ -349,15 +374,15 @@ function emptyDeviceLocation() {
  * @returns {DeviceLocation | null}
  */
 function positionToDeviceLocation(pos) {
-  const acc = pos.coords.accuracy;
-  if (typeof acc !== "number" || !Number.isFinite(acc)) return null;
   const lat = pos.coords.latitude;
   const lng = pos.coords.longitude;
   if (typeof lat !== "number" || typeof lng !== "number") return null;
+  const acc = pos.coords.accuracy;
+  const accuracyM = typeof acc === "number" && Number.isFinite(acc) ? acc : null;
   return {
     lat,
     lng,
-    accuracyM: acc,
+    accuracyM,
     timestamp: pos.timestamp != null ? pos.timestamp : Date.now(),
     source: "device",
   };
@@ -369,20 +394,35 @@ function positionToDeviceLocation(pos) {
  */
 export function startFishLoggingLocationWatch() {
   if (fishLoggingWatchId != null) return;
-  if (typeof navigator === "undefined" || !navigator.geolocation) return;
+  if (typeof navigator === "undefined" || !navigator.geolocation) {
+    console.log("[GPS] geolocation unavailable — fish watch skipped");
+    return;
+  }
   fishLoggingBest = null;
+  console.log("[GPS] starting fish-logging location watch");
   fishLoggingWatchId = navigator.geolocation.watchPosition(
     (pos) => {
       const loc = positionToDeviceLocation(pos);
       if (!loc) return;
-      if (!fishLoggingBest || loc.accuracyM < fishLoggingBest.accuracyM) {
+      console.log("[GPS] watch fix", {
+        lat: loc.lat,
+        lng: loc.lng,
+        accuracyM: loc.accuracyM,
+      });
+      if (
+        !fishLoggingBest ||
+        (loc.accuracyM != null &&
+          (fishLoggingBest.accuracyM == null || loc.accuracyM < fishLoggingBest.accuracyM))
+      ) {
         fishLoggingBest = loc;
       }
-      if (loc.accuracyM <= CONVERGENCE_GOOD_ENOUGH_M) {
+      if (loc.accuracyM != null && loc.accuracyM <= CONVERGENCE_GOOD_ENOUGH_M) {
         stopFishLoggingLocationWatch();
       }
     },
-    () => {},
+    (err) => {
+      console.warn("[GPS] fish watch error:", err?.code, err?.message || err);
+    },
     { enableHighAccuracy: true, maximumAge: 0 }
   );
   if (fishLoggingWatchTimeoutId != null) {
@@ -472,15 +512,26 @@ function runConvergenceWatch(seedBest) {
       (pos) => {
         const loc = positionToDeviceLocation(pos);
         if (!loc) return;
-        if (!best || loc.accuracyM < best.accuracyM) {
+        console.log("[GPS] convergence fix", {
+          lat: loc.lat,
+          lng: loc.lng,
+          accuracyM: loc.accuracyM,
+        });
+        if (
+          !best ||
+          (loc.accuracyM != null &&
+            (best.accuracyM == null || loc.accuracyM < best.accuracyM))
+        ) {
           best = loc;
         }
-        if (loc.accuracyM <= CONVERGENCE_GOOD_ENOUGH_M) {
+        if (loc.accuracyM != null && loc.accuracyM <= CONVERGENCE_GOOD_ENOUGH_M) {
           done();
         }
       },
       (err) => {
-        if (err && /** @type {GeolocationPositionError} */ (err).code === 1) {
+        const code = err && /** @type {GeolocationPositionError} */ (err).code;
+        console.warn("[GPS] convergence watch error:", code, err?.message || err);
+        if (code === 1) {
           done();
         }
       },
@@ -500,7 +551,17 @@ function runConvergenceWatch(seedBest) {
  */
 export async function fetchDeviceLocationBestEffort() {
   if (typeof navigator === "undefined" || !navigator.geolocation) {
+    console.log("[GPS] geolocation unavailable — saving without location");
     return emptyDeviceLocation();
+  }
+
+  if (navigator.permissions?.query) {
+    try {
+      const perm = await navigator.permissions.query({ name: "geolocation" });
+      console.log("[GPS] permission status:", perm.state);
+    } catch (err) {
+      console.warn("[GPS] permission query failed:", err);
+    }
   }
 
   const seed =
@@ -517,8 +578,16 @@ export async function fetchDeviceLocationBestEffort() {
     seed.accuracyM != null &&
     seed.accuracyM <= CONVERGENCE_GOOD_ENOUGH_M
   ) {
+    console.log("[GPS] using cached seed fix", seed);
     return seed;
   }
 
-  return runConvergenceWatch(seed);
+  try {
+    const result = await runConvergenceWatch(seed);
+    console.log("[GPS] fetch result", result);
+    return result;
+  } catch (err) {
+    console.error("[GPS] fetch failed (non-blocking):", err);
+    return emptyDeviceLocation();
+  }
 }

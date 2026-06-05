@@ -5,6 +5,20 @@
 
 import { SUPABASE_ANON_KEY, SUPABASE_URL, supabase } from "./supabase.js";
 
+/** Fallback when `getUser()` is slow or session persistence lags after REST login. */
+let cachedAuthUserId = null;
+
+/**
+ * @param {string | null} userId
+ */
+export function setCachedAuthUserId(userId) {
+  cachedAuthUserId = userId;
+}
+
+export function clearCachedAuthUserId() {
+  cachedAuthUserId = null;
+}
+
 /**
  * Maps Supabase Auth errors (incl. HTTP 429 rate limits) to readable Finnish UI text.
  * @param {{ message?: string; status?: number } | null | undefined} error
@@ -69,15 +83,31 @@ async function signInWithPasswordRestFallback(email, password) {
     if (!access_token || !refresh_token) {
       return { data: { user: null, session: null }, error: { message: "Login failed." } };
     }
-    const setRes = await withTimeout(
+    let setRes = await withTimeout(
       supabase.auth.setSession({ access_token, refresh_token }),
-      2500
+      6000
     );
+    if (typeof setRes === "object" && setRes && "timedOut" in setRes) {
+      console.warn("[Auth] setSession timed out (6s) — retrying once");
+      setRes = await withTimeout(
+        supabase.auth.setSession({ access_token, refresh_token }),
+        6000
+      );
+    }
     if (!(typeof setRes === "object" && setRes && "timedOut" in setRes)) {
+      const userId = setRes?.data?.user?.id ?? body?.user?.id ?? null;
+      if (userId) {
+        cachedAuthUserId = userId;
+        console.log("[Auth] login success — session persisted, userId:", userId);
+      }
       return setRes;
     }
     // If session persistence hangs, still return authenticated user payload.
     const user = body?.user && typeof body.user === "object" ? body.user : null;
+    if (user?.id) {
+      cachedAuthUserId = user.id;
+      console.warn("[Auth] login partial — user payload ok but session persistence timed out, userId:", user.id);
+    }
     return { data: { user, session: null }, error: null };
   } catch (err) {
     if (err && typeof err === "object" && "name" in err && err.name === "AbortError") {
@@ -143,6 +173,7 @@ export async function signInWithEmail(email, password) {
 }
 
 export async function signOut() {
+  clearCachedAuthUserId();
   return supabase.auth.signOut();
 }
 
@@ -177,8 +208,19 @@ export function updatePassword(newPassword) {
  * @returns {Promise<string | null>}
  */
 export async function getAuthUserId() {
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  return user?.id ?? null;
+  try {
+    const maybe = await withTimeout(supabase.auth.getUser(), 4000);
+    if (maybe && !(typeof maybe === "object" && "timedOut" in maybe)) {
+      const userId = maybe.data?.user?.id ?? null;
+      if (userId) {
+        cachedAuthUserId = userId;
+        return userId;
+      }
+    } else {
+      console.warn("[Auth] getUser timed out — using cached user id if available");
+    }
+  } catch (err) {
+    console.warn("[Auth] getUser failed:", err);
+  }
+  return cachedAuthUserId;
 }
