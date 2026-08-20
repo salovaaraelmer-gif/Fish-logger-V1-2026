@@ -5,7 +5,8 @@
 
 import { getDisplayNameFromUser, signOut } from "./auth.js";
 import { supabase } from "./supabase.js";
-import { fetchProfileForUser } from "./supabaseProfile.js";
+import { fetchProfileForUser, uploadProfileAvatar, bustAvatarUrl } from "./supabaseProfile.js";
+import { withAppSpinner } from "./appSpinner.js";
 
 /**
  * @param {string | null | undefined} s
@@ -43,6 +44,25 @@ function setProfilePlaceholders(text) {
 }
 
 /**
+ * @param {string | null | undefined} url
+ */
+function showProfileAvatar(url) {
+  const img = /** @type {HTMLImageElement | null} */ (document.getElementById("profile-avatar-img"));
+  const placeholder = document.getElementById("profile-avatar-placeholder");
+  const src = bustAvatarUrl(url);
+  if (!img || !placeholder) return;
+  if (!src) {
+    img.removeAttribute("src");
+    img.classList.add("hidden");
+    placeholder.classList.remove("hidden");
+    return;
+  }
+  img.src = src;
+  img.classList.remove("hidden");
+  placeholder.classList.add("hidden");
+}
+
+/**
  * @returns {Promise<void>}
  */
 export async function fillProfileFields() {
@@ -53,12 +73,14 @@ export async function fillProfileFields() {
   if (!nameEl || !userEl || !emailEl || !createdEl) return;
 
   setProfilePlaceholders("…");
+  showProfileAvatar(null);
 
   const { data: authData, error: authErr } = await supabase.auth.getUser();
   const user = authData?.user;
 
   if (authErr || !user) {
     setProfilePlaceholders("—");
+    showProfileAvatar(null);
     return;
   }
 
@@ -76,6 +98,7 @@ export async function fillProfileFields() {
     : orFallback(displayFromAuth, "—");
   nameEl.textContent = displayName;
   userEl.textContent = profile ? orFallback(profile.username, "—") : "—";
+  showProfileAvatar(profile?.avatar_url);
 }
 
 export function closeProfileOverlay() {
@@ -89,12 +112,37 @@ export function closeProfileOverlay() {
 export function wireProfileUi(options = {}) {
   const openBtn = document.getElementById("btn-open-profile");
   const logoutBtn = document.getElementById("menu-logout");
+  const avatarBtn = document.getElementById("profile-avatar-btn");
+  const avatarInput = /** @type {HTMLInputElement | null} */ (document.getElementById("profile-avatar-input"));
 
   openBtn?.addEventListener("click", () => {
     if (typeof options.onOpen === "function") {
       options.onOpen();
     }
     void fillProfileFields();
+  });
+
+  avatarBtn?.addEventListener("click", () => {
+    avatarInput?.click();
+  });
+
+  avatarInput?.addEventListener("change", async () => {
+    const file = avatarInput.files && avatarInput.files[0];
+    avatarInput.value = "";
+    if (!file) return;
+    const { data: authData } = await supabase.auth.getUser();
+    const userId = authData?.user?.id;
+    if (!userId) {
+      if (typeof options.onError === "function") options.onError("Not signed in.");
+      return;
+    }
+    const result = await withAppSpinner(() => uploadProfileAvatar(userId, file), 0);
+    if (!result.ok) {
+      if (typeof options.onError === "function") options.onError(result.error);
+      else console.error("[Profile] avatar upload:", result.error);
+      return;
+    }
+    showProfileAvatar(result.url);
   });
 
   logoutBtn?.addEventListener("click", async () => {
