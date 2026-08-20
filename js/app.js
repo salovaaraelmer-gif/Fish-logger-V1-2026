@@ -2698,7 +2698,8 @@ async function renderHome() {
     titleInp?.classList.add("hidden");
     titleDisp?.classList.remove("hidden");
     renderSyncStatusIndicator();
-    meta.textContent = "No active fishing session. Start a session before logging a catch.";
+    meta.textContent = "";
+    meta.hidden = true;
     noS.classList.remove("hidden");
     act.classList.add("hidden");
     roster.classList.add("hidden");
@@ -2718,6 +2719,7 @@ async function renderHome() {
           : "";
       line += ` Start point: ${session.initialLocationLat.toFixed(4)}, ${session.initialLocationLng.toFixed(4)}${acc}.`;
     }
+    meta.hidden = false;
     meta.textContent = line;
     noS.classList.add("hidden");
     act.classList.remove("hidden");
