@@ -1,5 +1,5 @@
 /**
- * Profile overlay: read-only Supabase profile + auth email; logout.
+ * Profile tab: read-only Supabase profile + auth email; logout lives in the menu.
  * @module profileUI
  */
 
@@ -17,30 +17,53 @@ function orFallback(s, fallback) {
 }
 
 /**
- * @returns {Promise<void>}
+ * @param {string | null | undefined} iso
+ * @returns {string}
  */
-async function fillProfileFields() {
+function formatAccountCreated(iso) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString("en-GB", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+function setProfilePlaceholders(text) {
   const nameEl = document.getElementById("profile-display-name");
   const userEl = document.getElementById("profile-username");
   const emailEl = document.getElementById("profile-email");
-  if (!nameEl || !userEl || !emailEl) return;
+  const createdEl = document.getElementById("profile-created-at");
+  if (nameEl) nameEl.textContent = text;
+  if (userEl) userEl.textContent = text;
+  if (emailEl) emailEl.textContent = text;
+  if (createdEl) createdEl.textContent = text;
+}
 
-  nameEl.textContent = "…";
-  userEl.textContent = "…";
-  emailEl.textContent = "…";
+/**
+ * @returns {Promise<void>}
+ */
+export async function fillProfileFields() {
+  const nameEl = document.getElementById("profile-display-name");
+  const userEl = document.getElementById("profile-username");
+  const emailEl = document.getElementById("profile-email");
+  const createdEl = document.getElementById("profile-created-at");
+  if (!nameEl || !userEl || !emailEl || !createdEl) return;
+
+  setProfilePlaceholders("…");
 
   const { data: authData, error: authErr } = await supabase.auth.getUser();
   const user = authData?.user;
 
   if (authErr || !user) {
-    nameEl.textContent = "—";
-    userEl.textContent = "—";
-    emailEl.textContent = "—";
+    setProfilePlaceholders("—");
     return;
   }
 
-  const email = orFallback(user.email, "—");
-  emailEl.textContent = email;
+  emailEl.textContent = orFallback(user.email, "—");
+  createdEl.textContent = formatAccountCreated(user.created_at);
 
   const { profile, error } = await fetchProfileForUser(user.id);
   if (error) {
@@ -52,13 +75,11 @@ async function fillProfileFields() {
     ? orFallback(profile.display_name, orFallback(displayFromAuth, "—"))
     : orFallback(displayFromAuth, "—");
   nameEl.textContent = displayName;
-
-  const username = profile ? orFallback(profile.username, "—") : "—";
-  userEl.textContent = username;
+  userEl.textContent = profile ? orFallback(profile.username, "—") : "—";
 }
 
 export function closeProfileOverlay() {
-  document.getElementById("profile-overlay")?.classList.add("hidden");
+  /* Profile is a tab now; kept so logout/sign-out paths stay valid. */
 }
 
 /**
@@ -66,21 +87,14 @@ export function closeProfileOverlay() {
  * @returns {void}
  */
 export function wireProfileUi(options = {}) {
-  const overlay = document.getElementById("profile-overlay");
   const openBtn = document.getElementById("btn-open-profile");
-  const closeBtn = document.getElementById("profile-close");
-  const logoutBtn = document.getElementById("profile-logout");
+  const logoutBtn = document.getElementById("menu-logout");
 
   openBtn?.addEventListener("click", () => {
-    overlay?.classList.remove("hidden");
     if (typeof options.onOpen === "function") {
       options.onOpen();
     }
     void fillProfileFields();
-  });
-
-  closeBtn?.addEventListener("click", () => {
-    closeProfileOverlay();
   });
 
   logoutBtn?.addEventListener("click", async () => {
@@ -91,8 +105,6 @@ export function wireProfileUi(options = {}) {
       } else {
         console.error("[Profile] signOut:", error.message);
       }
-      return;
     }
-    closeProfileOverlay();
   });
 }

@@ -104,103 +104,228 @@
     </div>
 
     <div id="app" class="hidden">
-      <header>
-        <div class="app-header-row">
-          <h1 class="app-brand-title">AnglrLog</h1>
-          <div class="app-header-user">
-            <button type="button" id="btn-open-profile" class="user-display-name-btn" aria-label="Open profile">
-              <span id="user-display-name" class="user-display-name" aria-live="polite"></span>
-            </button>
-          </div>
-        </div>
-        <div id="session-title-block" class="session-title-block hidden">
-          <div class="session-title-row">
-            <span
-              id="session-title-display"
-              class="session-title-display"
-              tabindex="0"
-              role="button"
-              aria-label="Session title, tap to edit"
-            ></span>
-            <button
-              type="button"
-              id="sync-status-indicator"
-              class="sync-status-indicator"
-              aria-label="Sync status"
-              title="Synced"
-            ></button>
-          </div>
-          <input
-            type="text"
-            id="session-title-input"
-            class="session-title-input hidden"
-            autocomplete="off"
-            aria-label="Session title"
-          />
-        </div>
-        <p class="meta" id="session-meta">Loading…</p>
-      </header>
-
-      <section id="screen-home" class="screen is-visible">
-        <div id="block-no-session" class="stack hidden">
-          <p class="pill">No active session</p>
-          <button type="button" class="btn btn-primary" id="btn-open-start">Start fishing session</button>
-        </div>
-
-        <div id="block-active-session" class="stack hidden">
-          <p class="session-timer" id="session-timer" aria-live="polite"></p>
-          <div id="session-times-active" class="session-times-edit stack hidden" aria-label="Session times"></div>
-          <div id="session-metadata-active" class="session-metadata-edit stack"></div>
-          <h2 class="session-live-title">Session</h2>
-          <div id="session-live-view" class="session-live-view stack" aria-live="polite"></div>
-          <button type="button" class="btn btn-primary" id="btn-log-catch">Log catch</button>
-          <button type="button" class="btn" id="btn-show-catches">Show catches</button>
-          <button type="button" class="btn btn-danger" id="btn-end-session">End session</button>
-        </div>
-
-        <button type="button" class="btn" id="btn-toggle-anglers" aria-expanded="false">Show participants</button>
-
-        <div id="angler-edit-panel" class="stack angler-edit-panel hidden">
-          <h2>Participants</h2>
-          <p class="meta">Participants are chosen at the start of the session from registered users.</p>
-
-          <div id="session-roster" class="hidden" style="margin-top: 1.5rem">
-            <h2>In this session</h2>
-            <div id="session-angler-rows" class="stack"></div>
-          </div>
-        </div>
-
-        <section id="history-section" class="stack history-section" aria-labelledby="history-heading">
-          <h2 id="history-heading">History</h2>
-          <p class="meta" id="history-empty" hidden>No ended sessions.</p>
-          <div id="history-session-list" class="stack history-session-list"></div>
+      <div id="app-tab-panels" class="app-tab-panels">
+        <section
+          id="tab-feed"
+          class="app-tab-panel"
+          role="tabpanel"
+          aria-labelledby="nav-feed"
+          hidden
+        >
+          <h1 class="app-tab-title">Feed</h1>
+          <p class="meta">Friends’ active and past sessions will show up here.</p>
+          <p class="pill">Coming soon</p>
         </section>
-      </section>
-    </div>
 
-    <!-- Profile (read-only) -->
-    <div id="profile-overlay" class="hidden">
-      <div class="profile-inner">
-        <div class="row-actions" style="margin-bottom: 1rem">
-          <button type="button" class="btn btn-ghost" id="profile-close">Close</button>
-        </div>
-        <h2>Profile</h2>
-        <div class="stack profile-fields" style="margin-top: 1rem">
-          <div>
-            <div class="field-label">Name</div>
-            <p id="profile-display-name" class="profile-value">—</p>
-          </div>
-          <div>
-            <div class="field-label">Username</div>
-            <p id="profile-username" class="profile-value">—</p>
-          </div>
-          <div>
-            <div class="field-label">Email</div>
-            <p id="profile-email" class="profile-value">—</p>
-          </div>
-        </div>
-        <button type="button" class="btn btn-danger profile-logout-btn" id="profile-logout">Log out</button>
+        <section
+          id="tab-map"
+          class="app-tab-panel"
+          role="tabpanel"
+          aria-labelledby="nav-map"
+          hidden
+        >
+          <h1 class="app-tab-title">Map</h1>
+          <p class="meta">All catches will show here later, with filters such as species, time, and location.</p>
+          <p class="pill">Coming soon</p>
+        </section>
+
+        <section
+          id="tab-session"
+          class="app-tab-panel is-active"
+          role="tabpanel"
+          aria-labelledby="nav-session"
+        >
+          <header id="session-home-header">
+            <div class="app-header-row">
+              <h1 class="app-brand-title">AnglrLog</h1>
+              <div class="app-header-user">
+                <button type="button" id="btn-open-profile" class="user-display-name-btn" aria-label="Open profile">
+                  <span id="user-display-name" class="user-display-name" aria-live="polite"></span>
+                </button>
+              </div>
+            </div>
+            <div id="session-title-block" class="session-title-block hidden">
+              <div class="session-title-row">
+                <span
+                  id="session-title-display"
+                  class="session-title-display"
+                  tabindex="0"
+                  role="button"
+                  aria-label="Session title, tap to edit"
+                ></span>
+                <button
+                  type="button"
+                  id="sync-status-indicator"
+                  class="sync-status-indicator"
+                  aria-label="Sync status"
+                  title="Synced"
+                ></button>
+              </div>
+              <input
+                type="text"
+                id="session-title-input"
+                class="session-title-input hidden"
+                autocomplete="off"
+                aria-label="Session title"
+              />
+            </div>
+            <p class="meta" id="session-meta">Loading…</p>
+          </header>
+
+          <section id="screen-home" class="screen is-visible">
+            <div id="block-no-session" class="stack hidden">
+              <button type="button" class="btn btn-primary" id="btn-open-start">Start fishing session</button>
+            </div>
+
+            <div id="block-active-session" class="stack hidden">
+              <p class="session-timer" id="session-timer" aria-live="polite"></p>
+              <div id="session-times-active" class="session-times-edit stack hidden" aria-label="Session times"></div>
+              <div id="session-metadata-active" class="session-metadata-edit stack"></div>
+              <h2 class="session-live-title">Session</h2>
+              <div id="session-live-view" class="session-live-view stack" aria-live="polite"></div>
+              <button type="button" class="btn btn-primary" id="btn-log-catch">Log catch</button>
+              <button type="button" class="btn" id="btn-show-catches">Show catches</button>
+              <button type="button" class="btn btn-danger" id="btn-end-session">End session</button>
+            </div>
+
+            <button type="button" class="btn" id="btn-toggle-anglers" aria-expanded="false">Show participants</button>
+
+            <div id="angler-edit-panel" class="stack angler-edit-panel hidden">
+              <h2>Participants</h2>
+              <p class="meta">Participants are chosen at the start of the session from registered users.</p>
+
+              <div id="session-roster" class="hidden" style="margin-top: 1.5rem">
+                <h2>In this session</h2>
+                <div id="session-angler-rows" class="stack"></div>
+              </div>
+            </div>
+          </section>
+
+          <section id="screen-start-session" class="screen" aria-labelledby="start-session-title">
+            <button type="button" class="btn btn-ghost" id="start-back">Back</button>
+            <h1 id="start-session-title" class="app-tab-title">Start session</h1>
+            <div id="start-angler-picks" class="stack start-angler-picks"></div>
+            <button type="button" class="btn btn-primary" id="start-confirm" disabled>Start</button>
+          </section>
+        </section>
+
+        <section
+          id="tab-profile"
+          class="app-tab-panel"
+          role="tabpanel"
+          aria-labelledby="nav-profile"
+          hidden
+        >
+          <h1 class="app-tab-title">Profile</h1>
+          <details class="profile-info">
+            <summary class="profile-info-toggle">Profile info</summary>
+            <div class="stack profile-fields">
+              <div>
+                <div class="field-label">Name</div>
+                <p id="profile-display-name" class="profile-value">—</p>
+              </div>
+              <div>
+                <div class="field-label">Username</div>
+                <p id="profile-username" class="profile-value">—</p>
+              </div>
+              <div>
+                <div class="field-label">Email</div>
+                <p id="profile-email" class="profile-value">—</p>
+              </div>
+              <div>
+                <div class="field-label">Account created</div>
+                <p id="profile-created-at" class="profile-value">—</p>
+              </div>
+            </div>
+          </details>
+          <section id="history-section" class="stack history-section" aria-labelledby="history-heading">
+            <h2 id="history-heading">History</h2>
+            <p class="meta" id="history-empty" hidden>No ended sessions.</p>
+            <div id="history-session-list" class="stack history-session-list"></div>
+          </section>
+        </section>
+
+        <section
+          id="tab-menu"
+          class="app-tab-panel"
+          role="tabpanel"
+          aria-labelledby="nav-menu"
+          hidden
+        >
+          <h1 class="app-tab-title">Menu</h1>
+          <p class="meta">Settings such as layout preference will live here later.</p>
+          <button type="button" class="btn btn-danger menu-logout-btn" id="menu-logout">Log out</button>
+        </section>
       </div>
+
+      <nav id="app-bottom-nav" class="app-bottom-nav" aria-label="Main">
+        <button type="button" class="app-nav-btn" id="nav-feed" data-tab="feed" aria-label="Feed">
+          <svg class="app-nav-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <circle cx="9" cy="7.5" r="2.6" fill="none" stroke="currentColor" stroke-width="1.75" />
+            <path
+              d="M4.4 18.5c.7-2.55 2.45-3.9 4.6-3.9s3.9 1.35 4.6 3.9"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.75"
+              stroke-linecap="round"
+            />
+            <circle cx="16.4" cy="8.2" r="2.15" fill="none" stroke="currentColor" stroke-width="1.75" />
+            <path
+              d="M16.35 14.7c1.85 0 3.35 1.1 4.05 3.15"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.75"
+              stroke-linecap="round"
+            />
+          </svg>
+        </button>
+        <button type="button" class="app-nav-btn" id="nav-map" data-tab="map" aria-label="Map">
+          <svg class="app-nav-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path
+              d="M12 21s7-6.4 7-11.15A7 7 0 0 0 5 9.85C5 14.6 12 21 12 21Z"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.75"
+              stroke-linejoin="round"
+            />
+            <circle cx="12" cy="9.85" r="2.35" fill="none" stroke="currentColor" stroke-width="1.75" />
+          </svg>
+        </button>
+        <button type="button" class="app-nav-btn is-active" id="nav-session" data-tab="session" aria-current="page" aria-label="Session">
+          <svg class="app-nav-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path
+              d="M3 12s3.2-6.2 8.7-6.2c4.2 0 6.6 3.4 8.3 6.2-1.7 2.8-4.1 6.2-8.3 6.2C6.2 18.2 3 12 3 12Z"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.75"
+              stroke-linejoin="round"
+            />
+            <path d="M3 12 1 8.6v6.8L3 12Z" fill="currentColor" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round" />
+            <circle cx="15.4" cy="11.1" r="1.05" fill="currentColor" />
+            <path d="M10.2 12.4c.55 1.15 1.6 1.95 2.85 2.25" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+          </svg>
+        </button>
+        <button type="button" class="app-nav-btn" id="nav-profile" data-tab="profile" aria-label="Profile">
+          <svg class="app-nav-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <circle cx="12" cy="12" r="8.25" fill="none" stroke="currentColor" stroke-width="1.75" />
+            <circle cx="12" cy="9.1" r="2.55" fill="none" stroke="currentColor" stroke-width="1.75" />
+            <path
+              d="M6.85 18.15c.95-2.7 2.95-4.05 5.15-4.05s4.2 1.35 5.15 4.05"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.75"
+              stroke-linecap="round"
+            />
+          </svg>
+        </button>
+        <button type="button" class="app-nav-btn" id="nav-menu" data-tab="menu" aria-label="Menu">
+          <svg class="app-nav-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="M4.5 7h15" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" />
+            <path d="M4.5 12h15" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" />
+            <path d="M4.5 17h15" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" />
+          </svg>
+        </button>
+      </nav>
     </div>
 
     <!-- Fish entry overlay -->
@@ -403,19 +528,6 @@
           </p>
           <div id="catches-map-legend" class="catches-map-legend" aria-label="Species"></div>
           <div id="catches-map-container" class="catches-map-container"></div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Start session modal -->
-    <div id="start-overlay" class="hidden">
-      <div class="start-modal-inner">
-        <h2>Start session</h2>
-        <p class="meta">You are always included. Add other registered users by search (username or name).</p>
-        <div id="start-angler-picks" class="stack start-angler-picks" style="margin-bottom: 1rem"></div>
-        <div class="row-actions">
-          <button type="button" class="btn btn-ghost" id="start-cancel">Cancel</button>
-          <button type="button" class="btn btn-primary" id="start-confirm" disabled>Start</button>
         </div>
       </div>
     </div>

@@ -81,7 +81,8 @@ import {
   searchProfiles,
   profileDisplayLabel,
 } from "./supabaseProfile.js";
-import { closeProfileOverlay, wireProfileUi } from "./profileUI.js";
+import { closeProfileOverlay, fillProfileFields, wireProfileUi } from "./profileUI.js";
+import { closeMenuSheet, setActiveAppTab, wireAppTabs, wireOverlayScrollbars } from "./appTabs.js";
 import {
   catchRecordToSupabasePayload,
   insertSupabaseCatch,
@@ -2697,7 +2698,8 @@ async function renderHome() {
     titleInp?.classList.add("hidden");
     titleDisp?.classList.remove("hidden");
     renderSyncStatusIndicator();
-    meta.textContent = "No active fishing session. Start a session before logging a catch.";
+    meta.textContent = "";
+    meta.hidden = true;
     noS.classList.remove("hidden");
     act.classList.add("hidden");
     roster.classList.add("hidden");
@@ -2717,6 +2719,7 @@ async function renderHome() {
           : "";
       line += ` Start point: ${session.initialLocationLat.toFixed(4)}, ${session.initialLocationLng.toFixed(4)}${acc}.`;
     }
+    meta.hidden = false;
     meta.textContent = line;
     noS.classList.add("hidden");
     act.classList.remove("hidden");
@@ -3213,7 +3216,7 @@ function buildStartSessionParticipantPicker(selfAnglerId, selfDisplayName) {
       }
     }
 
-    document.getElementById("start-overlay")?.classList.add("hidden");
+    showSessionHomeScreen();
     selected.clear();
     closeCatchesOverlay();
     closeSessionEndOverlay();
@@ -3501,7 +3504,21 @@ let catchesSessionMenuOpen = false;
 /** Session id currently attached to history detail menu actions. */
 let catchesSessionMenuSessionId = /** @type {string | null} */ (null);
 
+function showSessionHomeScreen() {
+  document.getElementById("session-home-header")?.classList.remove("hidden");
+  document.getElementById("screen-home")?.classList.add("is-visible");
+  document.getElementById("screen-start-session")?.classList.remove("is-visible");
+}
+
+function showSessionStartScreen() {
+  document.getElementById("session-home-header")?.classList.add("hidden");
+  document.getElementById("screen-home")?.classList.remove("is-visible");
+  document.getElementById("screen-start-session")?.classList.add("is-visible");
+  document.getElementById("tab-session")?.scrollTo(0, 0);
+}
+
 function showAuthGate() {
+  closeMenuSheet();
   document.getElementById("auth-gate")?.classList.remove("hidden");
   document.getElementById("app")?.classList.add("hidden");
 }
@@ -3649,10 +3666,12 @@ async function onAuthSignedOut() {
   fishState.editingCatchId = null;
   homeAnglersExpanded = false;
   closeProfileOverlay();
+  closeMenuSheet();
+  showSessionHomeScreen();
+  setActiveAppTab("session");
   destroyFishEditMapUi();
   closeFishOverlay();
   document.getElementById("catches-overlay")?.classList.add("hidden");
-  document.getElementById("start-overlay")?.classList.add("hidden");
   document.getElementById("session-end-overlay")?.classList.add("hidden");
   document.getElementById("session-summary-overlay")?.classList.add("hidden");
   lastIndexedDbUserId = null;
@@ -4032,6 +4051,7 @@ async function bootstrap() {
 
   consumeAuthHashErrors();
 
+  wireOverlayScrollbars();
   wireAuthUi();
 
   supabase.auth.onAuthStateChange((event, session) => {
@@ -4118,10 +4138,19 @@ async function handleAuthStateChange(event, session) {
 }
 
 function mainAppInit() {
+  wireAppTabs({
+    onTabChange: (tab) => {
+      if (tab === "profile") {
+        void fillProfileFields();
+        void renderHistorySection();
+      }
+    },
+  });
   wireProfileUi({
     onError: showError,
     onOpen: () => {
-      void renderHome();
+      setActiveAppTab("profile");
+      void renderHistorySection();
     },
   });
   wireFishMeasurementInputs();
@@ -4163,11 +4192,11 @@ function mainAppInit() {
     } = await supabase.auth.getUser();
     const selfName = user ? getDisplayNameFromUser(user) : "";
     buildStartSessionParticipantPicker(selfId, selfName);
-    document.getElementById("start-overlay")?.classList.remove("hidden");
+    showSessionStartScreen();
   });
 
-  document.getElementById("start-cancel")?.addEventListener("click", () => {
-    document.getElementById("start-overlay")?.classList.add("hidden");
+  document.getElementById("start-back")?.addEventListener("click", () => {
+    showSessionHomeScreen();
   });
 
   document.getElementById("btn-end-session")?.addEventListener("click", () => {
