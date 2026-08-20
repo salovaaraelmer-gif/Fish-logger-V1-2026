@@ -81,7 +81,8 @@ import {
   searchProfiles,
   profileDisplayLabel,
 } from "./supabaseProfile.js";
-import { closeProfileOverlay, wireProfileUi } from "./profileUI.js";
+import { closeProfileOverlay, fillProfileFields, wireProfileUi } from "./profileUI.js";
+import { closeMenuSheet, setActiveAppTab, wireAppTabs } from "./appTabs.js";
 import {
   catchRecordToSupabasePayload,
   insertSupabaseCatch,
@@ -3502,6 +3503,7 @@ let catchesSessionMenuOpen = false;
 let catchesSessionMenuSessionId = /** @type {string | null} */ (null);
 
 function showAuthGate() {
+  closeMenuSheet();
   document.getElementById("auth-gate")?.classList.remove("hidden");
   document.getElementById("app")?.classList.add("hidden");
 }
@@ -3649,6 +3651,8 @@ async function onAuthSignedOut() {
   fishState.editingCatchId = null;
   homeAnglersExpanded = false;
   closeProfileOverlay();
+  closeMenuSheet();
+  setActiveAppTab("session");
   destroyFishEditMapUi();
   closeFishOverlay();
   document.getElementById("catches-overlay")?.classList.add("hidden");
@@ -4118,10 +4122,15 @@ async function handleAuthStateChange(event, session) {
 }
 
 function mainAppInit() {
+  wireAppTabs({
+    onTabChange: (tab) => {
+      if (tab === "profile") void fillProfileFields();
+    },
+  });
   wireProfileUi({
     onError: showError,
     onOpen: () => {
-      void renderHome();
+      setActiveAppTab("profile");
     },
   });
   wireFishMeasurementInputs();

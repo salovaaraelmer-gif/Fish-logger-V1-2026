@@ -104,102 +104,148 @@
     </div>
 
     <div id="app" class="hidden">
-      <header>
-        <div class="app-header-row">
-          <h1 class="app-brand-title">AnglrLog</h1>
-          <div class="app-header-user">
-            <button type="button" id="btn-open-profile" class="user-display-name-btn" aria-label="Open profile">
-              <span id="user-display-name" class="user-display-name" aria-live="polite"></span>
-            </button>
-          </div>
-        </div>
-        <div id="session-title-block" class="session-title-block hidden">
-          <div class="session-title-row">
-            <span
-              id="session-title-display"
-              class="session-title-display"
-              tabindex="0"
-              role="button"
-              aria-label="Session title, tap to edit"
-            ></span>
-            <button
-              type="button"
-              id="sync-status-indicator"
-              class="sync-status-indicator"
-              aria-label="Sync status"
-              title="Synced"
-            ></button>
-          </div>
-          <input
-            type="text"
-            id="session-title-input"
-            class="session-title-input hidden"
-            autocomplete="off"
-            aria-label="Session title"
-          />
-        </div>
-        <p class="meta" id="session-meta">Loading…</p>
-      </header>
-
-      <section id="screen-home" class="screen is-visible">
-        <div id="block-no-session" class="stack hidden">
-          <p class="pill">No active session</p>
-          <button type="button" class="btn btn-primary" id="btn-open-start">Start fishing session</button>
-        </div>
-
-        <div id="block-active-session" class="stack hidden">
-          <p class="session-timer" id="session-timer" aria-live="polite"></p>
-          <div id="session-times-active" class="session-times-edit stack hidden" aria-label="Session times"></div>
-          <div id="session-metadata-active" class="session-metadata-edit stack"></div>
-          <h2 class="session-live-title">Session</h2>
-          <div id="session-live-view" class="session-live-view stack" aria-live="polite"></div>
-          <button type="button" class="btn btn-primary" id="btn-log-catch">Log catch</button>
-          <button type="button" class="btn" id="btn-show-catches">Show catches</button>
-          <button type="button" class="btn btn-danger" id="btn-end-session">End session</button>
-        </div>
-
-        <button type="button" class="btn" id="btn-toggle-anglers" aria-expanded="false">Show participants</button>
-
-        <div id="angler-edit-panel" class="stack angler-edit-panel hidden">
-          <h2>Participants</h2>
-          <p class="meta">Participants are chosen at the start of the session from registered users.</p>
-
-          <div id="session-roster" class="hidden" style="margin-top: 1.5rem">
-            <h2>In this session</h2>
-            <div id="session-angler-rows" class="stack"></div>
-          </div>
-        </div>
-
-        <section id="history-section" class="stack history-section" aria-labelledby="history-heading">
-          <h2 id="history-heading">History</h2>
-          <p class="meta" id="history-empty" hidden>No ended sessions.</p>
-          <div id="history-session-list" class="stack history-session-list"></div>
+      <div id="app-tab-panels" class="app-tab-panels">
+        <section
+          id="tab-feed"
+          class="app-tab-panel"
+          role="tabpanel"
+          aria-labelledby="nav-feed"
+          hidden
+        >
+          <h1 class="app-tab-title">Feed</h1>
+          <p class="meta">Friends’ active and past sessions will show up here.</p>
+          <p class="pill">Coming soon</p>
         </section>
-      </section>
+
+        <section
+          id="tab-session"
+          class="app-tab-panel is-active"
+          role="tabpanel"
+          aria-labelledby="nav-session"
+        >
+          <header>
+            <div class="app-header-row">
+              <h1 class="app-brand-title">AnglrLog</h1>
+              <div class="app-header-user">
+                <button type="button" id="btn-open-profile" class="user-display-name-btn" aria-label="Open profile">
+                  <span id="user-display-name" class="user-display-name" aria-live="polite"></span>
+                </button>
+              </div>
+            </div>
+            <div id="session-title-block" class="session-title-block hidden">
+              <div class="session-title-row">
+                <span
+                  id="session-title-display"
+                  class="session-title-display"
+                  tabindex="0"
+                  role="button"
+                  aria-label="Session title, tap to edit"
+                ></span>
+                <button
+                  type="button"
+                  id="sync-status-indicator"
+                  class="sync-status-indicator"
+                  aria-label="Sync status"
+                  title="Synced"
+                ></button>
+              </div>
+              <input
+                type="text"
+                id="session-title-input"
+                class="session-title-input hidden"
+                autocomplete="off"
+                aria-label="Session title"
+              />
+            </div>
+            <p class="meta" id="session-meta">Loading…</p>
+          </header>
+
+          <section id="screen-home" class="screen is-visible">
+            <div id="block-no-session" class="stack hidden">
+              <p class="pill">No active session</p>
+              <button type="button" class="btn btn-primary" id="btn-open-start">Start fishing session</button>
+            </div>
+
+            <div id="block-active-session" class="stack hidden">
+              <p class="session-timer" id="session-timer" aria-live="polite"></p>
+              <div id="session-times-active" class="session-times-edit stack hidden" aria-label="Session times"></div>
+              <div id="session-metadata-active" class="session-metadata-edit stack"></div>
+              <h2 class="session-live-title">Session</h2>
+              <div id="session-live-view" class="session-live-view stack" aria-live="polite"></div>
+              <button type="button" class="btn btn-primary" id="btn-log-catch">Log catch</button>
+              <button type="button" class="btn" id="btn-show-catches">Show catches</button>
+              <button type="button" class="btn btn-danger" id="btn-end-session">End session</button>
+            </div>
+
+            <button type="button" class="btn" id="btn-toggle-anglers" aria-expanded="false">Show participants</button>
+
+            <div id="angler-edit-panel" class="stack angler-edit-panel hidden">
+              <h2>Participants</h2>
+              <p class="meta">Participants are chosen at the start of the session from registered users.</p>
+
+              <div id="session-roster" class="hidden" style="margin-top: 1.5rem">
+                <h2>In this session</h2>
+                <div id="session-angler-rows" class="stack"></div>
+              </div>
+            </div>
+
+            <section id="history-section" class="stack history-section" aria-labelledby="history-heading">
+              <h2 id="history-heading">History</h2>
+              <p class="meta" id="history-empty" hidden>No ended sessions.</p>
+              <div id="history-session-list" class="stack history-session-list"></div>
+            </section>
+          </section>
+        </section>
+
+        <section
+          id="tab-profile"
+          class="app-tab-panel"
+          role="tabpanel"
+          aria-labelledby="nav-profile"
+          hidden
+        >
+          <h1 class="app-tab-title">Profile</h1>
+          <div class="stack profile-fields">
+            <div>
+              <div class="field-label">Name</div>
+              <p id="profile-display-name" class="profile-value">—</p>
+            </div>
+            <div>
+              <div class="field-label">Username</div>
+              <p id="profile-username" class="profile-value">—</p>
+            </div>
+            <div>
+              <div class="field-label">Email</div>
+              <p id="profile-email" class="profile-value">—</p>
+            </div>
+          </div>
+          <button type="button" class="btn btn-danger profile-logout-btn" id="profile-logout">Log out</button>
+        </section>
+      </div>
+
+      <nav id="app-bottom-nav" class="app-bottom-nav" aria-label="Main">
+        <button type="button" class="app-nav-btn" id="nav-feed" data-tab="feed">
+          Feed
+        </button>
+        <button type="button" class="app-nav-btn is-active" id="nav-session" data-tab="session" aria-current="page">
+          Session
+        </button>
+        <button type="button" class="app-nav-btn" id="nav-profile" data-tab="profile">
+          Profile
+        </button>
+        <button type="button" class="app-nav-btn" id="nav-menu" aria-haspopup="dialog" aria-controls="menu-sheet" aria-expanded="false">
+          Menu
+        </button>
+      </nav>
     </div>
 
-    <!-- Profile (read-only) -->
-    <div id="profile-overlay" class="hidden">
-      <div class="profile-inner">
-        <div class="row-actions" style="margin-bottom: 1rem">
-          <button type="button" class="btn btn-ghost" id="profile-close">Close</button>
+    <div id="menu-sheet" class="hidden" role="dialog" aria-labelledby="menu-sheet-title" aria-modal="true">
+      <div class="menu-sheet-inner stack">
+        <div class="row-actions">
+          <button type="button" class="btn btn-ghost" id="menu-sheet-close">Close</button>
         </div>
-        <h2>Profile</h2>
-        <div class="stack profile-fields" style="margin-top: 1rem">
-          <div>
-            <div class="field-label">Name</div>
-            <p id="profile-display-name" class="profile-value">—</p>
-          </div>
-          <div>
-            <div class="field-label">Username</div>
-            <p id="profile-username" class="profile-value">—</p>
-          </div>
-          <div>
-            <div class="field-label">Email</div>
-            <p id="profile-email" class="profile-value">—</p>
-          </div>
-        </div>
-        <button type="button" class="btn btn-danger profile-logout-btn" id="profile-logout">Log out</button>
+        <h2 id="menu-sheet-title">Menu</h2>
+        <p class="meta">Settings such as layout preference will live here later.</p>
       </div>
     </div>
 

@@ -1,5 +1,5 @@
 /**
- * Profile overlay: read-only Supabase profile + auth email; logout.
+ * Profile tab: read-only Supabase profile + auth email; logout.
  * @module profileUI
  */
 
@@ -19,7 +19,7 @@ function orFallback(s, fallback) {
 /**
  * @returns {Promise<void>}
  */
-async function fillProfileFields() {
+export async function fillProfileFields() {
   const nameEl = document.getElementById("profile-display-name");
   const userEl = document.getElementById("profile-username");
   const emailEl = document.getElementById("profile-email");
@@ -58,7 +58,7 @@ async function fillProfileFields() {
 }
 
 export function closeProfileOverlay() {
-  document.getElementById("profile-overlay")?.classList.add("hidden");
+  /* Profile is a tab now; kept so logout/sign-out paths stay valid. */
 }
 
 /**
@@ -66,21 +66,14 @@ export function closeProfileOverlay() {
  * @returns {void}
  */
 export function wireProfileUi(options = {}) {
-  const overlay = document.getElementById("profile-overlay");
   const openBtn = document.getElementById("btn-open-profile");
-  const closeBtn = document.getElementById("profile-close");
   const logoutBtn = document.getElementById("profile-logout");
 
   openBtn?.addEventListener("click", () => {
-    overlay?.classList.remove("hidden");
     if (typeof options.onOpen === "function") {
       options.onOpen();
     }
     void fillProfileFields();
-  });
-
-  closeBtn?.addEventListener("click", () => {
-    closeProfileOverlay();
   });
 
   logoutBtn?.addEventListener("click", async () => {
