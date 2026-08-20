@@ -1,16 +1,22 @@
 ---
-description: Flag Supabase SQL steps clearly in task summaries (CAPS emphasis).
+description: Apply Supabase SQL via MCP; only ask the user to run SQL if MCP is unavailable.
 alwaysApply: true
 ---
 
-# Supabase SQL — summary convention
+# Supabase SQL — apply via MCP
 
 Human-readable documentation: **`docs/SUPABASE_SQL.md`**.
 
-When the user must execute SQL in Supabase (typically **Dashboard → SQL Editor**), make that explicit at the end of the task summary.
+This workspace is linked to Supabase through the **Supabase MCP** server in `.cursor/mcp.json` (project `jmorifdjtmmmobilhaxm`).
 
-Use **ALL CAPS** for the action line so it stands out, for example:
+When schema, policies, grants, or other database changes are needed:
 
-**RUN IN SUPABASE SQL EDITOR:** (then: which file/section, or paste the exact `CREATE POLICY` / migration snippet they need.)
+1. **Prefer applying them yourself** with Supabase MCP (`apply_migration` for DDL, `execute_sql` for queries).
+2. Do **not** ask the user to paste SQL in the Dashboard when MCP is connected.
+3. If MCP is missing, unauthenticated, or a call fails, then tell the user what to run.
+
+Fallback only — use **ALL CAPS** for the action line:
+
+**RUN IN SUPABASE SQL EDITOR:** (then: which file/section, or paste the exact snippet.)
 
 Keep the caps line short; use normal sentence case for surrounding explanation. Do not put entire summaries in caps.

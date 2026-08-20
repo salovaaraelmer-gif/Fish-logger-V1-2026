@@ -46,7 +46,8 @@ When the address bar shows `file:///...`, the page’s origin is treated special
 | `js/sessionService.js` | Session lifecycle |
 | `js/catchService.js` | Catch validation, GPS, species |
 | `Plan v1.ini` | Product/spec notes (V1 scope and data model) |
-| `docs/SUPABASE_SQL.md` | Where/how to run Supabase SQL + AI summary convention |
+| `docs/SUPABASE_SQL.md` | Supabase MCP setup + SQL fallback |
+| `docs/NOTES_2026-08-20.md` | Session notes (mobile nav / Feed plan, continue on another PC) |
 | `SUPABASE_*.md` | SQL snippets for profiles, catches, RLS (run in dashboard) |
 
 ## Out of scope (V1)

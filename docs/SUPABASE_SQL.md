@@ -1,23 +1,29 @@
-# Supabase SQL — how we document it
+# Supabase SQL — how we apply it
 
-Schema changes and policies are **not** applied automatically from this repo. You run SQL in the **Supabase Dashboard** (usually **SQL Editor**).
+Schema changes and policies are applied from Cursor via the **Supabase MCP** connection (`.cursor/mcp.json`), scoped to project `jmorifdjtmmmobilhaxm`. You should not need to paste SQL in the Dashboard for routine work.
 
-## Where to run
+## First-time setup
+
+1. Cursor Settings → **Tools & MCP**.
+2. Find **supabase** and click **Connect** / **Authenticate**.
+3. Log in to the Supabase org that owns this project.
+
+After that, the agent can list tables, run SQL, and apply migrations from chat.
+
+## Fallback (MCP unavailable)
+
+If MCP is not connected, run SQL in the **Supabase Dashboard**:
 
 1. Open your project in [Supabase](https://supabase.com/dashboard).
 2. Go to **SQL** → **New query** (or **SQL Editor**).
 3. Paste the snippet from the relevant doc (e.g. `SUPABASE_PROFILES_SESSION_ANGLERS.md`, `SUPABASE_CATCHES_SCHEMA.md`).
 4. Run it; fix any errors (duplicate policy names, etc.).
 
-## AI / Cursor summaries
-
-When a coding assistant tells you to run SQL, it should call that out **very clearly** in the task summary using a short **ALL CAPS** line, for example:
+When the agent cannot apply SQL itself, it should call that out with a short **ALL CAPS** line:
 
 **RUN IN SUPABASE SQL EDITOR:** …
 
-That line points you to the exact file/section or the snippet to paste. The rest of the summary stays normal text.
-
-The same expectation is encoded for Cursor in **`.cursor/rules/supabase-sql-summary.mdc`** so agents keep the habit.
+The same expectation is encoded for Cursor in **`.cursor/rules/supabase-sql-summary.mdc`**.
 
 ## Related docs
 

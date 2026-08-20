@@ -468,7 +468,11 @@ h2 {
   border-color: var(--accent);
 }
 
-#block-no-session:not(.hidden) ~ #angler-edit-panel:not(.hidden),
+#block-no-session:not(.hidden) ~ #btn-toggle-anglers,
+#block-no-session:not(.hidden) ~ #angler-edit-panel {
+  display: none;
+}
+
 #block-active-session:not(.hidden) ~ #angler-edit-panel:not(.hidden) {
   margin-top: 0;
   padding-top: 1rem;

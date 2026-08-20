@@ -2701,6 +2701,7 @@ async function renderHome() {
     noS.classList.remove("hidden");
     act.classList.add("hidden");
     roster.classList.add("hidden");
+    homeAnglersExpanded = false;
     document.getElementById("session-times-active")?.classList.add("hidden");
     document.getElementById("session-metadata-active")?.classList.add("hidden");
   } else {
