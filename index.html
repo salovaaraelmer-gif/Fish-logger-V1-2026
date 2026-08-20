@@ -188,12 +188,6 @@
                 <div id="session-angler-rows" class="stack"></div>
               </div>
             </div>
-
-            <section id="history-section" class="stack history-section" aria-labelledby="history-heading">
-              <h2 id="history-heading">History</h2>
-              <p class="meta" id="history-empty" hidden>No ended sessions.</p>
-              <div id="history-session-list" class="stack history-session-list"></div>
-            </section>
           </section>
         </section>
 
@@ -219,6 +213,11 @@
               <p id="profile-email" class="profile-value">—</p>
             </div>
           </div>
+          <section id="history-section" class="stack history-section" aria-labelledby="history-heading">
+            <h2 id="history-heading">History</h2>
+            <p class="meta" id="history-empty" hidden>No ended sessions.</p>
+            <div id="history-session-list" class="stack history-session-list"></div>
+          </section>
           <button type="button" class="btn btn-danger profile-logout-btn" id="profile-logout">Log out</button>
         </section>
       </div>
@@ -226,12 +225,22 @@
       <nav id="app-bottom-nav" class="app-bottom-nav" aria-label="Main">
         <button type="button" class="app-nav-btn" id="nav-feed" data-tab="feed" aria-label="Feed">
           <svg class="app-nav-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-            <circle cx="5.5" cy="6" r="1.7" fill="currentColor" />
-            <path d="M10 6h9" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" />
-            <circle cx="5.5" cy="12" r="1.7" fill="currentColor" />
-            <path d="M10 12h9" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" />
-            <circle cx="5.5" cy="18" r="1.7" fill="currentColor" />
-            <path d="M10 18h9" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" />
+            <circle cx="9" cy="7.5" r="2.6" fill="none" stroke="currentColor" stroke-width="1.75" />
+            <path
+              d="M4.4 18.5c.7-2.55 2.45-3.9 4.6-3.9s3.9 1.35 4.6 3.9"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.75"
+              stroke-linecap="round"
+            />
+            <circle cx="16.4" cy="8.2" r="2.15" fill="none" stroke="currentColor" stroke-width="1.75" />
+            <path
+              d="M16.35 14.7c1.85 0 3.35 1.1 4.05 3.15"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.75"
+              stroke-linecap="round"
+            />
           </svg>
         </button>
         <button type="button" class="app-nav-btn is-active" id="nav-session" data-tab="session" aria-current="page" aria-label="Session">

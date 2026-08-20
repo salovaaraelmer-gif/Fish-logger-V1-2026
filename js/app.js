@@ -4125,13 +4125,17 @@ async function handleAuthStateChange(event, session) {
 function mainAppInit() {
   wireAppTabs({
     onTabChange: (tab) => {
-      if (tab === "profile") void fillProfileFields();
+      if (tab === "profile") {
+        void fillProfileFields();
+        void renderHistorySection();
+      }
     },
   });
   wireProfileUi({
     onError: showError,
     onOpen: () => {
       setActiveAppTab("profile");
+      void renderHistorySection();
     },
   });
   wireFishMeasurementInputs();

@@ -983,6 +983,7 @@ textarea {
 .profile-logout-btn {
   width: 100%;
   min-height: var(--tap-min);
+  margin-top: 1.25rem;
 }
 
 #fish-overlay {
