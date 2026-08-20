@@ -83,6 +83,7 @@ import {
 } from "./supabaseProfile.js";
 import { closeProfileOverlay, fillProfileFields, wireProfileUi } from "./profileUI.js";
 import { closeMenuSheet, setActiveAppTab, wireAppTabs, wireOverlayScrollbars } from "./appTabs.js";
+import { hideAppSpinner, resetAppSpinner, showAppSpinner, withAppSpinner } from "./appSpinner.js";
 import {
   catchRecordToSupabasePayload,
   insertSupabaseCatch,
@@ -2377,7 +2378,9 @@ async function openSessionEndOverlay() {
   const session = await getActiveSessionForParticipantUi();
   if (!session) return;
   closeCatchesOverlay();
-  await populateSessionEndCatchesTable();
+  await withAppSpinner(async () => {
+    await populateSessionEndCatchesTable();
+  });
   document.getElementById("session-end-overlay")?.classList.remove("hidden");
 }
 
@@ -2427,7 +2430,9 @@ async function populateSessionSummaryOverlay(sessionId) {
  * @param {string} sessionId
  */
 async function openSessionSummaryOverlay(sessionId) {
-  await populateSessionSummaryOverlay(sessionId);
+  await withAppSpinner(async () => {
+    await populateSessionSummaryOverlay(sessionId);
+  });
   document.getElementById("session-summary-overlay")?.classList.remove("hidden");
 }
 
@@ -2448,7 +2453,9 @@ async function refreshCatchesTableIfOpen() {
 }
 
 async function openCatchesOverlay() {
-  await populateCatchesTable();
+  await withAppSpinner(async () => {
+    await populateCatchesTable();
+  });
   document.getElementById("catches-overlay")?.classList.remove("hidden");
 }
 
@@ -2793,7 +2800,9 @@ async function openHistorySessionCatches(sessionId) {
   closeFishOverlay();
   closeSessionEndOverlay();
   closeSessionSummaryOverlay();
-  await populateCatchesTable(sessionId);
+  await withAppSpinner(async () => {
+    await populateCatchesTable(sessionId);
+  });
   document.getElementById("catches-overlay")?.classList.remove("hidden");
 }
 
@@ -3075,6 +3084,8 @@ function buildStartSessionParticipantPicker(selfAnglerId, selfDisplayName) {
 
   confirm.onclick = async () => {
     selected.add(selfAnglerId);
+    showAppSpinner();
+    try {
     const btn = /** @type {HTMLButtonElement | null} */ (document.getElementById("start-confirm"));
     if (btn) {
       btn.disabled = true;
@@ -3221,6 +3232,9 @@ function buildStartSessionParticipantPicker(selfAnglerId, selfDisplayName) {
     closeCatchesOverlay();
     closeSessionEndOverlay();
     await renderHome();
+    } finally {
+      hideAppSpinner();
+    }
   };
 }
 
@@ -3519,6 +3533,7 @@ function showSessionStartScreen() {
 
 function showAuthGate() {
   closeMenuSheet();
+  resetAppSpinner();
   document.getElementById("auth-gate")?.classList.remove("hidden");
   document.getElementById("app")?.classList.add("hidden");
 }
