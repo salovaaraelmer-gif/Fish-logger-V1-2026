@@ -33,7 +33,7 @@ export function formatSessionDuration(startMs, endMs) {
 export function formatHistorySessionHeader(opts) {
   const anglers = opts.anglerLabel.trim() || "—";
   const locations =
-    opts.locationNames.length > 0 ? opts.locationNames.join(", ") : "Ei paikkaa";
+    opts.locationNames.length > 0 ? opts.locationNames.join(", ") : "No location";
   const date = formatKalapaivaDate(opts.startTime);
   const duration = formatSessionDuration(opts.startTime, opts.endTime);
   const parts = [anglers, locations, date];

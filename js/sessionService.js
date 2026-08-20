@@ -50,24 +50,24 @@ export async function startSession(anglerIds, initialLocation) {
   }
   const unique = raw;
   if (unique.length === 0) {
-    return { ok: false, reason: "Valitse vähintään yksi kalastaja." };
+    return { ok: false, reason: "Select at least one angler." };
   }
 
   const existing = await getActiveSessionForParticipantUi();
   if (existing) {
-    return { ok: false, reason: "Aktiivinen sessio on jo käynnissä." };
+    return { ok: false, reason: "An active session is already running." };
   }
 
   for (const aid of unique) {
     const busy = await isAnglerInAnyActiveSession(aid);
     if (busy) {
-      return { ok: false, reason: "Kalastaja on jo toisessa aktiivisessa sessiossa." };
+      return { ok: false, reason: "This angler is already in another active session." };
     }
   }
 
   for (const aid of unique) {
     if (!isUuid(aid)) {
-      return { ok: false, reason: "Virheellinen osallistuja." };
+      return { ok: false, reason: "Invalid participant." };
     }
   }
 
@@ -115,7 +115,7 @@ export async function startSession(anglerIds, initialLocation) {
 export async function saveActiveSessionTitle(rawTitle) {
   const s = await getActiveSessionForParticipantUi();
   if (!s) {
-    return { ok: false, reason: "Ei aktiivista sessiota." };
+    return { ok: false, reason: "No active session." };
   }
   const trimmed = (rawTitle || "").trim();
   const title = trimmed || defaultSessionTitleFromDate(Date.now());
@@ -133,14 +133,14 @@ export async function saveActiveSessionTitle(rawTitle) {
 export async function saveSessionTitleIfParticipant(sessionId, rawTitle) {
   const s = await getSessionById(sessionId);
   if (!s) {
-    return { ok: false, reason: "Sessiota ei löytynyt." };
+    return { ok: false, reason: "Session not found." };
   }
   const authId = await getAuthUserId();
   if (!authId) {
-    return { ok: false, reason: "Kirjautuminen puuttuu." };
+    return { ok: false, reason: "Not signed in." };
   }
   if (!(await anglerBelongsToSessionRoster(sessionId, authId))) {
-    return { ok: false, reason: "Voit muokata vain sessioita, joissa olet mukana." };
+    return { ok: false, reason: "You can only edit sessions you are part of." };
   }
   const trimmed = (rawTitle || "").trim();
   const title = trimmed || defaultSessionTitleFromDate(s.startTime);
@@ -159,21 +159,21 @@ export async function saveSessionTitleIfParticipant(sessionId, rawTitle) {
 export async function updateSessionTimesIfParticipant(sessionId, startMs, endMs) {
   const s = await getSessionById(sessionId);
   if (!s) {
-    return { ok: false, reason: "Sessiota ei löytynyt." };
+    return { ok: false, reason: "Session not found." };
   }
   const authId = await getAuthUserId();
   if (!authId) {
-    return { ok: false, reason: "Kirjautuminen puuttuu." };
+    return { ok: false, reason: "Not signed in." };
   }
   if (!(await anglerBelongsToSessionRoster(sessionId, authId))) {
-    return { ok: false, reason: "Voit muokata vain sessioita, joissa olet mukana." };
+    return { ok: false, reason: "You can only edit sessions you are part of." };
   }
   if (!Number.isFinite(startMs)) {
-    return { ok: false, reason: "Virheellinen alkuaika." };
+    return { ok: false, reason: "Invalid start time." };
   }
   const effectiveEnd = endMs != null ? endMs : s.endTime;
   if (effectiveEnd != null && effectiveEnd < startMs) {
-    return { ok: false, reason: "Loppuajan täytyy olla alkuajan jälkeen." };
+    return { ok: false, reason: "End time must be after the start time." };
   }
   await putSession({
     ...s,
@@ -189,7 +189,7 @@ export async function updateSessionTimesIfParticipant(sessionId, startMs, endMs)
 export async function endActiveSession() {
   const s = await getActiveSessionForParticipantUi();
   if (!s) {
-    return { ok: false, reason: "Ei aktiivista sessiota." };
+    return { ok: false, reason: "No active session." };
   }
   await putSession({
     ...s,
@@ -205,7 +205,7 @@ export async function endActiveSession() {
 export async function markActiveSessionCsvExported() {
   const s = await getActiveSessionForParticipantUi();
   if (!s) {
-    return { ok: false, reason: "Ei aktiivista sessiota." };
+    return { ok: false, reason: "No active session." };
   }
   await putSession({
     ...s,
@@ -223,7 +223,7 @@ export async function markActiveSessionCsvExported() {
 export async function markSessionCsvExportedById(sessionId) {
   const s = await getSessionById(sessionId);
   if (!s) {
-    return { ok: false, reason: "Sessiota ei löytynyt." };
+    return { ok: false, reason: "Session not found." };
   }
   await putSession({
     ...s,
@@ -240,7 +240,7 @@ export async function markSessionCsvExportedById(sessionId) {
 export async function addAnglerToSession(sessionId, anglerId) {
   const active = await getActiveSessionForParticipantUi();
   if (!active || active.id !== sessionId) {
-    return { ok: false, reason: "Virheellinen sessio." };
+    return { ok: false, reason: "Invalid session." };
   }
   const existing = await findSessionAngler(sessionId, anglerId);
   if (existing) {
@@ -255,7 +255,7 @@ export async function addAnglerToSession(sessionId, anglerId) {
   }
   const busy = await isAnglerInAnyActiveSession(anglerId);
   if (busy) {
-    return { ok: false, reason: "Kalastaja on jo aktiivisessa sessiossa." };
+    return { ok: false, reason: "This angler is already in an active session." };
   }
   const now = Date.now();
   await putSessionAngler({
@@ -276,7 +276,7 @@ export async function addAnglerToSession(sessionId, anglerId) {
 export async function markAnglerInactive(sessionId, anglerId) {
   const sa = await findSessionAngler(sessionId, anglerId);
   if (!sa) {
-    return { ok: false, reason: "Kalastajaa ei löytynyt sessiosta." };
+    return { ok: false, reason: "Angler was not found in this session." };
   }
   await putSessionAngler({
     ...sa,

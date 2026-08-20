@@ -1,5 +1,5 @@
 /**
- * Session title helpers: default "Kalapäivä | D.M.YY" (no leading zeros on day/month).
+ * Session title helpers: default "Fishing day | D.M.YY" (no leading zeros on day/month).
  * @module sessionTitle
  */
 
@@ -19,7 +19,7 @@ export function formatKalapaivaDate(ts = Date.now()) {
  * @param {number} [ts=Date.now()]
  */
 export function defaultSessionTitleFromDate(ts = Date.now()) {
-  return `Kalapäivä | ${formatKalapaivaDate(ts)}`;
+  return `Fishing day | ${formatKalapaivaDate(ts)}`;
 }
 
 /**

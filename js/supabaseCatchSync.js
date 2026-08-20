@@ -100,7 +100,7 @@ export async function insertSupabaseCatch(payload) {
   console.log("[catch] insert response (supabase)", data);
   const id = data && typeof data.id === "string" ? data.id : null;
   if (!id) {
-    return { ok: false, error: "Supabase ei palauttanut saaliin id:tä." };
+    return { ok: false, error: "Supabase did not return a catch id." };
   }
   return { ok: true, id };
 }

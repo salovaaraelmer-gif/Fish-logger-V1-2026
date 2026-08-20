@@ -119,12 +119,12 @@ let pendingSessionEndMap = null;
 
 /** @type {Record<string, string>} */
 const SPECIES_LABELS = {
-  pike: "Hauki",
-  perch: "Ahven",
-  zander: "Kuha",
-  trout: "Taimen",
-  salmon: "Lohi",
-  other: "Muu",
+  pike: "Pike",
+  perch: "Perch",
+  zander: "Zander",
+  trout: "Trout",
+  salmon: "Salmon",
+  other: "Other",
 };
 
 /**
@@ -282,7 +282,7 @@ async function deleteCatchFromSupabaseBestEffort(c) {
     const delSb = await deleteSupabaseCatch(remoteId);
     if (!delSb.ok) {
       setSyncStatus("error");
-      showError(`Supabase-poisto epäonnistui: ${delSb.error}`);
+      showError(`Supabase delete failed: ${delSb.error}`);
       return false;
     }
     setSyncStatus("synced");
@@ -315,7 +315,7 @@ async function deleteCatchFromSupabaseBestEffort(c) {
     .eq("species", speciesForDb);
   if (error) {
     setSyncStatus("error");
-    showError(`Supabase-poisto epäonnistui: ${error.message}`);
+    showError(`Supabase delete failed: ${error.message}`);
     return false;
   }
   setSyncStatus("synced");
@@ -405,7 +405,7 @@ async function messageIfSessionDeleteNotOwner(cloudSessionId, authUserId) {
     typeof names[data.user_id] === "string" && names[data.user_id].trim()
       ? names[data.user_id].trim()
       : data.user_id;
-  return `Et voi poistaa sessiota, koska et ole sen omistaja. Omistaja: ${ownerLabel}.`;
+  return `You cannot delete this session because you are not the owner. Owner: ${ownerLabel}.`;
 }
 
 /**
@@ -417,7 +417,7 @@ async function messageIfSessionDeleteNotOwner(cloudSessionId, authUserId) {
 async function deleteSessionCloudThenLocal(localSessionId) {
   const s = await getSessionById(localSessionId);
   if (!s) {
-    showError("Sessiota ei löytynyt.");
+    showError("Session not found.");
     return false;
   }
   let cloudSid =
@@ -431,12 +431,12 @@ async function deleteSessionCloudThenLocal(localSessionId) {
   }
   if (cloudSid) {
     if (!navigator.onLine) {
-      showError("Yhteys puuttuu. Pilvestä poistaminen ei onnistu.");
+      showError("No connection. Cloud delete is not possible.");
       return false;
     }
     const uid = await getAuthUserId();
     if (!uid) {
-      showError("Kirjautuminen puuttuu.");
+      showError("Not signed in.");
       return false;
     }
     // RLS policies use user_id; filter explicitly so deletes match rows. Use .select() to verify row counts.
@@ -448,7 +448,7 @@ async function deleteSessionCloudThenLocal(localSessionId) {
       .select("id");
     if (cRes.error) {
       console.error("[Session] cloud delete catches:", cRes.error);
-      showError(`Pilvi (saaliit): ${cRes.error.message}`);
+      showError(`Cloud (catches): ${cRes.error.message}`);
       return false;
     }
     const sRes = await supabase
@@ -459,20 +459,20 @@ async function deleteSessionCloudThenLocal(localSessionId) {
       .select("id");
     if (sRes.error) {
       console.error("[Session] cloud delete session:", sRes.error);
-      showError(`Pilvi (sessio): ${sRes.error.message}`);
+      showError(`Cloud (session): ${sRes.error.message}`);
       return false;
     }
     if (!sRes.data || sRes.data.length === 0) {
       const notOwnerMsg = await messageIfSessionDeleteNotOwner(cloudSid, uid);
       showError(
         notOwnerMsg ??
-          "Pilvestä ei poistunut sessioriviä (0 riviä). Tarkista: RLS DELETE -politiikat ja että riveillä on user_id = kirjautunut käyttäjä."
+          "No session row was deleted from the cloud (0 rows). Check RLS DELETE policies and that rows have user_id = the signed-in user."
       );
       return false;
     }
   } else {
     const proceed = window.confirm(
-      "Pilvi-sessiota ei löytynyt (ei tallennettua tunnistetta). Poistetaanko vain tästä laitteesta? Supabase-rivit jäävät ellei poista niitä käsin."
+      "Cloud session was not found (no stored id). Delete from this device only? Supabase rows will remain unless you delete them manually."
     );
     if (!proceed) return false;
   }
@@ -532,12 +532,12 @@ async function syncCatchCreateToSupabase(record) {
     return {
       ok: false,
       error:
-        "Kalastajalle ei löydy anglers-riviä tälle sessiolle (session_id + user_id). Käynnistä sessio uudelleen tai tarkista pilvi.",
+        "No anglers row found for this participant in this session (session_id + user_id). Restart the session or check the cloud.",
     };
   }
   const authUserId = await getAuthUserId();
   if (!authUserId) {
-    return { ok: false, error: "Kirjautuminen puuttuu." };
+    return { ok: false, error: "Not signed in." };
   }
   if (!navigator.onLine) {
     setSyncStatus("offline");
@@ -577,19 +577,19 @@ async function syncCatchUpdateToSupabase(record) {
       ? sess.supabaseSessionId
       : activeSupabaseSessionId;
   if (!cloudSid || !speciesForDb) {
-    return { ok: false, error: "Supabase-sessio tai lajitieto puuttuu." };
+    return { ok: false, error: "Supabase session or species data is missing." };
   }
   const sbAnglerId = await resolveLegacyAnglerIdForCloudCatch(record.anglerId, cloudSid);
   if (!sbAnglerId) {
     return {
       ok: false,
       error:
-        "Kalastajalle ei löydy anglers-riviä tälle sessiolle (session_id + user_id).",
+        "No anglers row found for this participant in this session (session_id + user_id).",
     };
   }
   const authUserId = await getAuthUserId();
   if (!authUserId) {
-    return { ok: false, error: "Kirjautuminen puuttuu." };
+    return { ok: false, error: "Not signed in." };
   }
   if (!navigator.onLine) {
     setSyncStatus("offline");
@@ -731,7 +731,7 @@ async function renderSessionMetadataPickers(sessionId, container, editable) {
 
   mountCreatableMultiSelect({
     container: locWrap,
-    label: "Kalapaikat",
+    label: "Fishing spots",
     items: locItems,
     selectedIds: selected.locationIds,
     disabled: !editable,
@@ -749,7 +749,7 @@ async function renderSessionMetadataPickers(sessionId, container, editable) {
 
   mountCreatableMultiSelect({
     container: tgtWrap,
-    label: "Tavoitelajit",
+    label: "Target species",
     items: tgtItems,
     selectedIds: selected.targetSpeciesIds,
     disabled: !editable,
@@ -782,7 +782,7 @@ async function renderSessionTimesEditor(session, container, editable) {
 
   const startLabel = document.createElement("label");
   startLabel.className = "field-label";
-  startLabel.textContent = "Alku";
+  startLabel.textContent = "Start";
   const startInput = document.createElement("input");
   startInput.type = "datetime-local";
   startInput.className = "session-time-input";
@@ -794,7 +794,7 @@ async function renderSessionTimesEditor(session, container, editable) {
   if (session.endTime != null) {
     const endLabel = document.createElement("label");
     endLabel.className = "field-label";
-    endLabel.textContent = "Loppu";
+    endLabel.textContent = "End";
     const endInput = document.createElement("input");
     endInput.type = "datetime-local";
     endInput.className = "session-time-input";
@@ -815,7 +815,7 @@ async function renderSessionTimesEditor(session, container, editable) {
         typeof session.supabaseSessionId === "string" ? session.supabaseSessionId : null;
       const cloud = await pushSessionTimesToSupabase(startMs, endMs, cloudSid);
       if (cloud && "ok" in cloud && cloud.ok === false && "error" in cloud) {
-        showError(`Aikojen synkronointi epäonnistui: ${cloud.error}`);
+        showError(`Failed to sync times: ${cloud.error}`);
       }
       void renderHome();
       void renderHistorySection();
@@ -841,7 +841,7 @@ async function renderSessionTimesEditor(session, container, editable) {
         typeof session.supabaseSessionId === "string" ? session.supabaseSessionId : null;
       const cloud = await pushSessionTimesToSupabase(startMs, null, cloudSid);
       if (cloud && "ok" in cloud && cloud.ok === false && "error" in cloud) {
-        showError(`Aloitusajan synkronointi epäonnistui: ${cloud.error}`);
+        showError(`Failed to sync start time: ${cloud.error}`);
       }
       startSessionTimer(startMs);
       void renderHome();
@@ -870,7 +870,7 @@ async function flushSessionTitleSave() {
   input.value = r.title;
   const cloud = await pushSessionTitleToSupabase(r.title);
   if (cloud && "ok" in cloud && cloud.ok === false && "error" in cloud) {
-    showError(`Otsikon synkronointi epäonnistui: ${cloud.error}`);
+    showError(`Failed to sync title: ${cloud.error}`);
   }
   return r.title;
 }
@@ -999,7 +999,7 @@ function syncEndedSessionTitleRowInCatchesOverlay(sessionIdOverride, sessionForO
   if (allowEditDelete) {
     display.setAttribute("tabindex", "0");
     display.setAttribute("role", "button");
-    display.setAttribute("aria-label", "Session otsikko, muokkaa napauttamalla");
+    display.setAttribute("aria-label", "Session title, tap to edit");
     display.classList.remove("session-title-display--readonly");
   } else {
     display.setAttribute("tabindex", "-1");
@@ -1025,7 +1025,7 @@ async function flushEndedSessionTitleSave() {
     s && typeof s.supabaseSessionId === "string" && s.supabaseSessionId ? s.supabaseSessionId : null;
   const cloud = await pushSessionTitleToSupabase(r.title, cloudSid);
   if (cloud && "ok" in cloud && cloud.ok === false && "error" in cloud) {
-    showError(`Otsikon synkronointi epäonnistui: ${cloud.error}`);
+    showError(`Failed to sync title: ${cloud.error}`);
   }
   void renderHistorySection();
   return r.title;
@@ -1249,7 +1249,7 @@ function formatElapsedSince(startTimeMs) {
 function updateSessionTimerDisplay(startTimeMs) {
   const el = document.getElementById("session-timer");
   if (!el) return;
-  el.textContent = `Kesto: ${formatElapsedSince(startTimeMs)}`;
+  el.textContent = `Duration: ${formatElapsedSince(startTimeMs)}`;
 }
 
 function stopSessionTimer() {
@@ -1455,14 +1455,14 @@ async function syncCatchesOverlayMap(sessionId, sessionForOwner, sessionIdOverri
   pendingCatchesOverlayMap = null;
   if (!sessionId || !sessionForOwner) {
     if (noLoc) {
-      noLoc.textContent = "Ei aktiivista sessiota.";
+      noLoc.textContent = "No active session.";
       noLoc.hidden = false;
     }
     return;
   }
   if (noLoc) {
     noLoc.textContent =
-      "Yhdelläkään saaliilla ei ole sijaintitietoa. Kartta näyttää vain kirjatut koordinaatit.";
+      "None of the catches have location data. The map only shows logged coordinates.";
   }
   const catches = await getCatchesForSession(sessionId);
   const sessionAnglers = await getSessionAnglersForSession(sessionId);
@@ -1571,7 +1571,7 @@ function closeFishOverlay() {
 async function handleExportEndedSessionCsv(sessionId) {
   const session = await getSessionById(sessionId);
   if (!session || session.endTime == null) {
-    showError("CSV voidaan viedä vain päättyneelle sessiolle.");
+    showError("CSV can only be exported for an ended session.");
     return;
   }
   try {
@@ -1590,9 +1590,9 @@ async function handleExportEndedSessionCsv(sessionId) {
     }
     await refreshCatchesTableIfOpen();
     await renderHome();
-    showSuccess("CSV tallennettu");
+    showSuccess("CSV saved");
   } catch {
-    showError("CSV-tallennus epäonnistui.");
+    showError("CSV save failed.");
   }
 }
 
@@ -1601,14 +1601,14 @@ function formatSaveSuccessSummary(loc, saved) {
   if (loc.lat != null && loc.lng != null) {
     const acc =
       typeof loc.accuracyM === "number" ? ` (±${Math.round(loc.accuracyM)} m)` : "";
-    parts.push(`Sijainti: ${loc.lat.toFixed(5)}, ${loc.lng.toFixed(5)}${acc}.`);
+    parts.push(`Location: ${loc.lat.toFixed(5)}, ${loc.lng.toFixed(5)}${acc}.`);
   } else {
-    parts.push("Sijaintia ei tallennettu.");
+    parts.push("Location was not saved.");
   }
   if (saved.weather_summary != null && typeof saved.air_temp_c === "number") {
-    parts.push(`Sää: ${saved.weather_summary}, ilma ${saved.air_temp_c.toFixed(1)} °C.`);
+    parts.push(`Weather: ${saved.weather_summary}, air ${saved.air_temp_c.toFixed(1)} °C.`);
   } else if (loc.lat != null && loc.lng != null) {
-    parts.push("Säätietoja ei saatu.");
+    parts.push("Weather data was not available.");
   }
   return parts.join(" ");
 }
@@ -1619,7 +1619,7 @@ function formatSaveSuccessSummary(loc, saved) {
 function formatSessionStripLabel(sessionId) {
   if (!sessionId) return "";
   const short = sessionId.length > 14 ? `${sessionId.slice(0, 8)}…${sessionId.slice(-4)}` : sessionId;
-  return `Sessio · ${short}`;
+  return `Session · ${short}`;
 }
 
 /**
@@ -1636,7 +1636,7 @@ function formatClock24(ts) {
  * @param {number} ts
  */
 function formatSessionDateLabel(ts) {
-  return new Date(ts).toLocaleDateString("fi-FI", {
+  return new Date(ts).toLocaleDateString("en-GB", {
     weekday: "short",
     day: "numeric",
     month: "numeric",
@@ -1668,9 +1668,9 @@ function formatBiggestFishDisplayLine(c) {
       : "-";
   const wtPart =
     c.weight_kg != null && typeof c.weight_kg === "number" && Number.isFinite(c.weight_kg)
-      ? `${c.weight_kg.toLocaleString("fi-FI", { maximumFractionDigits: 2 })} kg`
+      ? `${c.weight_kg.toLocaleString("en-GB", { maximumFractionDigits: 2 })} kg`
       : "-";
-  return `Pituus: ${lenPart} | Paino: ${wtPart}`;
+  return `Length: ${lenPart} | Weight: ${wtPart}`;
 }
 
 /**
@@ -1718,7 +1718,7 @@ function formatCatchListTime(ts, activeSession) {
   if (activeSession) {
     return formatClock24(ts);
   }
-  const datePart = d.toLocaleDateString("fi-FI", {
+  const datePart = d.toLocaleDateString("en-GB", {
     day: "numeric",
     month: "numeric",
     year: "numeric",
@@ -1753,7 +1753,7 @@ function formatTopFishRowLine(c, nameById, ownerUserId) {
   }
   if (c.weight_kg != null && Number.isFinite(c.weight_kg)) {
     parts.push(
-      `${c.weight_kg.toLocaleString("fi-FI", { maximumFractionDigits: 2 })} kg`
+      `${c.weight_kg.toLocaleString("en-GB", { maximumFractionDigits: 2 })} kg`
     );
   }
   const rawName = nameById[c.anglerId] || c.anglerId;
@@ -1788,7 +1788,7 @@ function renderTopFishBySpecies(container, catches, nameById, ownerUserId = null
   if (speciesKeys.length === 0) {
     const p = document.createElement("p");
     p.className = "meta";
-    p.textContent = "Ei pituustietoja saaliista.";
+    p.textContent = "No length data for catches.";
     container.appendChild(p);
     return;
   }
@@ -1818,7 +1818,7 @@ function renderTopFishBySpecies(container, catches, nameById, ownerUserId = null
 
     const total = document.createElement("p");
     total.className = "meta dash-top-fish-total";
-    total.textContent = `Yhteensä: ${totalCm} cm`;
+    total.textContent = `Total: ${totalCm} cm`;
     block.appendChild(total);
 
     container.appendChild(block);
@@ -1857,40 +1857,40 @@ async function fillEndedSessionDashboardPanels(session, sessionAnglers, catches,
         .join(", ")
     : "—";
 
-  appendDashDlRow(summaryDl, "Päivä", dateLabel);
-  appendDashDlRow(summaryDl, "Alkoi", startClock);
-  appendDashDlRow(summaryDl, "Päättyi", endClock);
-  if (duration) appendDashDlRow(summaryDl, "Kesto", duration);
-  appendDashDlRow(summaryDl, "Kalastajat", anglerNames);
+  appendDashDlRow(summaryDl, "Day", dateLabel);
+  appendDashDlRow(summaryDl, "Started", startClock);
+  appendDashDlRow(summaryDl, "Ended", endClock);
+  if (duration) appendDashDlRow(summaryDl, "Duration", duration);
+  appendDashDlRow(summaryDl, "Anglers", anglerNames);
 
   const metaMap = await getSessionMetadataDisplayBySessionIds([session.id]);
   const meta = metaMap.get(session.id);
   if (meta) {
     appendDashDlRow(
       summaryDl,
-      "Kalapaikat",
-      meta.locationNames.length ? meta.locationNames.join(", ") : "Ei paikkaa"
+      "Fishing spots",
+      meta.locationNames.length ? meta.locationNames.join(", ") : "No location"
     );
     if (meta.targetNames.length) {
-      appendDashDlRow(summaryDl, "Tavoitelajit", meta.targetNames.join(", "));
+      appendDashDlRow(summaryDl, "Target species", meta.targetNames.join(", "));
     }
   }
 
-  appendDashDlRow(summaryDl, "Saaliit yhteensä", String(catches.length));
+  appendDashDlRow(summaryDl, "Total catches", String(catches.length));
 
   const avgW = averageWaterTempC(catches);
   if (avgW != null) {
     appendDashDlRow(
       summaryDl,
-      "Keskim. veden lämpö",
-      `${avgW.toLocaleString("fi-FI", { maximumFractionDigits: 1 })} °C`
+      "Avg. water temp",
+      `${avgW.toLocaleString("en-GB", { maximumFractionDigits: 1 })} °C`
     );
   }
 
   const big = biggestFishSummary(catches, nameById, ownerUserId);
   if (big) {
-    appendDashDlRow(summaryDl, "Isoin kala", big.display);
-    appendDashDlRow(summaryDl, "Kalastaja (isoin)", big.anglerName);
+    appendDashDlRow(summaryDl, "Biggest fish", big.display);
+    appendDashDlRow(summaryDl, "Angler (biggest)", big.anglerName);
   }
 
   /** @type {Map<string, number>} */
@@ -1904,12 +1904,12 @@ async function fillEndedSessionDashboardPanels(session, sessionAnglers, catches,
       name: formatAnglerLabelWithOwner(nameById[id] || id, id, ownerUserId),
       count: countByAngler.get(id) || 0,
     }))
-    .sort((a, b) => a.name.localeCompare(b.name, "fi"));
+    .sort((a, b) => a.name.localeCompare(b.name, "en"));
 
   if (anglerRows.length === 0) {
     const li = document.createElement("li");
     li.className = "meta";
-    li.textContent = "Ei kalastajia sessiossa.";
+    li.textContent = "No anglers in this session.";
     byAnglerUl.appendChild(li);
   } else {
     for (const row of anglerRows) {
@@ -1930,7 +1930,7 @@ async function fillEndedSessionDashboardPanels(session, sessionAnglers, catches,
   if (speciesKeys.length === 0) {
     const li = document.createElement("li");
     li.className = "meta";
-    li.textContent = "Ei kirjattuja saaliita.";
+    li.textContent = "No catches logged.";
     bySpeciesUl.appendChild(li);
   } else {
     for (const key of speciesKeys) {
@@ -2002,11 +2002,11 @@ function buildCatchCardEl(c, nameById, opts = {}) {
     const row = document.createElement("div");
     row.className = "catch-card-row-split";
     if (hasLen) {
-      appendSplitItem(row, `Pituus: ${c.length} cm`);
+      appendSplitItem(row, `Length: ${c.length} cm`);
     }
     if (hasWt) {
-      const w = c.weight_kg.toLocaleString("fi-FI", { maximumFractionDigits: 2 });
-      appendSplitItem(row, `Paino: ${w} kg`);
+      const w = c.weight_kg.toLocaleString("en-GB", { maximumFractionDigits: 2 });
+      appendSplitItem(row, `Weight: ${w} kg`);
     }
     metricsStack.appendChild(row);
   }
@@ -2015,12 +2015,12 @@ function buildCatchCardEl(c, nameById, opts = {}) {
     const row = document.createElement("div");
     row.className = "catch-card-row-split catch-card-row-split--telemetry";
     if (hasDepth) {
-      const dm = c.depth_m.toLocaleString("fi-FI", { maximumFractionDigits: 2 });
-      appendSplitItem(row, `Syvyys: ${dm} m`);
+      const dm = c.depth_m.toLocaleString("en-GB", { maximumFractionDigits: 2 });
+      appendSplitItem(row, `Depth: ${dm} m`);
     }
     if (hasWtemp) {
-      const wt = c.water_temp_c.toLocaleString("fi-FI", { maximumFractionDigits: 1 });
-      appendSplitItem(row, `Veden lämpö: ${wt} °C`);
+      const wt = c.water_temp_c.toLocaleString("en-GB", { maximumFractionDigits: 1 });
+      appendSplitItem(row, `Water temp: ${wt} °C`);
     }
     metricsStack.appendChild(row);
   }
@@ -2033,7 +2033,7 @@ function buildCatchCardEl(c, nameById, opts = {}) {
     const trigger = document.createElement("button");
     trigger.type = "button";
     trigger.className = "btn catch-card-menu-trigger";
-    trigger.setAttribute("aria-label", "Toiminnot");
+    trigger.setAttribute("aria-label", "Actions");
     trigger.setAttribute("aria-haspopup", "true");
     trigger.setAttribute("aria-expanded", "false");
     trigger.textContent = "⋯";
@@ -2047,7 +2047,7 @@ function buildCatchCardEl(c, nameById, opts = {}) {
     editBtn.type = "button";
     editBtn.className = "catch-card-menu-item";
     editBtn.setAttribute("role", "menuitem");
-    editBtn.textContent = "Muokkaa";
+    editBtn.textContent = "Edit";
     editBtn.addEventListener("click", (e) => {
       e.stopPropagation();
       menu.hidden = true;
@@ -2059,12 +2059,12 @@ function buildCatchCardEl(c, nameById, opts = {}) {
     delBtn.type = "button";
     delBtn.className = "catch-card-menu-item catch-card-menu-item--danger";
     delBtn.setAttribute("role", "menuitem");
-    delBtn.textContent = "Poista";
+    delBtn.textContent = "Delete";
     delBtn.addEventListener("click", async (e) => {
       e.stopPropagation();
       menu.hidden = true;
       trigger.setAttribute("aria-expanded", "false");
-      if (!confirm("Poistetaanko saalis?")) return;
+      if (!confirm("Delete this catch?")) return;
       try {
         const okCloud = await deleteCatchFromSupabaseBestEffort(c);
         if (!okCloud) return;
@@ -2072,7 +2072,7 @@ function buildCatchCardEl(c, nameById, opts = {}) {
         await refreshCatchesTableIfOpen();
         await renderHome();
       } catch {
-        showError("Poisto epäonnistui.");
+        showError("Delete failed.");
       }
     });
 
@@ -2151,7 +2151,7 @@ async function renderCatchList(container, sessionId, emptyPlaceholderRow, listOp
     if (emptyPlaceholderRow) {
       const p = document.createElement("p");
       p.className = "meta catch-list-empty";
-      p.textContent = "Ei kirjattuja saaliita.";
+      p.textContent = "No catches logged.";
       container.appendChild(p);
     }
     return 0;
@@ -2193,8 +2193,8 @@ async function populateCatchesTable(sessionIdOverride) {
   if (!listEl) return;
 
   let sessionId = sessionIdOverride;
-  let overlayTitle = "Saaliit tässä sessiossa";
-  let emptyMsg = "Ei saaliita tässä sessiossa.";
+  let overlayTitle = "Catches in this session";
+  let emptyMsg = "No catches in this session.";
 
   if (!sessionId) {
     detailMenuBtn?.classList.add("hidden");
@@ -2211,9 +2211,9 @@ async function populateCatchesTable(sessionIdOverride) {
       }
       emptyEl?.classList.remove("hidden");
       wrap?.classList.add("hidden");
-      if (titleEl) titleEl.textContent = "Saaliit tässä sessiossa";
-      if (emptyEl) emptyEl.textContent = "Ei aktiivista sessiota.";
-      listEl.setAttribute("aria-label", "Saaliit tässä sessiossa");
+      if (titleEl) titleEl.textContent = "Catches in this session";
+      if (emptyEl) emptyEl.textContent = "No active session.";
+      listEl.setAttribute("aria-label", "Catches in this session");
       syncEndedSessionTitleRowInCatchesOverlay(undefined, null, false);
       document.getElementById("catches-view-tabs")?.classList.add("hidden");
       setCatchesOverlayTab("list");
@@ -2228,8 +2228,8 @@ async function populateCatchesTable(sessionIdOverride) {
     if (titleEl) titleEl.textContent = overlayTitle;
     listEl.setAttribute("aria-label", overlayTitle);
   } else {
-    overlayTitle = "Päättynyt sessio";
-    emptyMsg = "Ei kirjattuja saaliita tässä sessiossa.";
+    overlayTitle = "Ended session";
+    emptyMsg = "No catches logged in this session.";
     if (titleEl) titleEl.textContent = overlayTitle;
     listEl.setAttribute("aria-label", overlayTitle);
 
@@ -2514,7 +2514,7 @@ async function renderSessionLiveView(sessionId) {
     nameEl.textContent = name;
     const totalEl = document.createElement("span");
     totalEl.className = "session-live-total";
-    totalEl.textContent = `${total} kpl`;
+    totalEl.textContent = `${total} pcs`;
     head.append(nameEl, totalEl);
     card.appendChild(head);
 
@@ -2534,7 +2534,7 @@ async function renderSessionLiveView(sessionId) {
         const longestStr = g.longest != null ? `${g.longest} cm` : "-";
         const line = document.createElement("p");
         line.className = "session-live-species-line";
-        line.textContent = `${label} kpl ${g.count}, isoin ${longestStr}`;
+        line.textContent = `${label} × ${g.count}, largest ${longestStr}`;
         speciesBox.appendChild(line);
       }
       card.appendChild(speciesBox);
@@ -2550,7 +2550,7 @@ function syncHomeAnglersToggleUi() {
   panel?.classList.toggle("hidden", !homeAnglersExpanded);
   btn?.setAttribute("aria-expanded", homeAnglersExpanded ? "true" : "false");
   btn?.classList.toggle("is-active", homeAnglersExpanded);
-  if (btn) btn.textContent = homeAnglersExpanded ? "Piilota osallistujat" : "Näytä osallistujat";
+  if (btn) btn.textContent = homeAnglersExpanded ? "Hide participants" : "Show participants";
 }
 
 /**
@@ -2697,7 +2697,7 @@ async function renderHome() {
     titleInp?.classList.add("hidden");
     titleDisp?.classList.remove("hidden");
     renderSyncStatusIndicator();
-    meta.textContent = "Ei aktiivista kalastussessiota. Aloita sessio ennen saaliin kirjausta.";
+    meta.textContent = "No active fishing session. Start a session before logging a catch.";
     noS.classList.remove("hidden");
     act.classList.add("hidden");
     roster.classList.add("hidden");
@@ -2706,7 +2706,7 @@ async function renderHome() {
     document.getElementById("session-metadata-active")?.classList.add("hidden");
   } else {
     const start = new Date(session.startTime);
-    let line = `Sessio käynnissä (alkoi ${start.toLocaleString("fi-FI")}).`;
+    let line = `Session running (started ${start.toLocaleString("en-GB")}).`;
     if (
       typeof session.initialLocationLat === "number" &&
       typeof session.initialLocationLng === "number"
@@ -2715,7 +2715,7 @@ async function renderHome() {
         typeof session.initialLocationAccuracyM === "number"
           ? ` ±${Math.round(session.initialLocationAccuracyM)} m`
           : "";
-      line += ` Alkupiste: ${session.initialLocationLat.toFixed(4)}, ${session.initialLocationLng.toFixed(4)}${acc}.`;
+      line += ` Start point: ${session.initialLocationLat.toFixed(4)}, ${session.initialLocationLng.toFixed(4)}${acc}.`;
     }
     meta.textContent = line;
     noS.classList.add("hidden");
@@ -2757,13 +2757,13 @@ async function renderHome() {
           sa.anglerId,
           ownerUserId
         );
-        const status = sa.isActive ? "aktiivinen" : "poistunut";
+        const status = sa.isActive ? "active" : "left";
         row.innerHTML = `<span>${escapeHtml(name)} <span class="meta">(${status})</span></span>`;
         if (sa.isActive) {
           const b = document.createElement("button");
           b.type = "button";
           b.className = "btn small-btn";
-          b.textContent = "Merkitse poistuneeksi";
+          b.textContent = "Mark as left";
           b.dataset.sessionId = session.id;
           b.dataset.anglerId = sa.anglerId;
           b.addEventListener("click", async () => {
@@ -2870,7 +2870,7 @@ async function renderHistorySection() {
     btn.className = "history-session-row";
     btn.setAttribute(
       "aria-label",
-      `${header}, ${catchCount} ${catchCount === 1 ? "saalis" : "saalista"}`
+      `${header}, ${catchCount} ${catchCount === 1 ? "catch" : "catches"}`
     );
 
     const line1 = document.createElement("div");
@@ -2879,7 +2879,7 @@ async function renderHistorySection() {
 
     const line2 = document.createElement("div");
     line2.className = "history-session-line2 meta";
-    line2.textContent = catchCount === 1 ? "1 saalis" : `${catchCount} saalista`;
+    line2.textContent = catchCount === 1 ? "1 catch" : `${catchCount} catches`;
 
     btn.append(line1, line2);
     btn.addEventListener("click", async () => {
@@ -2928,7 +2928,7 @@ function buildStartSessionParticipantPicker(selfAnglerId, selfDisplayName) {
       const rm = document.createElement("button");
       rm.type = "button";
       rm.className = "btn btn-ghost participant-chip-remove";
-      rm.setAttribute("aria-label", "Poista osallistuja");
+      rm.setAttribute("aria-label", "Remove participant");
       rm.textContent = "×";
       rm.addEventListener("click", () => {
         selected.delete(id);
@@ -2948,7 +2948,7 @@ function buildStartSessionParticipantPicker(selfAnglerId, selfDisplayName) {
     const resultsEl = box.querySelector("#start-search-results");
     if (!resultsEl) return;
     if (!navigator.onLine) {
-      if (hint) hint.textContent = "Käyttäjähaku vaatii verkkoyhteyden.";
+      if (hint) hint.textContent = "User search requires a network connection.";
       hideResults();
       return;
     }
@@ -2973,10 +2973,10 @@ function buildStartSessionParticipantPicker(selfAnglerId, selfDisplayName) {
         resultsEl.classList.add("hidden");
         if (hint) {
           if (profiles.length === 0) {
-            hint.textContent = "Ei hakutuloksia. Tarkista että RLS sallii profiilien lukemisen (docs: profiles_select_authenticated).";
+            hint.textContent = "No search results. Check that RLS allows reading profiles (docs: profiles_select_authenticated).";
           } else {
             hint.textContent =
-              "Ei lisättäviä tuloksia (vain oma profiili osuu hakuun tai kaikki jo valittu).";
+              "No addable results (only your own profile matches, or everyone is already selected).";
           }
         }
         return;
@@ -3004,7 +3004,7 @@ function buildStartSessionParticipantPicker(selfAnglerId, selfDisplayName) {
       } catch (e) {
         console.error("[start session search]", e);
         if (hint) {
-          hint.textContent = e instanceof Error ? e.message : "Haku epäonnistui.";
+          hint.textContent = e instanceof Error ? e.message : "Search failed.";
         }
         hideResults();
       }
@@ -3013,7 +3013,7 @@ function buildStartSessionParticipantPicker(selfAnglerId, selfDisplayName) {
 
   box.innerHTML = "";
   if (!selfAnglerId) {
-    box.innerHTML = '<p class="meta">Kirjautuminen puuttuu.</p>';
+    box.innerHTML = '<p class="meta">Not signed in.</p>';
     confirm.disabled = true;
     return;
   }
@@ -3022,7 +3022,7 @@ function buildStartSessionParticipantPicker(selfAnglerId, selfDisplayName) {
 
   const selfRow = document.createElement("p");
   selfRow.className = "meta start-self-line";
-  selfRow.textContent = `Sinä: ${selfDisplayName || "Käyttäjä"} (aina mukana)`;
+  selfRow.textContent = `You: ${selfDisplayName || "User"} (always included)`;
 
   const selWrap = document.createElement("div");
   selWrap.id = "start-selected-wrap";
@@ -3032,13 +3032,13 @@ function buildStartSessionParticipantPicker(selfAnglerId, selfDisplayName) {
   searchWrap.className = "stack start-search-block";
   const searchLabel = document.createElement("div");
   searchLabel.className = "field-label";
-  searchLabel.textContent = "Lisää osallistuja (haku)";
+  searchLabel.textContent = "Add participant (search)";
   const searchInput = document.createElement("input");
   searchInput.type = "text";
   searchInput.inputMode = "search";
   searchInput.id = "start-profile-search";
   searchInput.autocomplete = "off";
-  searchInput.placeholder = "Käyttäjätunnus tai näyttönimi";
+  searchInput.placeholder = "Username or display name";
   searchInput.addEventListener("input", () => {
     if (searchTimer) clearTimeout(searchTimer);
     const v = searchInput.value;
@@ -3075,7 +3075,7 @@ function buildStartSessionParticipantPicker(selfAnglerId, selfDisplayName) {
     const btn = /** @type {HTMLButtonElement | null} */ (document.getElementById("start-confirm"));
     if (btn) {
       btn.disabled = true;
-      btn.textContent = "Haetaan sijaintia…";
+      btn.textContent = "Getting location…";
     }
     const loc = await fetchDeviceLocationBestEffort();
     const initialLocation =
@@ -3090,7 +3090,7 @@ function buildStartSessionParticipantPicker(selfAnglerId, selfDisplayName) {
     const r = await startSession([...selected], initialLocation);
     if (btn) {
       btn.disabled = false;
-      btn.textContent = "Aloita";
+      btn.textContent = "Start";
     }
     if (!r.ok) {
       showError(r.reason);
@@ -3112,7 +3112,7 @@ function buildStartSessionParticipantPicker(selfAnglerId, selfDisplayName) {
     }
     const authUserId = await getAuthUserId();
     if (!authUserId) {
-      showError("Kirjautuminen puuttuu. Kirjaudu uudelleen.");
+      showError("Not signed in. Please log in again.");
       activeSupabaseSessionId = null;
       setSyncStatus("error");
     } else {
@@ -3135,7 +3135,7 @@ function buildStartSessionParticipantPicker(selfAnglerId, selfDisplayName) {
 
     if (error) {
       console.error("[Supabase] sessions insert failed:", error.message, error);
-      showError("Supabase-sessiota ei voitu tallentaa. Katso konsoli.");
+      showError("Could not save the session to Supabase. See the console.");
       activeSupabaseSessionId = null;
       setSyncStatus(navigator.onLine ? "error" : "offline");
     } else if (data?.id) {
@@ -3152,7 +3152,7 @@ function buildStartSessionParticipantPicker(selfAnglerId, selfDisplayName) {
       }
     } else {
       console.error("[Supabase] sessions insert: no row id returned", data);
-      showError("Supabase-sessiota ei voitu tallentaa. Katso konsoli.");
+      showError("Could not save the session to Supabase. See the console.");
       activeSupabaseSessionId = null;
       setSyncStatus(navigator.onLine ? "error" : "offline");
     }
@@ -3166,14 +3166,14 @@ function buildStartSessionParticipantPicker(selfAnglerId, selfDisplayName) {
       const anglerEntries = selectedIds.map((uid) => {
         const label = nameById[uid];
         const name =
-          typeof label === "string" && label.trim() ? label.trim() : "Kalastaja";
+          typeof label === "string" && label.trim() ? label.trim() : "Angler";
         return { user_id: uid, name };
       });
 
       const angIns = await insertSessionScopedAnglers(activeSupabaseSessionId, anglerEntries);
       if (!angIns.ok) {
         console.error("[Supabase] anglers (session-scoped):", angIns.error);
-        showError(`Kalastajien tallennus pilveen epäonnistui: ${angIns.error}`);
+        showError(`Failed to save anglers to the cloud: ${angIns.error}`);
         setSyncStatus(navigator.onLine ? "error" : "offline");
       } else {
         const rosterRes = await insertSessionAnglersForSelectedProfiles(
@@ -3182,7 +3182,7 @@ function buildStartSessionParticipantPicker(selfAnglerId, selfDisplayName) {
         );
         if (!rosterRes.ok) {
           console.error("[Supabase] session_anglers:", rosterRes.error);
-          showError("Supabase-sessioon ei voitu tallentaa kalastajalistaa. Katso konsoli.");
+          showError("Could not save the angler list to the Supabase session. See the console.");
           setSyncStatus(navigator.onLine ? "error" : "offline");
         } else {
           const rosterSet = new Set(rosterRes.profileIds);
@@ -3196,7 +3196,7 @@ function buildStartSessionParticipantPicker(selfAnglerId, selfDisplayName) {
             const anglersRowId = angIns.idByUserId.get(localId);
             if (!anglersRowId) {
               rosterOk = false;
-              showError("Kalastajan anglers-id puuttui pilvistä. Yritä uudelleen.");
+              showError("Angler cloud id was missing. Try again.");
               setSyncStatus("error");
               break;
             }
@@ -3312,7 +3312,7 @@ function showFishStep(n) {
   if (n === 3 && fishState.editingCatchId) {
     editWrap?.classList.remove("hidden");
     if (hintEl) {
-      hintEl.textContent = "Muistiinpanot. Voit säätää sijaintia kartalla yllä.";
+      hintEl.textContent = "Notes. You can adjust the location on the map above.";
     }
     void scheduleFishEditMapMount();
   } else {
@@ -3320,7 +3320,7 @@ function showFishStep(n) {
     destroyFishEditMapUi();
     if (hintEl && n === 3) {
       hintEl.textContent =
-        "Sijainti ja sää haetaan automaattisesti tallennuksessa, jos sijainti on käytettävissä.";
+        "Location and weather are fetched automatically on save if location is available.";
     }
   }
 }
@@ -3471,7 +3471,7 @@ async function populateFishAnglers() {
   const nameById = await fetchProfileDisplayNames(listed.map((sa) => sa.anglerId));
   box.innerHTML = "";
   if (listed.length === 0) {
-    box.innerHTML = '<p class="meta">Ei kalastajia sessiossa.</p>';
+    box.innerHTML = '<p class="meta">No anglers in this session.</p>';
     return;
   }
   for (const sa of listed) {
@@ -3605,9 +3605,9 @@ function consumeAuthHashErrors() {
   const err = params.get("error");
   const code = params.get("error_code");
   if (!err && !code) return;
-  let msg = "Linkki ei toimi tai se on vanhentunut.";
+  let msg = "This link is invalid or has expired.";
   if (code === "otp_expired") {
-    msg = "Salasanan palautuslinkki on vanhentunut. Pyydä uusi linkki (Unohtuiko salasana?).";
+    msg = "The password reset link has expired. Request a new link (Forgot password?).";
   } else {
     const desc = params.get("error_description");
     if (desc) {
@@ -3842,7 +3842,7 @@ function wireAuthUi() {
     const email = emailEl?.value?.trim() ?? "";
     setAuthMessage("");
     if (!email) {
-      setAuthMessage("Anna sähköposti.");
+      setAuthMessage("Enter your email.");
       return;
     }
     const { error } = await sendPasswordResetEmail(email);
@@ -3851,7 +3851,7 @@ function wireAuthUi() {
       return;
     }
     setAuthMessage(
-      "Tarkista sähköposti: lähetimme linkin salasanan vaihtoon. Jos et näe viestiä, tarkista roskaposti."
+      "Check your email: we sent a password reset link. If you do not see it, check spam."
     );
     showAuthLoginPanel();
   });
@@ -3862,11 +3862,11 @@ function wireAuthUi() {
     const b = p2?.value ?? "";
     setAuthMessage("");
     if (a.length < 6) {
-      setAuthMessage("Salasanan on oltava vähintään 6 merkkiä.");
+      setAuthMessage("Password must be at least 6 characters.");
       return;
     }
     if (a !== b) {
-      setAuthMessage("Salasanat eivät täsmää.");
+      setAuthMessage("Passwords do not match.");
       return;
     }
     const { error } = await updatePassword(a);
@@ -3896,21 +3896,21 @@ function wireAuthUi() {
     const password = passEl?.value ?? "";
     setAuthMessage("");
     if (!email || !password) {
-      setAuthMessage("Anna sähköposti ja salasana.");
+      setAuthMessage("Enter email and password.");
       return;
     }
     if (submitBtn) {
       submitBtn.disabled = true;
-      submitBtn.textContent = "Kirjaudutaan…";
+      submitBtn.textContent = "Signing in…";
     }
     let requestSettled = false;
     const loginWatchdogId = setTimeout(() => {
       if (requestSettled) return;
       if (submitBtn) {
         submitBtn.disabled = false;
-        submitBtn.textContent = "Kirjaudu";
+        submitBtn.textContent = "Log in";
       }
-      setAuthMessage("Kirjautuminen aikakatkaistiin. Tarkista yhteys ja yritä uudelleen.");
+      setAuthMessage("Sign-in timed out. Check your connection and try again.");
       // Non-blocking recovery probe in case sign-in actually completed server-side.
       void tryActivateExistingSession().then((ok) => {
         if (ok) setAuthMessage("");
@@ -3918,7 +3918,7 @@ function wireAuthUi() {
     }, 12000);
     try {
       setAuthDebugStep("sign_in_start");
-      setAuthMessage("Kirjaudutaan…");
+      setAuthMessage("Signing in…");
       const res = await signInWithEmail(email, password);
       const { data, error } = res;
       if (error) {
@@ -3926,9 +3926,9 @@ function wireAuthUi() {
         setAuthDebugError(error.message || "unknown");
         console.error("[Auth] login failure:", error.message || error);
         if (error.message.toLowerCase().includes("invalid login credentials")) {
-          setAuthMessage("Virheellinen sähköposti tai salasana.");
+          setAuthMessage("Invalid email or password.");
         } else if (error.message.toLowerCase().includes("email not confirmed")) {
-          setAuthMessage("Sähköpostia ei ole vahvistettu.");
+          setAuthMessage("Email has not been confirmed.");
         } else {
           setAuthMessage(formatAuthErrorForUi(error));
         }
@@ -3943,7 +3943,7 @@ function wireAuthUi() {
           await activateSignedInUser(data.user);
         } catch (err) {
           console.error("[Auth] activateSignedInUser failed:", err);
-          setAuthMessage("Kirjautuminen epäonnistui käynnistyksessä. Yritä uudelleen.");
+          setAuthMessage("Sign-in failed during startup. Try again.");
           return;
         }
         setAuthMessage("");
@@ -3957,20 +3957,20 @@ function wireAuthUi() {
         } else {
           setAuthDebugStep("sign_in_unresolved_no_session");
           setAuthDebugError("no user payload and no session");
-          setAuthMessage("Kirjautuminen ei valmistunut. Yritä uudelleen.");
+          setAuthMessage("Sign-in did not complete. Try again.");
         }
       }
     } catch (err) {
       setAuthDebugStep("sign_in_exception");
       setAuthDebugError(String(err));
-      setAuthMessage("Kirjautuminen epäonnistui. Yritä uudelleen.");
+      setAuthMessage("Sign-in failed. Try again.");
       console.error("[Auth] sign-in failed:", err);
     } finally {
       requestSettled = true;
       clearTimeout(loginWatchdogId);
       if (submitBtn) {
         submitBtn.disabled = false;
-        submitBtn.textContent = "Kirjaudu";
+        submitBtn.textContent = "Log in";
       }
       if (authDebugVisible) void refreshAuthDebugOutput();
     }
@@ -3991,19 +3991,19 @@ function wireAuthUi() {
     const password2 = pass2El?.value ?? "";
     setAuthMessage("");
     if (!fn || !ln) {
-      setAuthMessage("Anna etunimi ja sukunimi.");
+      setAuthMessage("Enter first and last name.");
       return;
     }
     if (!email || !password) {
-      setAuthMessage("Anna sähköposti ja salasana.");
+      setAuthMessage("Enter email and password.");
       return;
     }
     if (password.length < 6) {
-      setAuthMessage("Salasanan on oltava vähintään 6 merkkiä.");
+      setAuthMessage("Password must be at least 6 characters.");
       return;
     }
     if (password !== password2) {
-      setAuthMessage("Salasanat eivät täsmää.");
+      setAuthMessage("Passwords do not match.");
       return;
     }
     const { data, error } = await signUpWithProfile(email, password, fn, ln, usernameRaw);
@@ -4012,7 +4012,7 @@ function wireAuthUi() {
       return;
     }
     if (data?.user && !data.session) {
-      setAuthMessage("Tarkista sähköposti ja vahvista tili, jos vahvistus on käytössä.");
+      setAuthMessage("Check your email and confirm the account if confirmation is enabled.");
     }
   });
 
@@ -4064,7 +4064,7 @@ async function bootstrap() {
       } catch (err) {
         console.error("[Auth] bootstrap activateSignedInUser failed:", err);
         showAuthGate();
-        setAuthMessage("Sovelluksen käynnistys epäonnistui. Yritä kirjautua uudelleen.");
+        setAuthMessage("App startup failed. Try signing in again.");
       }
     }
   } else {
@@ -4155,7 +4155,7 @@ function mainAppInit() {
     closeSessionSummaryOverlay();
     const selfId = await ensureLoggedInUserAngler();
     if (!selfId) {
-      showError("Kirjautuminen puuttuu.");
+      showError("Not signed in.");
       return;
     }
     const {
@@ -4206,7 +4206,7 @@ function mainAppInit() {
     activeSupabaseAnglerRows = null;
     supabaseAnglerRowByLocalId.clear();
     await renderHome();
-    showSuccess("Sessio päättyi");
+    showSuccess("Session ended");
     await openSessionSummaryOverlay(endedSessionId);
   });
 
@@ -4252,7 +4252,7 @@ function mainAppInit() {
         if (!ok) return;
         navigateHomeFromSessionDetail();
         await renderHome();
-        showSuccess("Sessio poistettu");
+        showSuccess("Session deleted");
       } catch (err) {
         console.error("[Session] delete failed:", err);
         alert("Failed to delete session");
@@ -4290,7 +4290,7 @@ function mainAppInit() {
     const notesEl = /** @type {HTMLTextAreaElement | null} */ (document.getElementById("fish-notes"));
     fishState.notes = notesEl?.value || "";
     if (!fishState.anglerId) {
-      alert("Valitse kalastaja.");
+      alert("Choose an angler.");
       return;
     }
     const lenP = parseOptionalLengthCm(fishState.lengthStr);
@@ -4316,7 +4316,7 @@ function mainAppInit() {
     const btn = /** @type {HTMLButtonElement | null} */ (document.getElementById("fish-save"));
     if (btn) {
       btn.disabled = true;
-      btn.textContent = "Tallennetaan…";
+      btn.textContent = "Saving…";
     }
     let loc = {
       lat: /** @type {number | null} */ (null),
@@ -4377,15 +4377,15 @@ function mainAppInit() {
       if (!existingCatch) {
         if (btn) {
           btn.disabled = false;
-          btn.textContent = "Tallenna";
+          btn.textContent = "Save";
         }
-        showError("Saalista ei löytynyt.");
+        showError("Catch not found.");
         return;
       }
       const result = await updateCatch(inputPayload, loc, existingCatch);
       if (btn) {
         btn.disabled = false;
-        btn.textContent = "Tallenna";
+        btn.textContent = "Save";
       }
       if (!result.ok) {
         showError(result.reason);
@@ -4394,14 +4394,14 @@ function mainAppInit() {
       const syncUp = await syncCatchUpdateToSupabase(result.record);
       if (syncUp && !syncUp.ok) {
         setSyncStatus(navigator.onLine ? "error" : "offline");
-        showError(`Supabase synkronointi epäonnistui: ${syncUp.error}`);
+        showError(`Supabase sync failed: ${syncUp.error}`);
       } else if (syncUp && syncUp.ok) {
         setSyncStatus("synced");
       }
       fishState.editingCatchId = null;
       destroyFishEditMapUi();
       closeFishOverlay();
-      showSuccess("Muutokset tallennettu");
+      showSuccess("Changes saved");
       await refreshCatchesTableIfOpen();
       await renderHome();
       return;
@@ -4414,14 +4414,14 @@ function mainAppInit() {
       console.error("[catch] saveCatch threw:", err);
       if (btn) {
         btn.disabled = false;
-        btn.textContent = "Tallenna";
+        btn.textContent = "Save";
       }
-      showError("Saaliin tallennus epäonnistui.");
+      showError("Failed to save catch.");
       return;
     }
     if (btn) {
       btn.disabled = false;
-      btn.textContent = "Tallenna";
+      btn.textContent = "Save";
     }
     if (!result.ok) {
       console.error("[catch] saveCatch rejected:", result.reason);
@@ -4440,7 +4440,7 @@ function mainAppInit() {
     } else if (syncCreate && !syncCreate.ok) {
       console.error("[catch] insert error (supabase):", syncCreate.error);
       setSyncStatus(navigator.onLine ? "error" : "offline");
-      showError(`Supabase-tallennus epäonnistui: ${syncCreate.error}`);
+      showError(`Supabase save failed: ${syncCreate.error}`);
     } else if (syncCreate && syncCreate.ok) {
       setSyncStatus("synced");
     }
@@ -4487,5 +4487,5 @@ function mainAppInit() {
 void bootstrap().catch((err) => {
   console.error("[Auth] bootstrap failed:", err);
   showAuthGate();
-  setAuthMessage("Sovelluksen käynnistys epäonnistui. Yritä kirjautua uudelleen.");
+  setAuthMessage("App startup failed. Try signing in again.");
 });

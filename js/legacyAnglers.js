@@ -43,7 +43,7 @@ export async function insertSessionScopedAnglers(cloudSessionId, entries) {
   const rows = entries.map((e) => ({
     session_id: cloudSessionId,
     user_id: e.user_id,
-    name: (e.name || "").trim() || "Kalastaja",
+    name: (e.name || "").trim() || "Angler",
   }));
   const { data, error } = await supabase.from("anglers").insert(rows).select("id, user_id");
   if (error) {
@@ -58,7 +58,7 @@ export async function insertSessionScopedAnglers(cloudSessionId, entries) {
     }
   }
   if (idByUserId.size !== entries.length) {
-    return { ok: false, error: "Supabase palautti odotettua vähemmän anglers-rivejä." };
+    return { ok: false, error: "Supabase returned fewer angler rows than expected." };
   }
   return { ok: true, idByUserId };
 }
