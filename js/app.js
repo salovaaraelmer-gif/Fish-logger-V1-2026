@@ -2552,10 +2552,15 @@ async function renderSessionLiveView(sessionId) {
   }
 }
 
-function syncHomeAnglersToggleUi() {
+/**
+ * @param {boolean} hasActiveSession
+ */
+function syncHomeAnglersToggleUi(hasActiveSession) {
   const panel = document.getElementById("angler-edit-panel");
   const btn = document.getElementById("btn-toggle-anglers");
+  if (!hasActiveSession) homeAnglersExpanded = false;
   panel?.classList.toggle("hidden", !homeAnglersExpanded);
+  btn?.classList.toggle("hidden", !hasActiveSession);
   btn?.setAttribute("aria-expanded", homeAnglersExpanded ? "true" : "false");
   btn?.classList.toggle("is-active", homeAnglersExpanded);
   if (btn) btn.textContent = homeAnglersExpanded ? "Hide participants" : "Show participants";
@@ -2713,6 +2718,7 @@ async function renderHome() {
     homeAnglersExpanded = false;
     document.getElementById("session-times-active")?.classList.add("hidden");
     document.getElementById("session-metadata-active")?.classList.add("hidden");
+    syncHomeAnglersToggleUi(false);
   } else {
     const start = new Date(session.startTime);
     let line = `Session running (started ${start.toLocaleString("en-GB")}).`;
@@ -2748,9 +2754,8 @@ async function renderHome() {
       document.getElementById("session-metadata-active"),
       canEdit
     );
+    syncHomeAnglersToggleUi(true);
   }
-
-  syncHomeAnglersToggleUi();
 
   if (session) {
     const ownerUserId = await getSessionOwnerUserId(session);
@@ -3513,6 +3518,12 @@ async function populateFishAnglers() {
 
 /** True after main app listeners are wired (once). */
 let mainAppStarted = false;
+/** Last user fully revealed into the main app; skips duplicate SIGNED_IN activations. */
+let lastActivatedUserId = /** @type {string | null} */ (null);
+/** @type {Promise<void> | null} */
+let activateInFlight = null;
+/** @type {string | null} */
+let activateInFlightUserId = null;
 /** History session detail menu open state (3-dot). */
 let catchesSessionMenuOpen = false;
 /** Session id currently attached to history detail menu actions. */
@@ -3690,6 +3701,7 @@ async function onAuthSignedOut() {
   document.getElementById("session-end-overlay")?.classList.add("hidden");
   document.getElementById("session-summary-overlay")?.classList.add("hidden");
   lastIndexedDbUserId = null;
+  lastActivatedUserId = null;
 }
 
 /** Remove old shared localStorage keys once. */
@@ -3787,13 +3799,16 @@ async function tryActivateExistingSession() {
   }
 }
 
+function isMainAppVisible() {
+  const app = document.getElementById("app");
+  return Boolean(app && !app.classList.contains("hidden"));
+}
+
 /**
- * Activates app state for a signed-in user.
  * @param {{ id: string, user_metadata?: Record<string, unknown> }} user
  */
-async function activateSignedInUser(user) {
+async function prepareSignedInUserData(user) {
   const uid = user.id;
-  console.log("[Auth] activateSignedInUser — current user id:", uid);
   setCachedAuthUserId(uid);
   if (lastIndexedDbUserId && lastIndexedDbUserId !== uid) {
     activeSupabaseSessionId = null;
@@ -3829,18 +3844,57 @@ async function activateSignedInUser(user) {
   } catch (err) {
     console.warn("[Auth] session metadata catalogs:", err);
   }
-  showMainApp();
-  updateUserDisplayName(user);
-  console.log("[Auth] login success — main app visible for user:", uid);
-  if (!mainAppStarted) {
-    mainAppInit();
-    mainAppStarted = true;
-  } else {
+}
+
+/**
+ * Activates app state for a signed-in user.
+ * Keeps the spinner up until Session home is rendered so the old participants UI never flashes.
+ * @param {{ id: string, user_metadata?: Record<string, unknown> }} user
+ */
+async function activateSignedInUser(user) {
+  const uid = user.id;
+  if (activateInFlight && activateInFlightUserId === uid) {
+    return activateInFlight;
+  }
+  if (lastActivatedUserId === uid && mainAppStarted && isMainAppVisible()) {
+    return;
+  }
+  activateInFlightUserId = uid;
+  activateInFlight = revealSignedInSessionHome(user).finally(() => {
+    if (activateInFlightUserId === uid) {
+      activateInFlight = null;
+      activateInFlightUserId = null;
+    }
+  });
+  return activateInFlight;
+}
+
+/**
+ * @param {{ id: string, user_metadata?: Record<string, unknown> }} user
+ */
+async function revealSignedInSessionHome(user) {
+  const uid = user.id;
+  console.log("[Auth] activateSignedInUser — current user id:", uid);
+  showAppSpinner({ opaque: true });
+  try {
+    await prepareSignedInUserData(user);
+    updateUserDisplayName(user);
+    if (!mainAppStarted) {
+      mainAppInit();
+      mainAppStarted = true;
+    }
+    setActiveAppTab("session");
+    showSessionHomeScreen();
     try {
       await renderHome();
     } catch (err) {
       console.error("[Session] renderHome failed after login (non-blocking):", err);
     }
+    showMainApp();
+    lastActivatedUserId = uid;
+    console.log("[Auth] login success — main app visible for user:", uid);
+  } finally {
+    hideAppSpinner();
   }
 }
 
@@ -3933,6 +3987,7 @@ function wireAuthUi() {
       setAuthMessage("Enter email and password.");
       return;
     }
+    showAppSpinner({ opaque: true });
     if (submitBtn) {
       submitBtn.disabled = true;
       submitBtn.textContent = "Signing in…";
@@ -3940,6 +3995,7 @@ function wireAuthUi() {
     let requestSettled = false;
     const loginWatchdogId = setTimeout(() => {
       if (requestSettled) return;
+      hideAppSpinner();
       if (submitBtn) {
         submitBtn.disabled = false;
         submitBtn.textContent = "Log in";
@@ -4002,6 +4058,7 @@ function wireAuthUi() {
     } finally {
       requestSettled = true;
       clearTimeout(loginWatchdogId);
+      hideAppSpinner();
       if (submitBtn) {
         submitBtn.disabled = false;
         submitBtn.textContent = "Log in";
@@ -4054,62 +4111,67 @@ function wireAuthUi() {
 
 async function bootstrap() {
   setAuthDebugStep("bootstrap_start");
-  purgeLegacyLocalStorageKeysOnce();
-  const initialHash = window.location.hash || "";
-  const initialSearch = window.location.search || "";
-  const looksLikeRecovery =
-    /type=recovery|type%3Drecovery/i.test(initialHash) ||
-    /type=recovery|type%3Drecovery/i.test(initialSearch);
-  if (looksLikeRecovery) {
-    passwordRecoveryPending = true;
-  }
-
-  consumeAuthHashErrors();
-
-  wireOverlayScrollbars();
-  wireAuthUi();
-
-  supabase.auth.onAuthStateChange((event, session) => {
-    void handleAuthStateChange(event, session);
-  });
-
-  const sessionProbe = await withTimeout(supabase.auth.getSession(), 6000);
-  const session =
-    sessionProbe && !(typeof sessionProbe === "object" && "timedOut" in sessionProbe)
-      ? sessionProbe.data?.session ?? null
-      : null;
-  if (sessionProbe && typeof sessionProbe === "object" && "timedOut" in sessionProbe) {
-    console.warn("[Auth] bootstrap getSession timed out — showing login gate");
-    setAuthDebugStep("bootstrap_get_session_timeout");
-    showAuthGate();
-    if (passwordRecoveryPending) {
-      showAuthPanel("auth-reset-password");
-      setAuthMessage("");
+  showAppSpinner({ opaque: true });
+  try {
+    purgeLegacyLocalStorageKeysOnce();
+    const initialHash = window.location.hash || "";
+    const initialSearch = window.location.search || "";
+    const looksLikeRecovery =
+      /type=recovery|type%3Drecovery/i.test(initialHash) ||
+      /type=recovery|type%3Drecovery/i.test(initialSearch);
+    if (looksLikeRecovery) {
+      passwordRecoveryPending = true;
     }
-    return;
-  }
-  if (session?.user) {
-    setAuthDebugStep("bootstrap_session_found");
-    console.log("[Auth] bootstrap session found — user id:", session.user.id);
-    if (passwordRecoveryPending || sessionIsPasswordRecovery(session)) {
-      showPasswordRecoveryUi();
+
+    consumeAuthHashErrors();
+
+    wireOverlayScrollbars();
+    wireAuthUi();
+
+    supabase.auth.onAuthStateChange((event, session) => {
+      void handleAuthStateChange(event, session);
+    });
+
+    const sessionProbe = await withTimeout(supabase.auth.getSession(), 6000);
+    const session =
+      sessionProbe && !(typeof sessionProbe === "object" && "timedOut" in sessionProbe)
+        ? sessionProbe.data?.session ?? null
+        : null;
+    if (sessionProbe && typeof sessionProbe === "object" && "timedOut" in sessionProbe) {
+      console.warn("[Auth] bootstrap getSession timed out — showing login gate");
+      setAuthDebugStep("bootstrap_get_session_timeout");
+      showAuthGate();
+      if (passwordRecoveryPending) {
+        showAuthPanel("auth-reset-password");
+        setAuthMessage("");
+      }
+      return;
+    }
+    if (session?.user) {
+      setAuthDebugStep("bootstrap_session_found");
+      console.log("[Auth] bootstrap session found — user id:", session.user.id);
+      if (passwordRecoveryPending || sessionIsPasswordRecovery(session)) {
+        showPasswordRecoveryUi();
+      } else {
+        try {
+          await activateSignedInUser(session.user);
+        } catch (err) {
+          console.error("[Auth] bootstrap activateSignedInUser failed:", err);
+          showAuthGate();
+          setAuthMessage("App startup failed. Try signing in again.");
+        }
+      }
     } else {
-      try {
-        await activateSignedInUser(session.user);
-      } catch (err) {
-        console.error("[Auth] bootstrap activateSignedInUser failed:", err);
-        showAuthGate();
-        setAuthMessage("App startup failed. Try signing in again.");
+      setAuthDebugStep("bootstrap_no_session");
+      console.log("[Auth] bootstrap — no existing session");
+      showAuthGate();
+      if (passwordRecoveryPending) {
+        showAuthPanel("auth-reset-password");
+        setAuthMessage("");
       }
     }
-  } else {
-    setAuthDebugStep("bootstrap_no_session");
-    console.log("[Auth] bootstrap — no existing session");
-    showAuthGate();
-    if (passwordRecoveryPending) {
-      showAuthPanel("auth-reset-password");
-      setAuthMessage("");
-    }
+  } finally {
+    hideAppSpinner();
   }
 }
 
@@ -4256,7 +4318,7 @@ function mainAppInit() {
 
   document.getElementById("btn-toggle-anglers")?.addEventListener("click", () => {
     homeAnglersExpanded = !homeAnglersExpanded;
-    syncHomeAnglersToggleUi();
+    syncHomeAnglersToggleUi(true);
   });
 
   document.getElementById("btn-show-catches")?.addEventListener("click", () => {
@@ -4523,9 +4585,6 @@ function mainAppInit() {
     syncCatchesSessionMenuUi();
   });
 
-  void renderHome().catch((err) => {
-    console.error("[Session] renderHome failed on init (non-blocking):", err);
-  });
 }
 
 void bootstrap().catch((err) => {

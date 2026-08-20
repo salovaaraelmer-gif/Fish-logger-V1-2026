@@ -1623,6 +1623,10 @@ textarea {
   background: rgba(13, 17, 23, 0.55);
 }
 
+.app-spinner.is-opaque {
+  background: var(--bg);
+}
+
 .app-spinner.hidden {
   display: none !important;
 }

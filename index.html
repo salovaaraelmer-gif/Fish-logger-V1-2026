@@ -169,7 +169,7 @@
                 aria-label="Session title"
               />
             </div>
-            <p class="meta" id="session-meta">Loading…</p>
+            <p class="meta" id="session-meta" hidden></p>
           </header>
 
           <section id="screen-home" class="screen is-visible">
@@ -188,7 +188,9 @@
               <button type="button" class="btn btn-danger" id="btn-end-session">End session</button>
             </div>
 
-            <button type="button" class="btn" id="btn-toggle-anglers" aria-expanded="false">Show participants</button>
+            <button type="button" class="btn hidden" id="btn-toggle-anglers" aria-expanded="false">
+              Show participants
+            </button>
 
             <div id="angler-edit-panel" class="stack angler-edit-panel hidden">
               <h2>Participants</h2>

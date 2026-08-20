@@ -9,11 +9,16 @@ function spinnerEl() {
   return document.getElementById("app-spinner");
 }
 
-export function showAppSpinner() {
+/**
+ * @param {{ opaque?: boolean }} [options]
+ */
+export function showAppSpinner(options = {}) {
   spinnerDepth += 1;
   const el = spinnerEl();
-  el?.classList.remove("hidden");
-  el?.setAttribute("aria-busy", "true");
+  if (!el) return;
+  el.classList.remove("hidden");
+  el.setAttribute("aria-busy", "true");
+  if (options.opaque) el.classList.add("is-opaque");
 }
 
 export function hideAppSpinner() {
@@ -21,6 +26,7 @@ export function hideAppSpinner() {
   if (spinnerDepth > 0) return;
   const el = spinnerEl();
   el?.classList.add("hidden");
+  el?.classList.remove("is-opaque");
   el?.setAttribute("aria-busy", "false");
 }
 
@@ -28,6 +34,7 @@ export function resetAppSpinner() {
   spinnerDepth = 0;
   const el = spinnerEl();
   el?.classList.add("hidden");
+  el?.classList.remove("is-opaque");
   el?.setAttribute("aria-busy", "false");
 }
 
