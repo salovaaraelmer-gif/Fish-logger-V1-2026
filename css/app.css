@@ -40,6 +40,44 @@ body {
   overflow: hidden;
 }
 
+/* Overlay scrollbar: no arrow buttons; thumb only while .is-scrolling */
+* {
+  scrollbar-width: none;
+}
+
+*.is-scrolling {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(139, 148, 158, 0.7) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+*::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background-color: transparent;
+  border-radius: 99px;
+}
+
+*.is-scrolling::-webkit-scrollbar-thumb {
+  background-color: rgba(139, 148, 158, 0.55);
+}
+
 #app {
   max-width: 520px;
   margin: 0 auto;
@@ -82,7 +120,7 @@ body {
   gap: 0.15rem;
   border-top: 1px solid var(--border);
   background: var(--surface);
-  padding: 0.2rem 0.25rem calc(0.2rem + env(safe-area-inset-bottom, 0px));
+  padding: 0.25rem 0.2rem calc(0.25rem + env(safe-area-inset-bottom, 0px));
   z-index: 40;
 }
 
@@ -91,19 +129,26 @@ body {
   margin: 0;
   padding: 0.35rem 0.2rem;
   border: none;
-  border-radius: 10px;
+  border-radius: 12px;
   background: transparent;
   color: var(--muted);
-  font: inherit;
-  font-size: 0.82rem;
-  font-weight: 650;
   cursor: pointer;
   width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.app-nav-icon {
+  width: 1.65rem;
+  height: 1.65rem;
+  display: block;
+  flex-shrink: 0;
+  pointer-events: none;
 }
 
 .app-nav-btn.is-active {
   color: var(--accent);
-  background: rgba(63, 185, 80, 0.12);
 }
 
 .app-nav-btn:focus-visible {

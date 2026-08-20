@@ -82,7 +82,7 @@ import {
   profileDisplayLabel,
 } from "./supabaseProfile.js";
 import { closeProfileOverlay, fillProfileFields, wireProfileUi } from "./profileUI.js";
-import { closeMenuSheet, setActiveAppTab, wireAppTabs } from "./appTabs.js";
+import { closeMenuSheet, setActiveAppTab, wireAppTabs, wireOverlayScrollbars } from "./appTabs.js";
 import {
   catchRecordToSupabasePayload,
   insertSupabaseCatch,
@@ -4036,6 +4036,7 @@ async function bootstrap() {
 
   consumeAuthHashErrors();
 
+  wireOverlayScrollbars();
   wireAuthUi();
 
   supabase.auth.onAuthStateChange((event, session) => {

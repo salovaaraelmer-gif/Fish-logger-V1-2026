@@ -224,17 +224,49 @@
       </div>
 
       <nav id="app-bottom-nav" class="app-bottom-nav" aria-label="Main">
-        <button type="button" class="app-nav-btn" id="nav-feed" data-tab="feed">
-          Feed
+        <button type="button" class="app-nav-btn" id="nav-feed" data-tab="feed" aria-label="Feed">
+          <svg class="app-nav-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <circle cx="5.5" cy="6" r="1.7" fill="currentColor" />
+            <path d="M10 6h9" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" />
+            <circle cx="5.5" cy="12" r="1.7" fill="currentColor" />
+            <path d="M10 12h9" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" />
+            <circle cx="5.5" cy="18" r="1.7" fill="currentColor" />
+            <path d="M10 18h9" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" />
+          </svg>
         </button>
-        <button type="button" class="app-nav-btn is-active" id="nav-session" data-tab="session" aria-current="page">
-          Session
+        <button type="button" class="app-nav-btn is-active" id="nav-session" data-tab="session" aria-current="page" aria-label="Session">
+          <svg class="app-nav-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path
+              d="M3 12s3.2-6.2 8.7-6.2c4.2 0 6.6 3.4 8.3 6.2-1.7 2.8-4.1 6.2-8.3 6.2C6.2 18.2 3 12 3 12Z"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.75"
+              stroke-linejoin="round"
+            />
+            <path d="M3 12 1 8.6v6.8L3 12Z" fill="currentColor" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round" />
+            <circle cx="15.4" cy="11.1" r="1.05" fill="currentColor" />
+            <path d="M10.2 12.4c.55 1.15 1.6 1.95 2.85 2.25" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+          </svg>
         </button>
-        <button type="button" class="app-nav-btn" id="nav-profile" data-tab="profile">
-          Profile
+        <button type="button" class="app-nav-btn" id="nav-profile" data-tab="profile" aria-label="Profile">
+          <svg class="app-nav-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <circle cx="12" cy="12" r="8.25" fill="none" stroke="currentColor" stroke-width="1.75" />
+            <circle cx="12" cy="9.1" r="2.55" fill="none" stroke="currentColor" stroke-width="1.75" />
+            <path
+              d="M6.85 18.15c.95-2.7 2.95-4.05 5.15-4.05s4.2 1.35 5.15 4.05"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.75"
+              stroke-linecap="round"
+            />
+          </svg>
         </button>
-        <button type="button" class="app-nav-btn" id="nav-menu" aria-haspopup="dialog" aria-controls="menu-sheet" aria-expanded="false">
-          Menu
+        <button type="button" class="app-nav-btn" id="nav-menu" aria-label="Menu" aria-haspopup="dialog" aria-controls="menu-sheet" aria-expanded="false">
+          <svg class="app-nav-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="M4.5 7h15" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" />
+            <path d="M4.5 12h15" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" />
+            <path d="M4.5 17h15" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" />
+          </svg>
         </button>
       </nav>
     </div>
