@@ -198,26 +198,32 @@
           hidden
         >
           <h1 class="app-tab-title">Profile</h1>
-          <div class="stack profile-fields">
-            <div>
-              <div class="field-label">Name</div>
-              <p id="profile-display-name" class="profile-value">—</p>
+          <details class="profile-info">
+            <summary class="profile-info-toggle">Profile info</summary>
+            <div class="stack profile-fields">
+              <div>
+                <div class="field-label">Name</div>
+                <p id="profile-display-name" class="profile-value">—</p>
+              </div>
+              <div>
+                <div class="field-label">Username</div>
+                <p id="profile-username" class="profile-value">—</p>
+              </div>
+              <div>
+                <div class="field-label">Email</div>
+                <p id="profile-email" class="profile-value">—</p>
+              </div>
+              <div>
+                <div class="field-label">Account created</div>
+                <p id="profile-created-at" class="profile-value">—</p>
+              </div>
             </div>
-            <div>
-              <div class="field-label">Username</div>
-              <p id="profile-username" class="profile-value">—</p>
-            </div>
-            <div>
-              <div class="field-label">Email</div>
-              <p id="profile-email" class="profile-value">—</p>
-            </div>
-          </div>
+          </details>
           <section id="history-section" class="stack history-section" aria-labelledby="history-heading">
             <h2 id="history-heading">History</h2>
             <p class="meta" id="history-empty" hidden>No ended sessions.</p>
             <div id="history-session-list" class="stack history-session-list"></div>
           </section>
-          <button type="button" class="btn btn-danger profile-logout-btn" id="profile-logout">Log out</button>
         </section>
       </div>
 
@@ -286,6 +292,7 @@
         </div>
         <h2 id="menu-sheet-title">Menu</h2>
         <p class="meta">Settings such as layout preference will live here later.</p>
+        <button type="button" class="btn btn-danger menu-logout-btn" id="menu-logout">Log out</button>
       </div>
     </div>
 

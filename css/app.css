@@ -976,14 +976,52 @@ textarea {
   word-break: break-word;
 }
 
-.profile-fields {
-  margin-bottom: 0;
+.profile-info {
+  margin: 0 0 0.25rem;
 }
 
-.profile-logout-btn {
+.profile-info-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  min-height: var(--tap-min);
+  margin: 0;
+  padding: 0.35rem 0;
+  list-style: none;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 650;
+  color: var(--text);
+}
+
+.profile-info-toggle::-webkit-details-marker {
+  display: none;
+}
+
+.profile-info-toggle::after {
+  content: "";
+  width: 0.45rem;
+  height: 0.45rem;
+  flex-shrink: 0;
+  border-right: 2px solid var(--muted);
+  border-bottom: 2px solid var(--muted);
+  transform: rotate(45deg);
+  transition: transform 0.15s ease;
+}
+
+.profile-info[open] .profile-info-toggle::after {
+  transform: rotate(225deg);
+  translate: 0 0.15rem;
+}
+
+.profile-fields {
+  padding: 0.25rem 0 0.5rem;
+}
+
+.menu-logout-btn {
   width: 100%;
   min-height: var(--tap-min);
-  margin-top: 1.25rem;
 }
 
 #fish-overlay {
