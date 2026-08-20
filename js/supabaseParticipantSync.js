@@ -12,72 +12,14 @@ import {
   getCatchesForSession,
 } from "./db.js";
 import { fetchSessionAnglerIdBySessionAndUser } from "./legacyAnglers.js";
+import {
+  CATCH_CLOUD_SELECT_COLUMNS,
+  cloudCatchRowToLocal,
+  isUuid,
+} from "./catchRecordMap.js";
 
 function newLocalId() {
   return crypto.randomUUID ? crypto.randomUUID() : `id-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-}
-
-/** @param {unknown} s */
-function mapSpeciesFromDb(s) {
-  const k = typeof s === "string" ? s : "";
-  if (["pike", "perch", "zander", "trout", "other"].includes(k)) return k;
-  return "other";
-}
-
-/** @param {unknown} v */
-function numOrNull(v) {
-  if (v == null) return null;
-  const n = Number(v);
-  return Number.isFinite(n) ? n : null;
-}
-
-/**
- * @param {Record<string, unknown>} row
- * @param {string} localSessionId
- * @param {string} anglerProfileId
- * @param {string} localCatchId
- * @returns {import('./db.js').CatchRecord}
- */
-function cloudCatchRowToLocal(row, localSessionId, anglerProfileId, localCatchId) {
-  const caughtAt = row.caught_at;
-  let ts = Date.now();
-  if (typeof caughtAt === "string") {
-    const t = new Date(caughtAt).getTime();
-    if (Number.isFinite(t)) ts = t;
-  }
-  const lenRaw = numOrNull(row.length_cm);
-  const len =
-    lenRaw != null && lenRaw >= 1 ? Math.round(lenRaw) : null;
-  const wRaw = numOrNull(row.weight_kg);
-  const w = wRaw != null && wRaw > 0 ? wRaw : null;
-  const sbId = typeof row.id === "string" ? row.id : null;
-  return {
-    id: localCatchId,
-    sessionId: localSessionId,
-    anglerId: anglerProfileId,
-    timestamp: ts,
-    species: mapSpeciesFromDb(row.species),
-    length: len,
-    weight_kg: w,
-    notes: typeof row.notes === "string" ? row.notes : "",
-    depth_m: numOrNull(row.depth_m),
-    water_temp_c: numOrNull(row.water_temp_c),
-    location_lat: numOrNull(row.location_lat),
-    location_lng: numOrNull(row.location_lng),
-    location_accuracy_m: numOrNull(row.location_accuracy_m),
-    location_timestamp:
-      row.location_timestamp != null && Number.isFinite(Number(row.location_timestamp))
-        ? Number(row.location_timestamp)
-        : null,
-    depth_source: typeof row.depth_source === "string" ? row.depth_source : null,
-    water_temp_source: typeof row.water_temp_source === "string" ? row.water_temp_source : null,
-    location_source: typeof row.location_source === "string" ? row.location_source : null,
-    weather_summary: typeof row.weather_summary === "string" ? row.weather_summary : null,
-    air_temp_c: numOrNull(row.air_temp_c),
-    wind_speed_ms: numOrNull(row.wind_speed_ms),
-    wind_direction_deg: numOrNull(row.wind_direction_deg),
-    supabase_id: sbId,
-  };
 }
 
 /**
@@ -126,9 +68,7 @@ export async function pullSessionRosterAndCatchesFromCloud(localSessionId, cloud
 
   const catchesRes = await supabase
     .from("catches")
-    .select(
-      "id, angler_id, species, length_cm, weight_kg, depth_m, water_temp_c, notes, caught_at, location_lat, location_lng, location_accuracy_m, location_timestamp, depth_source, water_temp_source, location_source, weather_summary, air_temp_c, wind_speed_ms, wind_direction_deg"
-    )
+    .select(CATCH_CLOUD_SELECT_COLUMNS)
     .eq("session_id", cloudSessionId);
 
   if (catchesRes.error) {
@@ -161,9 +101,14 @@ export async function pullSessionRosterAndCatchesFromCloud(localSessionId, cloud
   const existingCatches = await getCatchesForSession(localSessionId);
   /** @type {Map<string, import('./db.js').CatchRecord>} */
   const bySupabaseId = new Map();
+  /** @type {Map<string, import('./db.js').CatchRecord>} */
+  const byClientEventId = new Map();
   for (const c of existingCatches) {
     if (typeof c.supabase_id === "string" && c.supabase_id) {
       bySupabaseId.set(c.supabase_id, c);
+    }
+    if (isUuid(c.client_event_id)) {
+      byClientEventId.set(c.client_event_id, c);
     }
   }
 
@@ -177,11 +122,18 @@ export async function pullSessionRosterAndCatchesFromCloud(localSessionId, cloud
     const profileId = profileIdByAnglersPk.get(anglerFk);
     if (!profileId) continue;
 
-    const prev = bySupabaseId.get(sbId);
+    const eventId = isUuid(row.client_event_id) ? row.client_event_id : null;
+    const prev = bySupabaseId.get(sbId) || (eventId ? byClientEventId.get(eventId) : undefined);
     const localId = prev?.id ?? newLocalId();
     const rec = cloudCatchRowToLocal(row, localSessionId, profileId, localId);
+    if (prev && isUuid(prev.client_event_id) && !isUuid(row.client_event_id)) {
+      rec.client_event_id = prev.client_event_id;
+    }
     await putCatch(rec);
     bySupabaseId.set(sbId, rec);
+    if (isUuid(rec.client_event_id)) {
+      byClientEventId.set(rec.client_event_id, rec);
+    }
   }
 
   return { ok: true };

@@ -33,3 +33,4 @@ The same expectation is encoded for Cursor in **`.cursor/rules/supabase-sql-summ
 | `SUPABASE_CATCHES_SCHEMA.md` | `catches` columns and examples |
 | `SUPABASE_AUTH_RLS.md` | Auth / RLS notes (if present) |
 | `docs/SUPABASE_SESSION_LOCATIONS_TARGETS.md` | Session locations, target species, `started_at`, GRANTs |
+| `supabase/migrations/20260820120000_catches_handheld_prep.sql` | Catch `source`, `device_id`, `client_event_id`, salmon species CHECK |

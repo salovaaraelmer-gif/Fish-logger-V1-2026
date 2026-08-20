@@ -21,6 +21,9 @@ const HEADERS = [
   "air_temp_c",
   "wind_speed_ms",
   "wind_direction_deg",
+  "source",
+  "device_id",
+  "client_event_id",
 ];
 
 /**
@@ -91,6 +94,9 @@ export function buildSessionCatchesCsv(catches, meta = {}) {
       numField(c.air_temp_c),
       numField(c.wind_speed_ms),
       numField(c.wind_direction_deg),
+      escapeField(c.source ?? ""),
+      escapeField(c.device_id ?? ""),
+      escapeField(c.client_event_id ?? ""),
     ];
     lines.push(row.join(","));
   }

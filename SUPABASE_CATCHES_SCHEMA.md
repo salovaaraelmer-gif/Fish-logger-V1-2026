@@ -1,11 +1,12 @@
 # Supabase `catches` table — sync with the app
 
-The app stores the remote row UUID on each local catch as **`supabase_id`** (IndexedDB `CatchRecord`, DB version **4**).
+The app stores the remote row UUID on each local catch as **`supabase_id`** (IndexedDB `CatchRecord`, DB version **7**).
 
 ## IndexedDB
 
-- Opening the app upgrades **`FishLoggerV1`** to version **4**.
-- Existing catch rows get **`supabase_id: null`** until a new catch is synced or you re-log catches.
+- Opening the app upgrades **`FishLoggerV1`** to version **7**.
+- Version **7** backfills existing local catches with `source = 'phone'`, `device_id = null`, and a one-time `client_event_id`.
+- Handheld-origin columns are applied in `supabase/migrations/20260820120000_catches_handheld_prep.sql`.
 
 ## Required `public.catches` columns
 
@@ -17,7 +18,7 @@ The client sends **snake_case** fields aligned with local names. Ensure your tab
 | `user_id` | `uuid` | Owner; FK to `auth.users`, must equal `auth.uid()` (see `SUPABASE_AUTH_RLS.md`) |
 | `session_id` | `uuid` | FK to your sessions table |
 | `angler_id` | `uuid` | FK to **`public.anglers`** (`id`). Rows are **session-scoped**: same user gets a new `anglers` row per session (`session_id` + `user_id`). The app creates those rows when the cloud session starts and resolves by **`session_id` + `user_id`**, not by `user_id` alone. |
-| `species` | `text` | App sends `pike`, `perch`, `zander`, `trout`, `other` (same as internal keys) |
+| `species` | `text` | App sends `pike`, `perch`, `zander`, `trout`, `salmon`, `other` (same as internal keys). CHECK `catches_species_allowed`. |
 | `length_cm` | `numeric` | Nullable |
 | `weight_kg` | `numeric` | Kilograms, nullable |
 | `depth_m` | `numeric` | Nullable |
@@ -35,6 +36,9 @@ The client sends **snake_case** fields aligned with local names. Ensure your tab
 | `air_temp_c` | `numeric` | Nullable |
 | `wind_speed_ms` | `numeric` | Nullable |
 | `wind_direction_deg` | `numeric` | Nullable |
+| `source` | `text NOT NULL` | Catch origin. Default `'phone'`. CHECK `phone` \| `handheld`. Phone save always sends `'phone'`. |
+| `device_id` | `text` | Handheld device id. **NULL** for phone-created catches. |
+| `client_event_id` | `uuid NOT NULL` | Idempotency key generated once at create. UNIQUE. Retries reuse this value. |
 
 ## Example: add missing columns (PostgreSQL)
 
@@ -89,7 +93,7 @@ alter table public.catches
   );
 ```
 
-If your constraint used different spellings (e.g. Finnish `muu` instead of `other`), either include those strings in the `in (...)` list or change the mapping in `js/app.js` (`SPECIES_KEY_TO_SUPABASE`) to match.
+If your constraint used different spellings (e.g. Finnish `muu` instead of `other`), either include those strings in the `in (...)` list or change the species list in `js/catchSpecies.js` to match.
 
 ## Old local catches
 

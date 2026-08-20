@@ -3,11 +3,18 @@
  * @module db
  */
 
+import {
+  isUuid,
+  newClientEventId,
+  normalizeCatchSource,
+  normalizeDeviceId,
+} from "./catchRecordMap.js";
+
 /** Base name; each user gets a separate DB: `${DB_NAME_BASE}_${userId}` (logical `sessions_${userId}` etc.). */
 const DB_NAME_BASE = "FishLoggerV1";
 /** Pre–user-scoping database; removed on startup after login. */
 const LEGACY_DB_NAME = "FishLoggerV1";
-const DB_VERSION = 6;
+const DB_VERSION = 7;
 
 /** @type {string | null} */
 let scopedUserId = null;
@@ -107,6 +114,9 @@ export function clearUserIndexedDb() {
  *   wind_speed_ms: number | null,
  *   wind_direction_deg: number | null,
  *   supabase_id: string | null,
+ *   source: "phone" | "handheld",
+ *   device_id: string | null,
+ *   client_event_id: string,
  * }} CatchRecord
  */
 /** @typedef {{ id: string, userId: string, name: string, userNumber: number, supabaseId?: string | null }} UserFishingLocation */
@@ -127,6 +137,7 @@ function migrateCatchV1ToV2(c) {
       ...rest,
       weight_kg: typeof raw.weight_kg === "number" ? raw.weight_kg : null,
       supabase_id: typeof raw.supabase_id === "string" && raw.supabase_id ? raw.supabase_id : null,
+      ...originFieldsForLocalCatch(raw),
     });
   }
   const lat = c.gps?.lat ?? null;
@@ -157,6 +168,22 @@ function migrateCatchV1ToV2(c) {
     wind_speed_ms: null,
     wind_direction_deg: null,
     supabase_id: null,
+    source: "phone",
+    device_id: null,
+    client_event_id: isUuid(c.client_event_id) ? c.client_event_id : newClientEventId(),
+  };
+}
+
+/**
+ * @param {Record<string, unknown>} raw
+ * @returns {Pick<CatchRecord, "source" | "device_id" | "client_event_id">}
+ */
+function originFieldsForLocalCatch(raw) {
+  const source = normalizeCatchSource(raw.source);
+  return {
+    source,
+    device_id: normalizeDeviceId(source, raw.device_id),
+    client_event_id: isUuid(raw.client_event_id) ? raw.client_event_id : newClientEventId(),
   };
 }
 
@@ -268,6 +295,26 @@ function openDb() {
           const st = db.createObjectStore("sessionTargetSpecies", { keyPath: "id" });
           st.createIndex("bySession", "sessionId", { unique: false });
         }
+      }
+
+      if (oldVersion < 7 && db.objectStoreNames.contains("catches")) {
+        const tx = /** @type {IDBTransaction} */ (e.target.transaction);
+        const store = tx.objectStore("catches");
+        const curReq = store.openCursor();
+        curReq.onsuccess = (ev) => {
+          const cursor = /** @type {IDBCursorWithValue | null} */ (ev.target.result);
+          if (!cursor) return;
+          const row = /** @type {Record<string, unknown>} */ (cursor.value);
+          const origin = originFieldsForLocalCatch(row);
+          if (
+            row.source !== origin.source ||
+            row.device_id !== origin.device_id ||
+            row.client_event_id !== origin.client_event_id
+          ) {
+            cursor.update({ ...row, ...origin });
+          }
+          cursor.continue();
+        };
       }
     };
   });
@@ -391,8 +438,15 @@ export async function putSessionAngler(sa) {
  */
 export async function putCatch(c) {
   const db = await openDb();
+  const row = {
+    ...c,
+    ...originFieldsForLocalCatch(/** @type {Record<string, unknown>} */ (c)),
+  };
+  if (isUuid(c.client_event_id)) {
+    row.client_event_id = c.client_event_id;
+  }
   return new Promise((resolve, reject) => {
-    const r = db.transaction("catches", "readwrite").objectStore("catches").put(c);
+    const r = db.transaction("catches", "readwrite").objectStore("catches").put(row);
     r.onerror = () => reject(r.error);
     r.onsuccess = () => resolve();
   });
@@ -410,6 +464,28 @@ export async function getCatchById(id) {
     r.onsuccess = () => {
       const row = r.result;
       resolve(row ? migrateCatchV1ToV2(row) : null);
+    };
+  });
+}
+
+/**
+ * Lookup by the persistent idempotency key. Used so retries do not create a second local row.
+ *
+ * @param {unknown} clientEventId
+ * @returns {Promise<CatchRecord | null>}
+ */
+export async function getCatchByClientEventId(clientEventId) {
+  if (!isUuid(clientEventId)) return null;
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const r = db.transaction("catches", "readonly").objectStore("catches").getAll();
+    r.onerror = () => reject(r.error);
+    r.onsuccess = () => {
+      const list = r.result || [];
+      const found = list
+        .map((row) => migrateCatchV1ToV2(row))
+        .find((c) => c.client_event_id === clientEventId);
+      resolve(found || null);
     };
   });
 }

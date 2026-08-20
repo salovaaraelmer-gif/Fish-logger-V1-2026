@@ -13,9 +13,16 @@ import {
 import { newId } from "./sessionService.js";
 import { fetchOpenMeteoCurrent } from "./weatherService.js";
 import { hideAppSpinner, showAppSpinner } from "./appSpinner.js";
+import { SPECIES_OPTIONS } from "./catchSpecies.js";
+import {
+  CATCH_SOURCE_PHONE,
+  ensureClientEventId,
+  newClientEventId,
+  normalizeCatchSource,
+  normalizeDeviceId,
+} from "./catchRecordMap.js";
 
-/** @type {readonly string[]} */
-export const SPECIES_OPTIONS = ["pike", "perch", "zander", "trout", "salmon", "other"];
+export { SPECIES_OPTIONS };
 
 /**
  * Length (cm): optional; if set, whole number greater than 0.
@@ -195,6 +202,9 @@ export async function saveCatch(input, deviceLoc) {
     wind_speed_ms: null,
     wind_direction_deg: null,
     supabase_id: null,
+    source: CATCH_SOURCE_PHONE,
+    device_id: null,
+    client_event_id: newClientEventId(),
   };
 
   applyLocationFields(record, deviceLoc);
@@ -306,6 +316,7 @@ export async function updateCatch(input, deviceLoc, existing) {
     return { ok: false, reason: "Weight: empty or a positive number (kg)." };
   }
 
+  const source = normalizeCatchSource(existing.source);
   /** @type {import('./db.js').CatchRecord} */
   const record = {
     ...existing,
@@ -318,6 +329,9 @@ export async function updateCatch(input, deviceLoc, existing) {
     water_temp_c: input.water_temp_c,
     depth_source: input.depth_m != null ? "manual" : null,
     water_temp_source: input.water_temp_c != null ? "manual" : null,
+    source,
+    device_id: normalizeDeviceId(source, existing.device_id),
+    client_event_id: ensureClientEventId(existing.client_event_id),
   };
 
   applyLocationFields(record, deviceLoc);

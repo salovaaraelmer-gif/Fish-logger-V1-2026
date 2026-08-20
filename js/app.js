@@ -63,6 +63,7 @@ import {
   parseOptionalWaterTempC,
   parseOptionalWeightKg,
 } from "./catchService.js";
+import { isAllowedSpecies } from "./catchSpecies.js";
 import { supabase } from "./supabase.js";
 import {
   getDisplayNameFromUser,
@@ -131,24 +132,11 @@ const SPECIES_LABELS = {
 
 /**
  * App species key → value stored in `public.catches.species`.
- * Must match your DB (including any CHECK on `species`). See `SUPABASE_CATCHES_SCHEMA.md`.
- */
-const SPECIES_KEY_TO_SUPABASE = {
-  pike: "pike",
-  perch: "perch",
-  zander: "zander",
-  trout: "trout",
-  salmon: "salmon",
-  other: "other",
-};
-
-/**
- * @param {string | null | undefined} speciesKey
- * @returns {string | null}
+ * Must match SPECIES_OPTIONS and the DB CHECK on `species`.
  */
 function mapSpeciesKeyToSupabaseSpecies(speciesKey) {
-  if (!speciesKey) return null;
-  return SPECIES_KEY_TO_SUPABASE[speciesKey] ?? null;
+  if (!isAllowedSpecies(speciesKey)) return null;
+  return speciesKey;
 }
 
 /** Shown after the session host’s display name in roster, live stats, history, and catch lists. */

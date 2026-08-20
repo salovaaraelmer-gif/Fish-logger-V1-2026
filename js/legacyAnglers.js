@@ -31,6 +31,56 @@ export async function fetchSessionAnglerIdBySessionAndUser(cloudSessionId, userI
 }
 
 /**
+ * Resolve the session-scoped `public.anglers` row for a handheld catch.
+ * Prefer `anglers.id`; fall back to (`session_id`, `user_id`) if the payload
+ * sent a profile id. Cloud inserts must use `anglers.id`, never the profile id.
+ *
+ * @param {unknown} cloudSessionId
+ * @param {unknown} anglerIdOrUserId
+ * @returns {Promise<{ id: string, user_id: string, session_id: string } | null>}
+ */
+export async function fetchAnglerForHandheldCatch(cloudSessionId, anglerIdOrUserId) {
+  if (typeof cloudSessionId !== "string" || !cloudSessionId) return null;
+  if (typeof anglerIdOrUserId !== "string" || !anglerIdOrUserId) return null;
+
+  const byPk = await supabase
+    .from("anglers")
+    .select("id, user_id, session_id")
+    .eq("id", anglerIdOrUserId)
+    .maybeSingle();
+  if (!byPk.error && byPk.data && typeof byPk.data.id === "string") {
+    if (byPk.data.session_id === cloudSessionId && typeof byPk.data.user_id === "string") {
+      return {
+        id: byPk.data.id,
+        user_id: byPk.data.user_id,
+        session_id: byPk.data.session_id,
+      };
+    }
+  }
+
+  const bySessionUser = await supabase
+    .from("anglers")
+    .select("id, user_id, session_id")
+    .eq("session_id", cloudSessionId)
+    .eq("user_id", anglerIdOrUserId)
+    .maybeSingle();
+  if (
+    !bySessionUser.error &&
+    bySessionUser.data &&
+    typeof bySessionUser.data.id === "string" &&
+    typeof bySessionUser.data.user_id === "string" &&
+    typeof bySessionUser.data.session_id === "string"
+  ) {
+    return {
+      id: bySessionUser.data.id,
+      user_id: bySessionUser.data.user_id,
+      session_id: bySessionUser.data.session_id,
+    };
+  }
+  return null;
+}
+
+/**
  * Creates one `public.anglers` row per participant after the cloud session exists.
  * @param {string} cloudSessionId
  * @param {{ user_id: string, name: string }[]} entries
