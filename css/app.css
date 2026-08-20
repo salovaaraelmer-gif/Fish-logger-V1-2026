@@ -994,6 +994,33 @@ textarea {
   padding: 0.25rem 0 0.5rem;
 }
 
+.menu-coming {
+  margin: 0 0 0.5rem;
+}
+
+.menu-coming-title {
+  margin: 0 0 0.35rem;
+  font-size: 0.9rem;
+  font-weight: 650;
+  color: var(--muted);
+}
+
+.menu-coming-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  min-height: var(--tap-min);
+  padding: 0.25rem 0;
+  border-bottom: 1px solid var(--border);
+  font-weight: 650;
+}
+
+.menu-coming-item .pill {
+  margin: 0;
+  flex-shrink: 0;
+}
+
 .menu-logout-btn {
   width: 100%;
   min-height: var(--tap-min);
