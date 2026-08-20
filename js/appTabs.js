@@ -3,10 +3,10 @@
  * @module appTabs
  */
 
-/** @typedef {"feed" | "session" | "profile"} AppTabId */
+/** @typedef {"feed" | "session" | "profile" | "menu"} AppTabId */
 
 /** @type {readonly AppTabId[]} */
-const APP_TABS = ["feed", "session", "profile"];
+const APP_TABS = ["feed", "session", "profile", "menu"];
 
 /** @type {AppTabId} */
 let activeTab = "session";
@@ -53,13 +53,7 @@ function isAppTabId(value) {
 }
 
 export function closeMenuSheet() {
-  document.getElementById("menu-sheet")?.classList.add("hidden");
-  document.getElementById("nav-menu")?.setAttribute("aria-expanded", "false");
-}
-
-export function openMenuSheet() {
-  document.getElementById("menu-sheet")?.classList.remove("hidden");
-  document.getElementById("nav-menu")?.setAttribute("aria-expanded", "true");
+  /* Menu is a tab now; kept so logout/sign-out paths stay valid. */
 }
 
 /**
@@ -67,7 +61,6 @@ export function openMenuSheet() {
  */
 export function setActiveAppTab(tab) {
   activeTab = tab;
-  closeMenuSheet();
 
   for (const id of APP_TABS) {
     const panel = document.getElementById(`tab-${id}`);
@@ -95,25 +88,12 @@ export function wireAppTabs(options = {}) {
   nav?.addEventListener("click", (e) => {
     const btn = e.target instanceof Element ? e.target.closest(".app-nav-btn") : null;
     if (!(btn instanceof HTMLElement) || !nav.contains(btn)) return;
-    if (btn.id === "nav-menu") {
-      const sheet = document.getElementById("menu-sheet");
-      if (sheet?.classList.contains("hidden")) openMenuSheet();
-      else closeMenuSheet();
-      return;
-    }
     const tab = btn.dataset.tab;
     if (!isAppTabId(tab)) return;
     setActiveAppTab(tab);
     if (typeof options.onTabChange === "function") {
       options.onTabChange(tab);
     }
-  });
-
-  document.getElementById("menu-sheet-close")?.addEventListener("click", () => {
-    closeMenuSheet();
-  });
-  document.getElementById("menu-sheet")?.addEventListener("click", (e) => {
-    if (e.target === e.currentTarget) closeMenuSheet();
   });
 
   setActiveAppTab(activeTab);

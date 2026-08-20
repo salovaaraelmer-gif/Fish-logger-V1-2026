@@ -225,6 +225,18 @@
             <div id="history-session-list" class="stack history-session-list"></div>
           </section>
         </section>
+
+        <section
+          id="tab-menu"
+          class="app-tab-panel"
+          role="tabpanel"
+          aria-labelledby="nav-menu"
+          hidden
+        >
+          <h1 class="app-tab-title">Menu</h1>
+          <p class="meta">Settings such as layout preference will live here later.</p>
+          <button type="button" class="btn btn-danger menu-logout-btn" id="menu-logout">Log out</button>
+        </section>
       </div>
 
       <nav id="app-bottom-nav" class="app-bottom-nav" aria-label="Main">
@@ -275,7 +287,7 @@
             />
           </svg>
         </button>
-        <button type="button" class="app-nav-btn" id="nav-menu" aria-label="Menu" aria-haspopup="dialog" aria-controls="menu-sheet" aria-expanded="false">
+        <button type="button" class="app-nav-btn" id="nav-menu" data-tab="menu" aria-label="Menu">
           <svg class="app-nav-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
             <path d="M4.5 7h15" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" />
             <path d="M4.5 12h15" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" />
@@ -283,17 +295,6 @@
           </svg>
         </button>
       </nav>
-    </div>
-
-    <div id="menu-sheet" class="hidden" role="dialog" aria-labelledby="menu-sheet-title" aria-modal="true">
-      <div class="menu-sheet-inner stack">
-        <div class="row-actions">
-          <button type="button" class="btn btn-ghost" id="menu-sheet-close">Close</button>
-        </div>
-        <h2 id="menu-sheet-title">Menu</h2>
-        <p class="meta">Settings such as layout preference will live here later.</p>
-        <button type="button" class="btn btn-danger menu-logout-btn" id="menu-logout">Log out</button>
-      </div>
     </div>
 
     <!-- Fish entry overlay -->

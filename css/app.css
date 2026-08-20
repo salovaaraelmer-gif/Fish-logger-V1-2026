@@ -156,31 +156,6 @@ body {
   outline-offset: 2px;
 }
 
-#menu-sheet {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.75);
-  z-index: 45;
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
-  padding: 1rem;
-  padding-bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
-}
-
-#menu-sheet.hidden {
-  display: none !important;
-}
-
-.menu-sheet-inner {
-  width: 100%;
-  max-width: 520px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 1rem;
-}
-
 h1 {
   font-size: 1.35rem;
   font-weight: 400;
@@ -1022,6 +997,7 @@ textarea {
 .menu-logout-btn {
   width: 100%;
   min-height: var(--tap-min);
+  margin-top: 1rem;
 }
 
 #fish-overlay {

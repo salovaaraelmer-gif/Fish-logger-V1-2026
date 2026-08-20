@@ -4,7 +4,6 @@
  */
 
 import { getDisplayNameFromUser, signOut } from "./auth.js";
-import { closeMenuSheet } from "./appTabs.js";
 import { supabase } from "./supabase.js";
 import { fetchProfileForUser } from "./supabaseProfile.js";
 
@@ -99,7 +98,6 @@ export function wireProfileUi(options = {}) {
   });
 
   logoutBtn?.addEventListener("click", async () => {
-    closeMenuSheet();
     const { error } = await signOut();
     if (error) {
       if (typeof options.onError === "function") {
