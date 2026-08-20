@@ -3,10 +3,10 @@
  * @module appTabs
  */
 
-/** @typedef {"feed" | "session" | "profile" | "menu"} AppTabId */
+/** @typedef {"feed" | "map" | "session" | "profile" | "menu"} AppTabId */
 
 /** @type {readonly AppTabId[]} */
-const APP_TABS = ["feed", "session", "profile", "menu"];
+const APP_TABS = ["feed", "map", "session", "profile", "menu"];
 
 /** @type {AppTabId} */
 let activeTab = "session";

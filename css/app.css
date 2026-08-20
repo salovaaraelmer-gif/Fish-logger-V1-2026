@@ -116,7 +116,7 @@ body {
 .app-bottom-nav {
   flex: 0 0 auto;
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   gap: 0.15rem;
   border-top: 1px solid var(--border);
   background: var(--surface);
@@ -140,8 +140,8 @@ body {
 }
 
 .app-nav-icon {
-  width: 1.65rem;
-  height: 1.65rem;
+  width: 1.55rem;
+  height: 1.55rem;
   display: block;
   flex-shrink: 0;
   pointer-events: none;

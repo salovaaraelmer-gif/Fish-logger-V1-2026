@@ -118,6 +118,18 @@
         </section>
 
         <section
+          id="tab-map"
+          class="app-tab-panel"
+          role="tabpanel"
+          aria-labelledby="nav-map"
+          hidden
+        >
+          <h1 class="app-tab-title">Map</h1>
+          <p class="meta">All catches will show here later, with filters such as species, time, and location.</p>
+          <p class="pill">Coming soon</p>
+        </section>
+
+        <section
           id="tab-session"
           class="app-tab-panel is-active"
           role="tabpanel"
@@ -265,6 +277,18 @@
               stroke-width="1.75"
               stroke-linecap="round"
             />
+          </svg>
+        </button>
+        <button type="button" class="app-nav-btn" id="nav-map" data-tab="map" aria-label="Map">
+          <svg class="app-nav-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path
+              d="M12 21s7-6.4 7-11.15A7 7 0 0 0 5 9.85C5 14.6 12 21 12 21Z"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.75"
+              stroke-linejoin="round"
+            />
+            <circle cx="12" cy="9.85" r="2.35" fill="none" stroke="currentColor" stroke-width="1.75" />
           </svg>
         </button>
         <button type="button" class="app-nav-btn is-active" id="nav-session" data-tab="session" aria-current="page" aria-label="Session">
