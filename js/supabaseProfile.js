@@ -9,23 +9,37 @@ import { supabase } from "./supabase.js";
 /**
  * Reads the signed-in user's row from `public.profiles` (RLS: own row only).
  * @param {string} userId — `auth.users.id`
- * @returns {Promise<{ profile: { display_name: string | null, username: string | null } | null, error: string | null }>}
+ * @returns {Promise<{ profile: { display_name: string | null, username: string | null, avatar_url: string | null } | null, error: string | null }>}
  */
 export async function fetchProfileForUser(userId) {
   if (!userId) return { profile: null, error: null };
-  const { data, error } = await supabase
+  const first = await supabase
+    .from("profiles")
+    .select("display_name, username, avatar_url")
+    .eq("id", userId)
+    .maybeSingle();
+  if (!first.error) {
+    return { profile: first.data, error: null };
+  }
+  if (!/avatar_url/i.test(first.error.message || "")) {
+    return { profile: null, error: first.error.message };
+  }
+  const fallback = await supabase
     .from("profiles")
     .select("display_name, username")
     .eq("id", userId)
     .maybeSingle();
-  if (error) {
-    return { profile: null, error: error.message };
+  if (fallback.error) {
+    return { profile: null, error: fallback.error.message };
   }
-  return { profile: data, error: null };
+  return {
+    profile: fallback.data ? { ...fallback.data, avatar_url: null } : null,
+    error: null,
+  };
 }
 
 /**
- * @typedef {{ id: string, username: string | null, display_name: string | null }} ProfileRow
+ * @typedef {{ id: string, username: string | null, display_name: string | null, avatar_url?: string | null }} ProfileRow
  */
 
 /**
@@ -83,10 +97,16 @@ export async function fetchProfilesByIds(ids) {
   const uniq = [...new Set(ids)].filter((id) => typeof id === "string" && id.length > 0);
   const map = new Map();
   if (uniq.length === 0) return map;
-  const { data, error } = await supabase
+  let { data, error } = await supabase
     .from("profiles")
-    .select("id, username, display_name")
+    .select("id, username, display_name, avatar_url")
     .in("id", uniq);
+  if (error && /avatar_url/i.test(error.message || "")) {
+    ({ data, error } = await supabase
+      .from("profiles")
+      .select("id, username, display_name")
+      .in("id", uniq));
+  }
   if (error || !data) {
     return map;
   }
@@ -202,3 +222,66 @@ export async function upsertProfileForUser(user) {
   }
   return { ok: true };
 }
+
+export const AVATAR_BUCKET = "avatars";
+export const AVATAR_MAX_BYTES = 2 * 1024 * 1024;
+
+const AVATAR_MIME_TO_EXT = {
+  "image/jpeg": "jpg",
+  "image/png": "png",
+  "image/webp": "webp",
+};
+
+/**
+ * @param {string | null | undefined} url
+ * @returns {string}
+ */
+export function bustAvatarUrl(url) {
+  const raw = typeof url === "string" ? url.trim() : "";
+  if (!raw) return "";
+  const join = raw.includes("?") ? "&" : "?";
+  return `${raw}${join}v=${Date.now()}`;
+}
+
+/**
+ * Upload a square-ish photo and store its public URL on `profiles.avatar_url`.
+ * @param {string} userId
+ * @param {File} file
+ * @returns {Promise<{ ok: true, url: string } | { ok: false, error: string }>}
+ */
+export async function uploadProfileAvatar(userId, file) {
+  if (!userId) return { ok: false, error: "Not signed in." };
+  if (!(file instanceof File) || file.size < 1) {
+    return { ok: false, error: "Choose a photo." };
+  }
+  if (file.size > AVATAR_MAX_BYTES) {
+    return { ok: false, error: "Photo must be 2 MB or smaller." };
+  }
+  const ext = AVATAR_MIME_TO_EXT[file.type];
+  if (!ext) {
+    return { ok: false, error: "Use a JPEG, PNG, or WebP photo." };
+  }
+
+  const path = `${userId}/avatar.${ext}`;
+  const up = await supabase.storage.from(AVATAR_BUCKET).upload(path, file, {
+    upsert: true,
+    contentType: file.type,
+    cacheControl: "3600",
+  });
+  if (up.error) {
+    return { ok: false, error: up.error.message };
+  }
+
+  const pub = supabase.storage.from(AVATAR_BUCKET).getPublicUrl(path);
+  const url = pub?.data?.publicUrl;
+  if (!url) {
+    return { ok: false, error: "Could not build photo URL." };
+  }
+
+  const { error } = await supabase.from("profiles").update({ avatar_url: url }).eq("id", userId);
+  if (error) {
+    return { ok: false, error: error.message };
+  }
+  return { ok: true, url };
+}
+
