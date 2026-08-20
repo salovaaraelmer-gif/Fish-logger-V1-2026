@@ -12,6 +12,7 @@ import {
 } from "./sessionService.js";
 import { newId } from "./sessionService.js";
 import { fetchOpenMeteoCurrent } from "./weatherService.js";
+import { hideAppSpinner, showAppSpinner } from "./appSpinner.js";
 
 /** @type {readonly string[]} */
 export const SPECIES_OPTIONS = ["pike", "perch", "zander", "trout", "salmon", "other"];
@@ -582,6 +583,7 @@ export async function fetchDeviceLocationBestEffort() {
     return seed;
   }
 
+  showAppSpinner();
   try {
     const result = await runConvergenceWatch(seed);
     console.log("[GPS] fetch result", result);
@@ -589,5 +591,7 @@ export async function fetchDeviceLocationBestEffort() {
   } catch (err) {
     console.error("[GPS] fetch failed (non-blocking):", err);
     return emptyDeviceLocation();
+  } finally {
+    hideAppSpinner();
   }
 }
