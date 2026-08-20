@@ -1009,21 +1009,6 @@ textarea {
   padding: 1rem;
 }
 
-#start-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.75);
-  z-index: 60;
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
-  padding: 1rem;
-}
-
-#start-overlay.hidden {
-  display: none !important;
-}
-
 #session-end-overlay {
   position: fixed;
   inset: 0;
@@ -1065,19 +1050,16 @@ textarea {
   gap: 0.5rem;
 }
 
-.start-modal-inner {
-  background: var(--surface);
-  border: 2px solid var(--border);
-  border-radius: var(--radius);
-  max-width: 520px;
-  width: 100%;
-  padding: 1rem;
-  max-height: 85vh;
-  overflow: auto;
-}
-
 .start-self-line {
   margin: 0 0 0.75rem;
+}
+
+#screen-start-session.is-visible {
+  min-height: 100%;
+}
+
+#screen-start-session #start-confirm {
+  margin-top: auto;
 }
 
 .start-selected-chips {
