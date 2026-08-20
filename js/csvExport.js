@@ -28,7 +28,7 @@ const HEADERS = [
  * @param {number} timestampMs
  */
 function formatLocalTimeHelsinki(timestampMs) {
-  return new Date(timestampMs).toLocaleString("fi-FI", {
+  return new Date(timestampMs).toLocaleString("en-GB", {
     timeZone: "Europe/Helsinki",
     day: "2-digit",
     month: "2-digit",

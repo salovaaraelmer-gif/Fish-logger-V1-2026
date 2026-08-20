@@ -27,11 +27,11 @@ export function parseOptionalLengthCm(raw) {
     return { ok: true, value: null };
   }
   if (!/^\d+$/.test(s)) {
-    return { ok: false, reason: "Pituus: käytä vain numeroita (kokonaisluku cm)." };
+    return { ok: false, reason: "Length: use digits only (whole number cm)." };
   }
   const n = parseInt(s, 10);
   if (!Number.isFinite(n) || n < 1) {
-    return { ok: false, reason: "Pituus: anna positiivinen luku (cm)." };
+    return { ok: false, reason: "Length: enter a positive number (cm)." };
   }
   return { ok: true, value: n };
 }
@@ -45,11 +45,11 @@ export function parseOptionalDepthM(raw) {
   const s = (raw || "").trim().replace(",", ".");
   if (s === "") return { ok: true, value: null };
   if (!/^\d+(\.\d+)?$/.test(s)) {
-    return { ok: false, reason: "Syvyys: käytä vain numeroita (m) tai jätä tyhjäksi." };
+    return { ok: false, reason: "Depth: use numbers only (m) or leave empty." };
   }
   const n = Number(s);
   if (!Number.isFinite(n) || n < 0) {
-    return { ok: false, reason: "Syvyys: anna luku ≥ 0 (m) tai jätä tyhjäksi." };
+    return { ok: false, reason: "Depth: enter a number ≥ 0 (m) or leave empty." };
   }
   return { ok: true, value: n };
 }
@@ -63,14 +63,14 @@ export function parseOptionalWaterTempC(raw) {
   const s = (raw || "").trim().replace(",", ".");
   if (s === "") return { ok: true, value: null };
   if (!/^-?\d+(\.\d+)?$/.test(s)) {
-    return { ok: false, reason: "Veden lämpötila: käytä vain numeroita (°C) tai jätä tyhjäksi." };
+    return { ok: false, reason: "Water temperature: use numbers only (°C) or leave empty." };
   }
   const n = Number(s);
   if (!Number.isFinite(n)) {
-    return { ok: false, reason: "Veden lämpötila: anna kelvollinen luku (°C) tai jätä tyhjäksi." };
+    return { ok: false, reason: "Water temperature: enter a valid number (°C) or leave empty." };
   }
   if (n < -2 || n > 30) {
-    return { ok: false, reason: "Veden lämpötila: sallittu väli on -2 … 30 °C tai jätä tyhjäksi." };
+    return { ok: false, reason: "Water temperature: allowed range is -2 … 30 °C or leave empty." };
   }
   return { ok: true, value: n };
 }
@@ -84,11 +84,11 @@ export function parseOptionalWeightKg(raw) {
   const s = (raw || "").trim().replace(",", ".");
   if (s === "") return { ok: true, value: null };
   if (!/^\d+(\.\d+)?$/.test(s)) {
-    return { ok: false, reason: "Paino: käytä vain numeroita (kg) tai jätä tyhjäksi." };
+    return { ok: false, reason: "Weight: use numbers only (kg) or leave empty." };
   }
   const n = Number(s);
   if (!Number.isFinite(n) || n <= 0) {
-    return { ok: false, reason: "Paino: anna positiivinen luku (kg) tai jätä tyhjäksi." };
+    return { ok: false, reason: "Weight: enter a positive number (kg) or leave empty." };
   }
   return { ok: true, value: n };
 }
@@ -139,33 +139,33 @@ export async function saveCatch(input, deviceLoc) {
     console.log("[catch] active session query", session ? { id: session.id, endTime: session.endTime } : null);
   } catch (err) {
     console.error("[catch] active session query failed:", err);
-    return { ok: false, reason: "Sessiotietojen haku epäonnistui." };
+    return { ok: false, reason: "Failed to load session data." };
   }
   if (!session) {
-    return { ok: false, reason: "Ei aktiivista sessiota — saalisvahti ei käytössä." };
+    return { ok: false, reason: "No active session — catch logging is not available." };
   }
   const species = (input.species || "").trim();
   if (!species) {
-    return { ok: false, reason: "Laji on pakollinen." };
+    return { ok: false, reason: "Species is required." };
   }
   if (!SPECIES_OPTIONS.includes(species)) {
-    return { ok: false, reason: "Virheellinen laji." };
+    return { ok: false, reason: "Invalid species." };
   }
   if (!input.anglerId) {
-    return { ok: false, reason: "Kalastaja on pakollinen." };
+    return { ok: false, reason: "Angler is required." };
   }
   const belongs = await anglerBelongsToActiveSession(session.id, input.anglerId);
   if (!belongs) {
-    return { ok: false, reason: "Kalastaja ei kuulu tähän aktiiviseen sessioon." };
+    return { ok: false, reason: "This angler is not in the active session." };
   }
 
   const length = input.length;
   const weightKg = input.weight_kg;
   if (length !== null && (typeof length !== "number" || length < 1)) {
-    return { ok: false, reason: "Pituus: tyhjä tai positiivinen kokonaisluku (ei 0)." };
+    return { ok: false, reason: "Length: empty or a positive whole number (not 0)." };
   }
   if (weightKg !== null && (typeof weightKg !== "number" || weightKg <= 0)) {
-    return { ok: false, reason: "Paino: tyhjä tai positiivinen luku (kg) tai jätä tyhjäksi." };
+    return { ok: false, reason: "Weight: empty or a positive number (kg)." };
   }
 
   const timestamp = Date.now();
@@ -236,7 +236,7 @@ export async function saveCatch(input, deviceLoc) {
     return { ok: true, record };
   } catch (err) {
     console.error("[catch] insert failed (local):", err);
-    return { ok: false, reason: "Paikallinen tallennus epäonnistui." };
+    return { ok: false, reason: "Local save failed." };
   }
 }
 
@@ -245,42 +245,42 @@ export async function saveCatch(input, deviceLoc) {
  */
 export async function updateCatch(input, deviceLoc, existing) {
   if (!existing.sessionId) {
-    return { ok: false, reason: "Saalista ei voi muokata." };
+    return { ok: false, reason: "This catch cannot be edited." };
   }
   const session = await getSessionById(existing.sessionId);
   if (!session) {
-    return { ok: false, reason: "Sessiota ei löytynyt." };
+    return { ok: false, reason: "Session not found." };
   }
 
   const authId = await getAuthUserId();
   if (!authId) {
-    return { ok: false, reason: "Kirjautuminen puuttuu." };
+    return { ok: false, reason: "Not signed in." };
   }
 
   if (session.endTime != null) {
     const editorOk = await anglerBelongsToSessionRoster(session.id, authId);
     if (!editorOk) {
-      return { ok: false, reason: "Voit muokata vain sessioita, joissa olet mukana." };
+      return { ok: false, reason: "You can only edit sessions you are part of." };
     }
   } else {
     const active = await getActiveSessionForParticipantUi();
     if (!active) {
-      return { ok: false, reason: "Ei aktiivista sessiota — saalisvahti ei käytössä." };
+      return { ok: false, reason: "No active session — catch logging is not available." };
     }
     if (active.id !== session.id) {
-      return { ok: false, reason: "Saalista ei voi muokata tässä sessiossa." };
+      return { ok: false, reason: "This catch cannot be edited in this session." };
     }
   }
 
   const species = (input.species || "").trim();
   if (!species) {
-    return { ok: false, reason: "Laji on pakollinen." };
+    return { ok: false, reason: "Species is required." };
   }
   if (!SPECIES_OPTIONS.includes(species)) {
-    return { ok: false, reason: "Virheellinen laji." };
+    return { ok: false, reason: "Invalid species." };
   }
   if (!input.anglerId) {
-    return { ok: false, reason: "Kalastaja on pakollinen." };
+    return { ok: false, reason: "Angler is required." };
   }
   const anglerOk =
     session.endTime != null
@@ -291,18 +291,18 @@ export async function updateCatch(input, deviceLoc, existing) {
       ok: false,
       reason:
         session.endTime != null
-          ? "Kalastaja ei kuulu tähän sessioon."
-          : "Kalastaja ei kuulu tähän aktiiviseen sessioon.",
+          ? "This angler is not in this session."
+          : "This angler is not in the active session.",
     };
   }
 
   const length = input.length;
   const weightKg = input.weight_kg;
   if (length !== null && (typeof length !== "number" || length < 1)) {
-    return { ok: false, reason: "Pituus: tyhjä tai positiivinen kokonaisluku (ei 0)." };
+    return { ok: false, reason: "Length: empty or a positive whole number (not 0)." };
   }
   if (weightKg !== null && (typeof weightKg !== "number" || weightKg <= 0)) {
-    return { ok: false, reason: "Paino: tyhjä tai positiivinen luku (kg) tai jätä tyhjäksi." };
+    return { ok: false, reason: "Weight: empty or a positive number (kg)." };
   }
 
   /** @type {import('./db.js').CatchRecord} */

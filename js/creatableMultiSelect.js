@@ -47,7 +47,7 @@ export function mountCreatableMultiSelect(opts) {
   select.disabled = disabled;
   const empty = document.createElement("option");
   empty.value = "";
-  empty.textContent = "Valitse…";
+  empty.textContent = "Select…";
   select.appendChild(empty);
   for (const item of items) {
     const opt = document.createElement("option");
@@ -60,7 +60,7 @@ export function mountCreatableMultiSelect(opts) {
   const addBtn = document.createElement("button");
   addBtn.type = "button";
   addBtn.className = "btn small-btn";
-  addBtn.textContent = "Lisää";
+  addBtn.textContent = "Add";
   addBtn.disabled = disabled;
   row.appendChild(addBtn);
   container.appendChild(row);
@@ -70,13 +70,13 @@ export function mountCreatableMultiSelect(opts) {
   const newInput = document.createElement("input");
   newInput.type = "text";
   newInput.className = "creatable-multi-new-input";
-  newInput.placeholder = "Uusi nimi";
+  newInput.placeholder = "New name";
   newInput.autocomplete = "off";
   newInput.disabled = disabled;
   const newBtn = document.createElement("button");
   newBtn.type = "button";
   newBtn.className = "btn small-btn";
-  newBtn.textContent = "+ Uusi";
+  newBtn.textContent = "+ New";
   newBtn.disabled = disabled;
   newRow.append(newInput, newBtn);
   container.appendChild(newRow);
@@ -96,7 +96,7 @@ export function mountCreatableMultiSelect(opts) {
         const rm = document.createElement("button");
         rm.type = "button";
         rm.className = "creatable-multi-chip-remove";
-        rm.setAttribute("aria-label", `Poista ${item.name}`);
+        rm.setAttribute("aria-label", `Remove ${item.name}`);
         rm.textContent = "×";
         rm.addEventListener("click", () => {
           selected.delete(id);
@@ -127,7 +127,7 @@ export function mountCreatableMultiSelect(opts) {
     if (!created) return;
     const existing = items.find((i) => i.id === created.id);
     if (!existing) items.push(created);
-    items.sort((a, b) => a.userNumber - b.userNumber || a.name.localeCompare(b.name, "fi"));
+    items.sort((a, b) => a.userNumber - b.userNumber || a.name.localeCompare(b.name, "en"));
     select.innerHTML = "";
     select.appendChild(empty);
     for (const item of items) {

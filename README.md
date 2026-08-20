@@ -1,20 +1,20 @@
-# AnglrLog — saalisvahti
+# AnglrLog — catch log
 
-**Do not open `index.html` by double‑clicking** (that uses `file://`). The app uses JavaScript **ES modules**; browsers block loading them from `file://`, so the page stays on “Ladataan…” and buttons do nothing. Always use a **local HTTP server** (see [How to run](#how-to-run) and [Why `file://` fails](#why-file-fails-cors)).
+**Do not open `index.html` by double‑clicking** (that uses `file://`). The app uses JavaScript **ES modules**; browsers block loading them from `file://`, so the page stays on “Loading…” and buttons do nothing. Always use a **local HTTP server** (see [How to run](#how-to-run) and [Why `file://` fails](#why-file-fails-cors)).
 
 AnglrLog is a small, boat-oriented fishing log (Fish Logger V1). The goal is **fast catch entry** with minimal taps: you only enter what matters; time and location are captured when the browser allows it.
 
-The UI is in **Finnish**. The code and data model follow the spec in `Plan v1.ini`.
+The UI is in **English**. The code and data model follow the spec in `Plan v1.ini`.
 
 ## Features (V1)
 
-- **Kalastajat** — add and store anglers locally.
-- **Sessiot** — one active session at a time; start with at least one angler, end when done.
-- **Saalis** — guided flow: angler → species (required) → optional length (cm) / weight (kg) → optional notes → confirmation.
-- **Tallennus** — data persisted in the browser with **IndexedDB** (`FishLoggerV1`).
-- **Sijainti** — GPS runs only while the add-catch flow is open (and briefly when starting a session), not in the background during an active session.
+- **Anglers** — add and store anglers locally.
+- **Sessions** — one active session at a time; start with at least one angler, end when done.
+- **Catch** — guided flow: angler → species (required) → optional length (cm) / weight (kg) → optional notes → confirmation.
+- **Storage** — data persisted in the browser with **IndexedDB** (`FishLoggerV1`).
+- **Location** — GPS runs only while the add-catch flow is open (and briefly when starting a session), not in the background during an active session.
 
-Species options: hauki, ahven, kuha, taimen, muu (mapped internally to pike, perch, zander, trout, other).
+Species options: pike, perch, zander, trout, salmon, other.
 
 ## Tech stack
 

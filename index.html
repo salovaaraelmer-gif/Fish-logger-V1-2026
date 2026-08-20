@@ -1,11 +1,11 @@
 <!DOCTYPE html>
-<html lang="fi">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#0d1117" />
-    <!-- Suositeltu: paikallinen HTTP-palvelin (ES-moduulit + sijainti). Esim. VS Code Live Server tai: npx serve -->
-    <title>AnglrLog — saalisvahti</title>
+    <!-- Recommended: local HTTP server (ES modules + location). E.g. VS Code Live Server or: npx serve -->
+    <title>AnglrLog — catch log</title>
     <link rel="stylesheet" href="css/app.css" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
   </head>
@@ -15,57 +15,57 @@
         <h1 class="app-brand-title auth-brand">AnglrLog</h1>
 
         <div id="auth-login" class="auth-panel stack">
-          <h2>Kirjaudu</h2>
+          <h2>Log in</h2>
           <div class="field-block">
-            <div class="field-label">Sähköposti</div>
+            <div class="field-label">Email</div>
             <input type="email" id="auth-login-email" autocomplete="email" />
           </div>
           <div class="field-block">
-            <div class="field-label">Salasana</div>
+            <div class="field-label">Password</div>
             <input type="password" id="auth-login-password" autocomplete="current-password" />
           </div>
-          <button type="button" class="btn btn-primary" id="auth-login-submit">Kirjaudu</button>
-          <button type="button" class="btn btn-ghost" id="auth-go-forgot">Unohtuiko salasana?</button>
-          <button type="button" class="btn btn-ghost" id="auth-go-signup">Luo tili</button>
+          <button type="button" class="btn btn-primary" id="auth-login-submit">Log in</button>
+          <button type="button" class="btn btn-ghost" id="auth-go-forgot">Forgot password?</button>
+          <button type="button" class="btn btn-ghost" id="auth-go-signup">Create account</button>
         </div>
 
         <div id="auth-forgot" class="auth-panel stack hidden">
-          <h2>Vaihda salasana</h2>
-          <p class="meta">Lähetämme sähköpostiisi linkin, jolla voit asettaa uuden salasanan.</p>
+          <h2>Reset password</h2>
+          <p class="meta">We’ll email you a link to set a new password.</p>
           <div class="field-block">
-            <div class="field-label">Sähköposti</div>
+            <div class="field-label">Email</div>
             <input type="email" id="auth-forgot-email" autocomplete="email" />
           </div>
-          <button type="button" class="btn btn-primary" id="auth-forgot-submit">Lähetä linkki</button>
-          <button type="button" class="btn btn-ghost" id="auth-forgot-back">Takaisin kirjautumiseen</button>
+          <button type="button" class="btn btn-primary" id="auth-forgot-submit">Send link</button>
+          <button type="button" class="btn btn-ghost" id="auth-forgot-back">Back to log in</button>
         </div>
 
         <div id="auth-reset-password" class="auth-panel stack hidden">
-          <h2>Uusi salasana</h2>
-          <p class="meta">Kirjoita uusi salasana tilillesi.</p>
+          <h2>New password</h2>
+          <p class="meta">Enter a new password for your account.</p>
           <div class="field-block">
-            <div class="field-label">Uusi salasana</div>
+            <div class="field-label">New password</div>
             <input type="password" id="auth-reset-pass" autocomplete="new-password" />
           </div>
           <div class="field-block">
-            <div class="field-label">Vahvista salasana</div>
+            <div class="field-label">Confirm password</div>
             <input type="password" id="auth-reset-pass2" autocomplete="new-password" />
           </div>
-          <button type="button" class="btn btn-primary" id="auth-reset-submit">Tallenna salasana</button>
+          <button type="button" class="btn btn-primary" id="auth-reset-submit">Save password</button>
         </div>
 
         <div id="auth-signup" class="auth-panel stack hidden">
-          <h2>Luo tili</h2>
+          <h2>Create account</h2>
           <div class="field-block">
-            <div class="field-label">Etunimi</div>
+            <div class="field-label">First name</div>
             <input type="text" id="auth-signup-first" autocomplete="given-name" />
           </div>
           <div class="field-block">
-            <div class="field-label">Sukunimi</div>
+            <div class="field-label">Last name</div>
             <input type="text" id="auth-signup-last" autocomplete="family-name" />
           </div>
           <div class="field-block">
-            <div class="field-label">Käyttäjätunnus (profiili)</div>
+            <div class="field-label">Username (profile)</div>
             <input
               type="text"
               id="auth-signup-username"
@@ -73,23 +73,23 @@
               inputmode="text"
               autocapitalize="none"
               spellcheck="false"
-              placeholder="vain kirjaimet, numerot ja _"
+              placeholder="letters, numbers, and _ only"
             />
           </div>
           <div class="field-block">
-            <div class="field-label">Sähköposti</div>
+            <div class="field-label">Email</div>
             <input type="email" id="auth-signup-email" autocomplete="email" />
           </div>
           <div class="field-block">
-            <div class="field-label">Salasana</div>
+            <div class="field-label">Password</div>
             <input type="password" id="auth-signup-password" autocomplete="new-password" />
           </div>
           <div class="field-block">
-            <div class="field-label">Vahvista salasana</div>
+            <div class="field-label">Confirm password</div>
             <input type="password" id="auth-signup-password2" autocomplete="new-password" />
           </div>
-          <button type="button" class="btn btn-primary" id="auth-signup-submit">Rekisteröidy</button>
-          <button type="button" class="btn btn-ghost" id="auth-go-login">Onko jo tili? Kirjaudu</button>
+          <button type="button" class="btn btn-primary" id="auth-signup-submit">Sign up</button>
+          <button type="button" class="btn btn-ghost" id="auth-go-login">Already have an account? Log in</button>
         </div>
 
         <p id="auth-message" class="meta auth-message" role="status" hidden></p>
@@ -108,7 +108,7 @@
         <div class="app-header-row">
           <h1 class="app-brand-title">AnglrLog</h1>
           <div class="app-header-user">
-            <button type="button" id="btn-open-profile" class="user-display-name-btn" aria-label="Avaa profiili">
+            <button type="button" id="btn-open-profile" class="user-display-name-btn" aria-label="Open profile">
               <span id="user-display-name" class="user-display-name" aria-live="polite"></span>
             </button>
           </div>
@@ -120,7 +120,7 @@
               class="session-title-display"
               tabindex="0"
               role="button"
-              aria-label="Session otsikko, muokkaa napauttamalla"
+              aria-label="Session title, tap to edit"
             ></span>
             <button
               type="button"
@@ -135,44 +135,44 @@
             id="session-title-input"
             class="session-title-input hidden"
             autocomplete="off"
-            aria-label="Session otsikko"
+            aria-label="Session title"
           />
         </div>
-        <p class="meta" id="session-meta">Ladataan…</p>
+        <p class="meta" id="session-meta">Loading…</p>
       </header>
 
       <section id="screen-home" class="screen is-visible">
         <div id="block-no-session" class="stack hidden">
-          <p class="pill">Ei aktiivista sessiota</p>
-          <button type="button" class="btn btn-primary" id="btn-open-start">Aloita kalastussessio</button>
+          <p class="pill">No active session</p>
+          <button type="button" class="btn btn-primary" id="btn-open-start">Start fishing session</button>
         </div>
 
         <div id="block-active-session" class="stack hidden">
           <p class="session-timer" id="session-timer" aria-live="polite"></p>
-          <div id="session-times-active" class="session-times-edit stack hidden" aria-label="Session ajat"></div>
+          <div id="session-times-active" class="session-times-edit stack hidden" aria-label="Session times"></div>
           <div id="session-metadata-active" class="session-metadata-edit stack"></div>
-          <h2 class="session-live-title">Sessio</h2>
+          <h2 class="session-live-title">Session</h2>
           <div id="session-live-view" class="session-live-view stack" aria-live="polite"></div>
-          <button type="button" class="btn btn-primary" id="btn-log-catch">Kirjaa saalis</button>
-          <button type="button" class="btn" id="btn-show-catches">Näytä saaliit</button>
-          <button type="button" class="btn btn-danger" id="btn-end-session">Lopeta sessio</button>
+          <button type="button" class="btn btn-primary" id="btn-log-catch">Log catch</button>
+          <button type="button" class="btn" id="btn-show-catches">Show catches</button>
+          <button type="button" class="btn btn-danger" id="btn-end-session">End session</button>
         </div>
 
-        <button type="button" class="btn" id="btn-toggle-anglers" aria-expanded="false">Näytä osallistujat</button>
+        <button type="button" class="btn" id="btn-toggle-anglers" aria-expanded="false">Show participants</button>
 
         <div id="angler-edit-panel" class="stack angler-edit-panel hidden">
-          <h2>Osallistujat</h2>
-          <p class="meta">Osallistujat valitaan session alussa rekisteröityneistä käyttäjistä.</p>
+          <h2>Participants</h2>
+          <p class="meta">Participants are chosen at the start of the session from registered users.</p>
 
           <div id="session-roster" class="hidden" style="margin-top: 1.5rem">
-            <h2>Sessiossa nyt</h2>
+            <h2>In this session</h2>
             <div id="session-angler-rows" class="stack"></div>
           </div>
         </div>
 
         <section id="history-section" class="stack history-section" aria-labelledby="history-heading">
-          <h2 id="history-heading">Historia</h2>
-          <p class="meta" id="history-empty" hidden>Ei päättyneitä sessioita.</p>
+          <h2 id="history-heading">History</h2>
+          <p class="meta" id="history-empty" hidden>No ended sessions.</p>
           <div id="history-session-list" class="stack history-session-list"></div>
         </section>
       </section>
@@ -182,24 +182,24 @@
     <div id="profile-overlay" class="hidden">
       <div class="profile-inner">
         <div class="row-actions" style="margin-bottom: 1rem">
-          <button type="button" class="btn btn-ghost" id="profile-close">Sulje</button>
+          <button type="button" class="btn btn-ghost" id="profile-close">Close</button>
         </div>
-        <h2>Profiili</h2>
+        <h2>Profile</h2>
         <div class="stack profile-fields" style="margin-top: 1rem">
           <div>
-            <div class="field-label">Nimi</div>
+            <div class="field-label">Name</div>
             <p id="profile-display-name" class="profile-value">—</p>
           </div>
           <div>
-            <div class="field-label">Käyttäjätunnus</div>
+            <div class="field-label">Username</div>
             <p id="profile-username" class="profile-value">—</p>
           </div>
           <div>
-            <div class="field-label">Sähköposti</div>
+            <div class="field-label">Email</div>
             <p id="profile-email" class="profile-value">—</p>
           </div>
         </div>
-        <button type="button" class="btn btn-danger profile-logout-btn" id="profile-logout">Kirjaudu ulos</button>
+        <button type="button" class="btn btn-danger profile-logout-btn" id="profile-logout">Log out</button>
       </div>
     </div>
 
@@ -207,92 +207,92 @@
     <div id="fish-overlay" class="hidden">
       <div class="fish-inner">
         <div class="row-actions" style="margin-bottom: 1rem">
-          <button type="button" class="btn btn-ghost" id="fish-close">Sulje</button>
+          <button type="button" class="btn btn-ghost" id="fish-close">Close</button>
         </div>
 
         <div id="fish-step-1" class="fish-step">
-          <h2>1. Valitse kalastaja</h2>
+          <h2>1. Choose angler</h2>
           <div id="fish-angler-buttons" class="stack"></div>
         </div>
 
         <div id="fish-step-2" class="fish-step hidden">
-          <h2>2. Saalis</h2>
-          <div class="field-label">Laji (pakollinen)</div>
+          <h2>2. Catch</h2>
+          <div class="field-label">Species (required)</div>
           <div class="grid-2" id="species-buttons"></div>
           <div style="margin-top: 1rem">
-            <div class="field-label">Pituus (cm), valinnainen</div>
+            <div class="field-label">Length (cm), optional</div>
             <input
               type="text"
               id="fish-input-length"
               inputmode="numeric"
               pattern="[0-9]*"
               autocomplete="off"
-              aria-label="Pituus senttimetreinä"
+              aria-label="Length in centimetres"
             />
           </div>
           <div style="margin-top: 0.75rem">
-            <div class="field-label">Paino (kg), valinnainen</div>
+            <div class="field-label">Weight (kg), optional</div>
             <input
               type="text"
               id="fish-input-weight"
               inputmode="decimal"
               autocomplete="off"
-              aria-label="Paino kiloina"
+              aria-label="Weight in kilograms"
               placeholder="1.25"
             />
           </div>
           <div style="margin-top: 0.75rem">
-            <div class="field-label">Syvyys (m), valinnainen</div>
+            <div class="field-label">Depth (m), optional</div>
             <input
               type="text"
               id="fish-input-depth"
               inputmode="decimal"
               autocomplete="off"
-              aria-label="Syvyys metreinä"
-              placeholder="Esim. 3,5"
+              aria-label="Depth in metres"
+              placeholder="e.g. 3.5"
             />
           </div>
           <div style="margin-top: 0.75rem">
-            <div class="field-label">Veden lämpötila (°C), valinnainen</div>
+            <div class="field-label">Water temperature (°C), optional</div>
             <input
               type="text"
               id="fish-input-water-temp"
               inputmode="decimal"
               autocomplete="off"
-              aria-label="Veden lämpötila celsiuksina"
-              placeholder="Esim. 12"
+              aria-label="Water temperature in Celsius"
+              placeholder="e.g. 12"
             />
           </div>
           <div class="row-actions">
-            <button type="button" class="btn" id="fish-back-2">Takaisin</button>
-            <button type="button" class="btn btn-primary" id="fish-next-2" disabled>Seuraava</button>
+            <button type="button" class="btn" id="fish-back-2">Back</button>
+            <button type="button" class="btn btn-primary" id="fish-next-2" disabled>Next</button>
           </div>
         </div>
 
         <div id="fish-step-3" class="fish-step hidden">
-          <h2>3. Muistiinpanot</h2>
+          <h2>3. Notes</h2>
           <div id="fish-edit-location-wrap" class="fish-edit-location-wrap hidden">
-            <p class="meta fish-edit-location-hint">Siirrä merkkiä kartalla. Tallenna muuttaaksesi sijaintia.</p>
-            <div id="fish-edit-location-map" class="fish-edit-location-map" role="application" aria-label="Sijainnin muokkaus"></div>
+            <p class="meta fish-edit-location-hint">Drag the marker on the map. Save to update the location.</p>
+            <div id="fish-edit-location-map" class="fish-edit-location-map" role="application" aria-label="Edit location"></div>
           </div>
           <p class="meta" id="fish-location-hint">
-            Sijainti ja sää haetaan automaattisesti tallennuksessa, jos sijainti on käytettävissä.
+            Location and weather are fetched automatically on save if location is available.
           </p>
-          <textarea id="fish-notes" placeholder="Valinnainen"></textarea>
+          <textarea id="fish-notes" placeholder="Optional"></textarea>
           <div class="row-actions">
-            <button type="button" class="btn" id="fish-back-3">Takaisin</button>
-            <button type="button" class="btn btn-primary" id="fish-save">Tallenna</button>
+            <button type="button" class="btn" id="fish-back-3">Back</button>
+            <button type="button" class="btn btn-primary" id="fish-save">Save</button>
           </div>
         </div>
 
         <div id="fish-step-4" class="fish-step hidden">
           <div class="success-panel">
             <div class="icon" aria-hidden="true">✓</div>
-            <h2>Saalis tallennettu</h2>
+            <h2>Catch saved</h2>
             <p class="meta" id="fish-save-summary"></p>
             <div class="stack" style="margin-top: 1.5rem">
-              <button type="button" class="btn btn-primary" id="fish-add-another">Kirjaa uusi saalis</button>
-              <button type="button" class="btn" id="fish-back-home">Takaisin valikkoon</button>
+              <button type="button" class="btn btn-primary" id="fish-add-another">Log another catch</button>
+              <button type="button" class="btn" id="fish-back-home">Back to menu</button>
             </div>
           </div>
         </div>
@@ -303,16 +303,16 @@
     <div id="catches-overlay" class="hidden">
       <div class="catches-inner">
         <div class="row-actions" style="margin-bottom: 1rem">
-          <button type="button" class="btn btn-ghost" id="catches-close">Sulje</button>
+          <button type="button" class="btn btn-ghost" id="catches-close">Close</button>
         </div>
         <div class="catches-overlay-top-row">
-          <h2 id="catches-overlay-title">Saaliit tässä sessiossa</h2>
+          <h2 id="catches-overlay-title">Catches in this session</h2>
           <div class="catches-session-menu-wrap">
             <button
               type="button"
               id="catches-session-menu-btn"
               class="catches-session-menu-btn hidden"
-              aria-label="Session toiminnot"
+              aria-label="Session actions"
               aria-haspopup="true"
               aria-expanded="false"
             >
@@ -338,17 +338,17 @@
             </div>
           </div>
         </div>
-        <div id="catches-view-tabs" class="catches-view-tabs hidden" role="tablist" aria-label="Saaliit lista tai kartta">
+        <div id="catches-view-tabs" class="catches-view-tabs hidden" role="tablist" aria-label="Catches list or map">
           <button type="button" class="btn catches-tab-btn" id="catches-tab-list" role="tab" aria-selected="true" data-tab="list">
-            Lista
+            List
           </button>
           <button type="button" class="btn catches-tab-btn" id="catches-tab-map" role="tab" aria-selected="false" data-tab="map">
-            Kartta
+            Map
           </button>
         </div>
         <div id="catches-list-panel">
         <div id="catches-ended-title-wrap" class="session-title-block catches-ended-title-wrap hidden" aria-hidden="true">
-          <p class="meta catches-ended-title-label">Otsikko</p>
+          <p class="meta catches-ended-title-label">Title</p>
           <div class="session-title-row">
             <span
               id="catches-ended-title-display"
@@ -361,7 +361,7 @@
             id="catches-ended-title-input"
             class="session-title-input hidden"
             autocomplete="off"
-            aria-label="Päättyneen session otsikko"
+            aria-label="Ended session title"
           />
         </div>
         <p class="catch-session-strip meta" id="catches-session-strip" hidden></p>
@@ -369,39 +369,39 @@
         <div id="session-metadata-ended" class="session-metadata-edit stack hidden"></div>
         <div id="catches-ended-dashboard" class="ended-session-dashboard hidden">
           <section class="dash-panel" aria-labelledby="ended-dash-summary-h">
-            <h3 id="ended-dash-summary-h" class="dash-panel-title">Yhteenveto</h3>
+            <h3 id="ended-dash-summary-h" class="dash-panel-title">Summary</h3>
             <dl class="dash-dl" id="ended-dash-summary-dl"></dl>
           </section>
           <section class="dash-panel" aria-labelledby="ended-dash-top-fish-h">
-            <h3 id="ended-dash-top-fish-h" class="dash-panel-title">Suurimmat kalat lajeittain</h3>
+            <h3 id="ended-dash-top-fish-h" class="dash-panel-title">Largest fish by species</h3>
             <div id="ended-dash-top-fish" class="dash-top-fish"></div>
           </section>
           <section class="dash-panel" aria-labelledby="ended-dash-anglers-h">
-            <h3 id="ended-dash-anglers-h" class="dash-panel-title">Saaliit kalastajittain</h3>
+            <h3 id="ended-dash-anglers-h" class="dash-panel-title">Catches by angler</h3>
             <ul id="ended-dash-by-angler" class="dash-list"></ul>
           </section>
           <section class="dash-panel" aria-labelledby="ended-dash-species-h">
-            <h3 id="ended-dash-species-h" class="dash-panel-title">Saaliit lajeittain</h3>
+            <h3 id="ended-dash-species-h" class="dash-panel-title">Catches by species</h3>
             <ul id="ended-dash-by-species" class="dash-list"></ul>
           </section>
-          <h3 class="dash-panel-title dash-catches-heading" id="ended-dash-catches-heading">Kaikki saaliit</h3>
+          <h3 class="dash-panel-title dash-catches-heading" id="ended-dash-catches-heading">All catches</h3>
         </div>
 
-        <p class="meta hidden" id="catches-empty">Ei kirjattuja saaliita.</p>
+        <p class="meta hidden" id="catches-empty">No catches logged.</p>
         <div class="catches-table-wrap" id="catches-table-wrap">
           <div
             class="catch-list"
             id="catches-table-body"
             role="list"
-            aria-label="Saaliit"
+            aria-label="Catches"
           ></div>
         </div>
         </div>
-        <div id="catches-map-panel" class="catches-map-panel hidden" role="tabpanel" aria-label="Satelliittikartta">
+        <div id="catches-map-panel" class="catches-map-panel hidden" role="tabpanel" aria-label="Satellite map">
           <p class="meta" id="catches-map-no-loc" hidden>
-            Yhdelläkään saaliilla ei ole sijaintitietoa. Kartta näyttää vain kirjatut koordinaatit.
+            None of the catches have location data. The map only shows logged coordinates.
           </p>
-          <div id="catches-map-legend" class="catches-map-legend" aria-label="Lajit"></div>
+          <div id="catches-map-legend" class="catches-map-legend" aria-label="Species"></div>
           <div id="catches-map-container" class="catches-map-container"></div>
         </div>
       </div>
@@ -410,12 +410,12 @@
     <!-- Start session modal -->
     <div id="start-overlay" class="hidden">
       <div class="start-modal-inner">
-        <h2>Aloita sessio</h2>
-        <p class="meta">Sinä olet aina mukana. Lisää muita rekisteröityjä käyttäjiä haulla (käyttäjätunnus tai nimi).</p>
+        <h2>Start session</h2>
+        <p class="meta">You are always included. Add other registered users by search (username or name).</p>
         <div id="start-angler-picks" class="stack start-angler-picks" style="margin-bottom: 1rem"></div>
         <div class="row-actions">
-          <button type="button" class="btn btn-ghost" id="start-cancel">Peruuta</button>
-          <button type="button" class="btn btn-primary" id="start-confirm" disabled>Aloita</button>
+          <button type="button" class="btn btn-ghost" id="start-cancel">Cancel</button>
+          <button type="button" class="btn btn-primary" id="start-confirm" disabled>Start</button>
         </div>
       </div>
     </div>
@@ -423,19 +423,19 @@
     <!-- End session: catch summary -->
     <div id="session-end-overlay" class="hidden">
       <div class="session-end-inner">
-        <h2>Lopeta sessio</h2>
-        <p class="meta">Tarkista saaliit. Voit viedä CSV:n päättyneen session näkymästä (⋯-valikko).</p>
+        <h2>End session</h2>
+        <p class="meta">Review catches. You can export CSV from the ended session view (⋯ menu).</p>
         <p class="catch-session-strip meta" id="session-end-session-strip" hidden></p>
         <div class="row-actions session-end-actions">
           <button type="button" class="btn btn-danger" id="session-end-final">End session</button>
-          <button type="button" class="btn btn-ghost" id="session-end-cancel">Peruuta</button>
+          <button type="button" class="btn btn-ghost" id="session-end-cancel">Cancel</button>
         </div>
-        <div id="session-end-view-tabs" class="catches-view-tabs" role="tablist" aria-label="Saaliit lista tai kartta">
+        <div id="session-end-view-tabs" class="catches-view-tabs" role="tablist" aria-label="Catches list or map">
           <button type="button" class="btn catches-tab-btn" id="session-end-tab-list" role="tab" aria-selected="true" data-tab="list">
-            Lista
+            List
           </button>
           <button type="button" class="btn catches-tab-btn" id="session-end-tab-map" role="tab" aria-selected="false" data-tab="map">
-            Kartta
+            Map
           </button>
         </div>
         <div id="session-end-list-panel">
@@ -444,15 +444,15 @@
             class="catch-list"
             id="session-end-table-body"
             role="list"
-            aria-label="Saaliit ennen session päättymistä"
+            aria-label="Catches before ending the session"
           ></div>
         </div>
         </div>
-        <div id="session-end-map-panel" class="catches-map-panel hidden" role="tabpanel" aria-label="Satelliittikartta">
+        <div id="session-end-map-panel" class="catches-map-panel hidden" role="tabpanel" aria-label="Satellite map">
           <p class="meta" id="session-end-map-no-loc" hidden>
-            Yhdelläkään saaliilla ei ole sijaintitietoa. Kartta näyttää vain kirjatut koordinaatit.
+            None of the catches have location data. The map only shows logged coordinates.
           </p>
-          <div id="session-end-map-legend" class="catches-map-legend" aria-label="Lajit"></div>
+          <div id="session-end-map-legend" class="catches-map-legend" aria-label="Species"></div>
           <div id="session-end-map-container" class="catches-map-container"></div>
         </div>
       </div>
@@ -461,29 +461,29 @@
     <!-- Session end: summary (after session is ended) -->
     <div id="session-summary-overlay" class="hidden">
       <div class="session-summary-inner stack">
-        <h2>Sessio päättyi</h2>
-        <p class="meta">Yhteenveto tästä kalastussessiosta.</p>
+        <h2>Session ended</h2>
+        <p class="meta">Summary of this fishing session.</p>
 
         <div id="session-summary-dashboard" class="ended-session-dashboard">
           <section class="dash-panel" aria-labelledby="session-summary-dash-summary-h">
-            <h3 id="session-summary-dash-summary-h" class="dash-panel-title">Yhteenveto</h3>
+            <h3 id="session-summary-dash-summary-h" class="dash-panel-title">Summary</h3>
             <dl class="dash-dl" id="session-summary-dash-dl"></dl>
           </section>
           <section class="dash-panel" aria-labelledby="session-summary-dash-anglers-h">
-            <h3 id="session-summary-dash-anglers-h" class="dash-panel-title">Saaliit kalastajittain</h3>
+            <h3 id="session-summary-dash-anglers-h" class="dash-panel-title">Catches by angler</h3>
             <ul id="session-summary-dash-by-angler" class="dash-list"></ul>
           </section>
           <section class="dash-panel" aria-labelledby="session-summary-dash-species-h">
-            <h3 id="session-summary-dash-species-h" class="dash-panel-title">Saaliit lajeittain</h3>
+            <h3 id="session-summary-dash-species-h" class="dash-panel-title">Catches by species</h3>
             <ul id="session-summary-dash-by-species" class="dash-list"></ul>
           </section>
           <section class="dash-panel" aria-labelledby="session-summary-dash-top-fish-h">
-            <h3 id="session-summary-dash-top-fish-h" class="dash-panel-title">Suurimmat kalat lajeittain</h3>
+            <h3 id="session-summary-dash-top-fish-h" class="dash-panel-title">Largest fish by species</h3>
             <div id="session-summary-dash-top-fish" class="dash-top-fish"></div>
           </section>
         </div>
 
-        <button type="button" class="btn btn-primary" id="session-summary-close">Takaisin etusivulle</button>
+        <button type="button" class="btn btn-primary" id="session-summary-close">Back to home</button>
       </div>
     </div>
 

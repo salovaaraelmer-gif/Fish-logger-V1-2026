@@ -20,12 +20,12 @@ export function clearCachedAuthUserId() {
 }
 
 /**
- * Maps Supabase Auth errors (incl. HTTP 429 rate limits) to readable Finnish UI text.
+ * Maps Supabase Auth errors (incl. HTTP 429 rate limits) to readable English UI text.
  * @param {{ message?: string; status?: number } | null | undefined} error
  * @returns {string}
  */
 export function formatAuthErrorForUi(error) {
-  if (!error) return "Tuntematon virhe.";
+  if (!error) return "Unknown error.";
   const raw = String(error.message || "");
   const msg = raw.toLowerCase();
   const status = typeof error.status === "number" ? error.status : undefined;
@@ -36,7 +36,7 @@ export function formatAuthErrorForUi(error) {
     msg.includes("email rate limit") ||
     /\b429\b/.test(msg)
   ) {
-    return "Liian monta yritystä lyhyessä ajassa. Odota muutama minuutti ja yritä uudelleen.";
+    return "Too many attempts in a short time. Wait a few minutes and try again.";
   }
   return raw;
 }

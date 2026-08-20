@@ -35,7 +35,7 @@ function newLocalId() {
  * @param {{ userNumber: number, name: string }} b
  */
 function sortByUserNumber(a, b) {
-  return a.userNumber - b.userNumber || a.name.localeCompare(b.name, "fi");
+  return a.userNumber - b.userNumber || a.name.localeCompare(b.name, "en");
 }
 
 /**
@@ -142,9 +142,9 @@ export async function syncUserCatalogsFromCloud() {
  */
 export async function createCatalogItem(kind, rawName) {
   const uid = await getAuthUserId();
-  if (!uid) return { ok: false, reason: "Kirjautuminen puuttuu." };
+  if (!uid) return { ok: false, reason: "Not signed in." };
   const name = normalizeCatalogName(rawName);
-  if (!name) return { ok: false, reason: "Anna nimi." };
+  if (!name) return { ok: false, reason: "Enter a name." };
 
   if (kind === "location") {
     const all = (await getAllUserFishingLocations()).filter((r) => r.userId === uid);
@@ -423,12 +423,12 @@ export async function getSessionMetadataDisplayBySessionIds(sessionIds) {
         .map((l) => locById.get(l.locationId))
         .filter(Boolean)
         .map((r) => /** @type {UserFishingLocation} */ (r).name)
-        .sort((a, b) => a.localeCompare(b, "fi"));
+        .sort((a, b) => a.localeCompare(b, "en"));
       const targetNames = spLinks
         .map((l) => spById.get(l.targetSpeciesId))
         .filter(Boolean)
         .map((r) => /** @type {UserTargetSpecies} */ (r).name)
-        .sort((a, b) => a.localeCompare(b, "fi"));
+        .sort((a, b) => a.localeCompare(b, "en"));
       out.set(sessionId, { locationNames, targetNames });
     })
   );

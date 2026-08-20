@@ -8,13 +8,14 @@ import L from "https://cdn.jsdelivr.net/npm/leaflet@1.9.4/+esm";
 /** @type {unknown} */
 let activeMap = null;
 
-/** Finnish labels for map legend / popups */
+/** English labels for map legend / popups */
 export const SPECIES_MAP_LABELS = {
-  pike: "Hauki",
-  perch: "Ahven",
-  zander: "Kuha",
-  trout: "Taimen",
-  other: "Muu",
+  pike: "Pike",
+  perch: "Perch",
+  zander: "Zander",
+  trout: "Trout",
+  salmon: "Salmon",
+  other: "Other",
 };
 
 /** Marker stroke/fill by species key */
@@ -23,6 +24,7 @@ export const SPECIES_MARKER_COLORS = {
   perch: "#f57f17",
   zander: "#0d47a1",
   trout: "#b71c1c",
+  salmon: "#0277bd",
   other: "#4a148c",
 };
 
@@ -50,9 +52,9 @@ function escapeHtml(s) {
 function formatCatchTime(ts, activeSession) {
   const d = new Date(ts);
   if (activeSession) {
-    return d.toLocaleTimeString("fi-FI", { hour: "2-digit", minute: "2-digit" });
+    return d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
   }
-  return d.toLocaleString("fi-FI", {
+  return d.toLocaleString("en-GB", {
     day: "numeric",
     month: "numeric",
     hour: "2-digit",
@@ -79,23 +81,23 @@ function buildPopupHtml(c, nameById, ownerUserId, activeSession) {
     escapeHtml(angler),
   ];
   if (c.length != null && typeof c.length === "number" && c.length >= 1) {
-    lines.push(`Pituus: ${c.length} cm`);
+    lines.push(`Length: ${c.length} cm`);
   }
   if (c.weight_kg != null && typeof c.weight_kg === "number" && Number.isFinite(c.weight_kg)) {
-    lines.push(`Paino: ${c.weight_kg.toLocaleString("fi-FI", { maximumFractionDigits: 2 })} kg`);
+    lines.push(`Weight: ${c.weight_kg.toLocaleString("en-GB", { maximumFractionDigits: 2 })} kg`);
   }
   if (c.depth_m != null && typeof c.depth_m === "number" && Number.isFinite(c.depth_m)) {
-    lines.push(`Syvyys: ${c.depth_m.toLocaleString("fi-FI", { maximumFractionDigits: 1 })} m`);
+    lines.push(`Depth: ${c.depth_m.toLocaleString("en-GB", { maximumFractionDigits: 1 })} m`);
   }
   if (c.water_temp_c != null && typeof c.water_temp_c === "number" && Number.isFinite(c.water_temp_c)) {
-    lines.push(`Vesi: ${c.water_temp_c.toLocaleString("fi-FI", { maximumFractionDigits: 1 })} °C`);
+    lines.push(`Water: ${c.water_temp_c.toLocaleString("en-GB", { maximumFractionDigits: 1 })} °C`);
   }
   if (
     c.location_accuracy_m != null &&
     typeof c.location_accuracy_m === "number" &&
     Number.isFinite(c.location_accuracy_m)
   ) {
-    lines.push(`Sijainnin tarkkuus: ±${Math.round(c.location_accuracy_m)} m`);
+    lines.push(`Location accuracy: ±${Math.round(c.location_accuracy_m)} m`);
   }
   const notes = (c.notes || "").trim();
   if (notes) {
