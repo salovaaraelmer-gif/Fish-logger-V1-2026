@@ -269,7 +269,14 @@ export async function uploadProfileAvatar(userId, file) {
     cacheControl: "3600",
   });
   if (up.error) {
-    return { ok: false, error: up.error.message };
+    const msg = up.error.message || "Upload failed.";
+    if (/bucket not found/i.test(msg)) {
+      return {
+        ok: false,
+        error: "Photo storage is not set up yet. Run SUPABASE_AVATARS.sql in the Supabase SQL editor.",
+      };
+    }
+    return { ok: false, error: msg };
   }
 
   const pub = supabase.storage.from(AVATAR_BUCKET).getPublicUrl(path);
