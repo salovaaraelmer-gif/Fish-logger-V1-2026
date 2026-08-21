@@ -4,29 +4,10 @@
  */
 
 import L from "https://cdn.jsdelivr.net/npm/leaflet@1.9.4/+esm";
+import { SPECIES_LABELS, colorForSpecies } from "./catchSpecies.js";
 
 /** @type {unknown} */
 let activeMap = null;
-
-/** English labels for map legend / popups */
-export const SPECIES_MAP_LABELS = {
-  pike: "Pike",
-  perch: "Perch",
-  zander: "Zander",
-  trout: "Trout",
-  salmon: "Salmon",
-  other: "Other",
-};
-
-/** Marker stroke/fill by species key */
-export const SPECIES_MARKER_COLORS = {
-  pike: "#1b5e20",
-  perch: "#f57f17",
-  zander: "#0d47a1",
-  trout: "#b71c1c",
-  salmon: "#0277bd",
-  other: "#4a148c",
-};
 
 const ESRI_SATELLITE =
   "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}";
@@ -74,7 +55,7 @@ function buildPopupHtml(c, nameById, ownerUserId, activeSession) {
     ownerUserId && c.anglerId === ownerUserId
       ? `${rawName}${SESSION_OWNER_SUFFIX}`
       : rawName;
-  const spLabel = SPECIES_MAP_LABELS[c.species] || c.species;
+    const spLabel = SPECIES_LABELS[c.species] || c.species;
   const lines = [
     `<strong>${escapeHtml(spLabel)}</strong>`,
     escapeHtml(formatCatchTime(c.timestamp, activeSession)),
@@ -114,12 +95,12 @@ export function renderSpeciesLegend(legendEl) {
   legendEl.innerHTML = "";
   const row = document.createElement("div");
   row.className = "catches-map-legend-row";
-  for (const [key, label] of Object.entries(SPECIES_MAP_LABELS)) {
+  for (const [key, label] of Object.entries(SPECIES_LABELS)) {
     const col = document.createElement("div");
     col.className = "catches-map-legend-item";
     const dot = document.createElement("span");
     dot.className = "catches-map-legend-dot";
-    dot.style.background = SPECIES_MARKER_COLORS[key] || "#666";
+    dot.style.background = colorForSpecies(key);
     col.appendChild(dot);
     col.appendChild(document.createTextNode(label));
     row.appendChild(col);
@@ -187,7 +168,7 @@ export function mountCatchesMap(container, opts) {
 
   const group = L.featureGroup();
   for (const c of withLoc) {
-    const color = SPECIES_MARKER_COLORS[c.species] || "#546e7a";
+    const color = colorForSpecies(c.species);
     const m = L.circleMarker([c.location_lat, c.location_lng], {
       radius: 9,
       color: "#ffffff",

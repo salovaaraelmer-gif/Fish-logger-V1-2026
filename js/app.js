@@ -42,7 +42,8 @@ import {
   syncSessionLinksToCloud,
 } from "./sessionMetadataService.js";
 import { mountCreatableMultiSelect } from "./creatableMultiSelect.js";
-import { formatHistorySessionHeader, formatSessionDuration } from "./sessionHistoryFormat.js";
+import { formatSessionDuration } from "./sessionHistoryFormat.js";
+import { buildHistorySessionCard } from "./historySessionCard.js";
 import { defaultSessionTitleFromDate, getSessionDisplayTitle } from "./sessionTitle.js";
 import {
   buildSessionCatchesCsv,
@@ -62,7 +63,9 @@ import {
   parseOptionalWaterTempC,
   parseOptionalWeightKg,
 } from "./catchService.js";
-import { isAllowedSpecies } from "./catchSpecies.js";
+import { isAllowedSpecies, SPECIES_LABELS, speciesWithCatches } from "./catchSpecies.js";
+import { mountSpeciesDashboard } from "./speciesDashboard.js";
+import { catalogNameToSpeciesKey } from "./speciesDashboardStats.js";
 import { supabase } from "./supabase.js";
 import {
   getDisplayNameFromUser,
@@ -78,6 +81,7 @@ import {
 import {
   upsertProfileForUser,
   fetchProfileDisplayNames,
+  fetchProfilesByIds,
   searchProfiles,
   profileDisplayLabel,
 } from "./supabaseProfile.js";
@@ -118,16 +122,6 @@ import {
 let pendingCatchesOverlayMap = null;
 /** @type {Parameters<typeof mountCatchesMap>[1] | null} */
 let pendingSessionEndMap = null;
-
-/** @type {Record<string, string>} */
-const SPECIES_LABELS = {
-  pike: "Pike",
-  perch: "Perch",
-  zander: "Zander",
-  trout: "Trout",
-  salmon: "Salmon",
-  other: "Other",
-};
 
 /**
  * App species key → value stored in `public.catches.species`.
@@ -774,6 +768,69 @@ async function renderSessionHomeCatches(sessionId) {
 }
 
 /**
+ * @param {import('./db.js').SessionAngler[]} sessionAnglers
+ * @returns {import('./db.js').SessionAngler[]}
+ */
+function sortSessionAnglersForDashboard(sessionAnglers) {
+  return [...sessionAnglers].sort(
+    (a, b) => (a.joinedAt || 0) - (b.joinedAt || 0) || a.anglerId.localeCompare(b.anglerId)
+  );
+}
+
+/**
+ * @param {string} sessionId
+ * @returns {Promise<string[]>}
+ */
+async function targetSpeciesKeysForSession(sessionId) {
+  const [selected, catalogs] = await Promise.all([
+    getSessionSelectedCatalogIds(sessionId),
+    getUserCatalogDisplayLists(),
+  ]);
+  const byId = new Map(catalogs.targets.map((item) => [item.id, item]));
+  /** @type {string[]} */
+  const keys = [];
+  for (const id of selected.targetSpeciesIds) {
+    const item = byId.get(id);
+    const key = item ? catalogNameToSpeciesKey(item.name) : null;
+    if (key && !keys.includes(key)) keys.push(key);
+  }
+  return keys;
+}
+
+/**
+ * @param {string} sessionId
+ * @param {HTMLElement | null} container
+ */
+async function renderSessionSpeciesDashboard(sessionId, container) {
+  if (!container) return;
+  if (!sessionId) {
+    container.innerHTML = "";
+    container.classList.add("hidden");
+    return;
+  }
+  const [sas, catches, targetSpeciesKeys] = await Promise.all([
+    getSessionAnglersForSession(sessionId),
+    getCatchesForSession(sessionId),
+    targetSpeciesKeysForSession(sessionId),
+  ]);
+  const anglersSorted = sortSessionAnglersForDashboard(sas);
+  const profiles = await fetchProfilesByIds(anglersSorted.map((sa) => sa.anglerId));
+  container.classList.remove("hidden");
+  mountSpeciesDashboard(container, {
+    anglers: anglersSorted.map((sa) => {
+      const profile = profiles.get(sa.anglerId);
+      return {
+        id: sa.anglerId,
+        name: profileDisplayLabel(profile, sa.anglerId),
+        avatarUrl: profile?.avatar_url ?? null,
+      };
+    }),
+    catches,
+    targetSpeciesKeys,
+  });
+}
+
+/**
  * Target species chosen on the start-session page, applied after the session exists.
  * @type {string[]}
  */
@@ -1222,6 +1279,7 @@ async function maybeStartParticipantSessionPoll(localSessionId) {
       }
       await rehydrateSupabaseSessionContext();
       await renderSessionHomeCatches(s.id);
+      await renderSessionSpeciesDashboard(s.id, document.getElementById("session-live-dashboard"));
       await refreshCatchesTableIfOpen();
     } catch (e) {
       console.warn("[participantSync] poll:", e);
@@ -1657,58 +1715,6 @@ function averageWaterTempC(catches) {
 }
 
 /**
- * Single-line display for the winning catch: both length and weight, "-" when missing.
- * @param {import('./db.js').CatchRecord} c
- */
-function formatBiggestFishDisplayLine(c) {
-  const lenPart =
-    c.length != null && typeof c.length === "number" && c.length >= 1
-      ? `${c.length} cm`
-      : "-";
-  const wtPart =
-    c.weight_kg != null && typeof c.weight_kg === "number" && Number.isFinite(c.weight_kg)
-      ? `${c.weight_kg.toLocaleString("en-GB", { maximumFractionDigits: 2 })} kg`
-      : "-";
-  return `Length: ${lenPart} | Weight: ${wtPart}`;
-}
-
-/**
- * Prefer max weight; if no weights, max length.
- * @param {import('./db.js').CatchRecord[]} catches
- * @param {Record<string, string>} nameById
- * @returns {{ display: string, anglerName: string } | null}
- */
-function biggestFishSummary(catches, nameById, ownerUserId = null) {
-  const w = catches.filter(
-    (c) => c.weight_kg != null && typeof c.weight_kg === "number" && Number.isFinite(c.weight_kg)
-  );
-  if (w.length > 0) {
-    let best = w[0];
-    for (let i = 1; i < w.length; i++) {
-      if (/** @type {number} */ (w[i].weight_kg) > /** @type {number} */ (best.weight_kg)) best = w[i];
-    }
-    const rawName = nameById[best.anglerId] || best.anglerId;
-    return {
-      display: formatBiggestFishDisplayLine(best),
-      anglerName: formatAnglerLabelWithOwner(rawName, best.anglerId, ownerUserId),
-    };
-  }
-  const len = catches.filter((c) => c.length != null && typeof c.length === "number" && c.length >= 1);
-  if (len.length > 0) {
-    let best = len[0];
-    for (let i = 1; i < len.length; i++) {
-      if (/** @type {number} */ (len[i].length) > /** @type {number} */ (best.length)) best = len[i];
-    }
-    const rawName = nameById[best.anglerId] || best.anglerId;
-    return {
-      display: formatBiggestFishDisplayLine(best),
-      anglerName: formatAnglerLabelWithOwner(rawName, best.anglerId, ownerUserId),
-    };
-  }
-  return null;
-}
-
-/**
  * @param {number} ts
  * @param {boolean} activeSession — if true, HH:MM only (24h, colon); if false, date + 24h time with colon
  */
@@ -1884,12 +1890,6 @@ async function fillEndedSessionDashboardPanels(session, sessionAnglers, catches,
       "Avg. water temp",
       `${avgW.toLocaleString("en-GB", { maximumFractionDigits: 1 })} °C`
     );
-  }
-
-  const big = biggestFishSummary(catches, nameById, ownerUserId);
-  if (big) {
-    appendDashDlRow(summaryDl, "Biggest fish", big.display);
-    appendDashDlRow(summaryDl, "Angler (biggest)", big.anglerName);
   }
 
   /** @type {Map<string, number>} */
@@ -2269,6 +2269,10 @@ async function populateCatchesTable(sessionIdOverride) {
         ownerUserId
       );
       dashEl?.classList.remove("hidden");
+      await renderSessionSpeciesDashboard(
+        sessionIdOverride,
+        document.getElementById("ended-species-dashboard")
+      );
       const uid = await getAuthUserId();
       const canEdit =
         !!uid && (await anglerBelongsToSessionRoster(sessionIdOverride, uid));
@@ -2286,6 +2290,11 @@ async function populateCatchesTable(sessionIdOverride) {
     } else {
       dashEl?.classList.add("hidden");
       document.getElementById("session-metadata-ended")?.classList.add("hidden");
+      const endedDash = document.getElementById("ended-species-dashboard");
+      if (endedDash) {
+        endedDash.innerHTML = "";
+        endedDash.classList.add("hidden");
+      }
     }
     if (stripEl) {
       stripEl.setAttribute("hidden", "");
@@ -2673,6 +2682,11 @@ async function renderHome() {
   if (!session) {
     stopSessionTimer();
     document.getElementById("session-title-block")?.classList.add("hidden");
+    const liveDash = document.getElementById("session-live-dashboard");
+    if (liveDash) {
+      liveDash.innerHTML = "";
+      liveDash.classList.add("hidden");
+    }
     sessionTitleEditing = false;
     const titleInp = /** @type {HTMLInputElement | null} */ (document.getElementById("session-title-input"));
     const titleDisp = document.getElementById("session-title-display");
@@ -2692,6 +2706,7 @@ async function renderHome() {
     startSessionTimer(session.startTime);
     syncSessionTitleHeader(session);
     await maybeStartParticipantSessionPoll(session.id);
+    await renderSessionSpeciesDashboard(session.id, document.getElementById("session-live-dashboard"));
     await renderSessionHomeCatches(session.id);
   }
 
@@ -2752,7 +2767,7 @@ async function renderHistorySection() {
         getSessionAnglersForSession(s.id),
         getCatchesForSession(s.id),
       ]);
-      return { session: s, sas, catchCount: catches.length };
+      return { session: s, sas, catches };
     })
   );
 
@@ -2762,45 +2777,24 @@ async function renderHistorySection() {
       allAnglerIds.push(sa.anglerId);
     }
   }
-  const nameById = await fetchProfileDisplayNames(allAnglerIds);
+  const profiles = await fetchProfilesByIds(allAnglerIds);
   const metaBySession = await getSessionMetadataDisplayBySessionIds(
     rows.map((r) => r.session.id)
   );
 
-  for (const { session: s, sas, catchCount } of rows) {
-    const ownerUserId = await getSessionOwnerUserId(s);
-    const anglerIds = [...new Set(sas.map((sa) => sa.anglerId))];
-    const anglerLabel = anglerIds.length
-      ? anglerIds
-          .map((id) => formatAnglerLabelWithOwner(nameById[id] || id, id, ownerUserId))
-          .join(", ")
-      : "—";
-
-    const meta = metaBySession.get(s.id);
-    const header = formatHistorySessionHeader({
-      anglerLabel,
-      locationNames: meta?.locationNames ?? [],
+  for (const { session: s, sas, catches } of rows) {
+    const anglersSorted = sortSessionAnglersForDashboard(sas);
+    const btn = buildHistorySessionCard({
+      placeNames: metaBySession.get(s.id)?.locationNames ?? [],
       startTime: s.startTime,
       endTime: s.endTime,
+      catchCount: catches.length,
+      speciesKeys: speciesWithCatches(catches),
+      anglers: anglersSorted.map((sa) => ({
+        id: sa.anglerId,
+        avatarUrl: profiles.get(sa.anglerId)?.avatar_url ?? null,
+      })),
     });
-
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "history-session-row";
-    btn.setAttribute(
-      "aria-label",
-      `${header}, ${catchCount} ${catchCount === 1 ? "catch" : "catches"}`
-    );
-
-    const line1 = document.createElement("div");
-    line1.className = "history-session-line1";
-    line1.textContent = header;
-
-    const line2 = document.createElement("div");
-    line2.className = "history-session-line2 meta";
-    line2.textContent = catchCount === 1 ? "1 catch" : `${catchCount} catches`;
-
-    btn.append(line1, line2);
     btn.addEventListener("click", async () => {
       await openHistorySessionCatches(s.id);
     });

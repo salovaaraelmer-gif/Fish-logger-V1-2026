@@ -4,7 +4,7 @@
  */
 
 import L from "https://cdn.jsdelivr.net/npm/leaflet@1.9.4/+esm";
-import { SPECIES_MARKER_COLORS } from "./catchesMap.js";
+import { colorForSpecies } from "./catchSpecies.js";
 
 const ESRI_SATELLITE =
   "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}";
@@ -70,7 +70,7 @@ export function mountFishEditLocationMap(container, opts) {
     maxZoom: 19,
   }).addTo(map);
 
-  const color = SPECIES_MARKER_COLORS[opts.species] || "#546e7a";
+  const color = colorForSpecies(opts.species);
   const icon = L.divIcon({
     className: "fish-edit-marker-leaflet",
     html: `<div class="fish-edit-marker-dot" style="background:${color}"></div>`,

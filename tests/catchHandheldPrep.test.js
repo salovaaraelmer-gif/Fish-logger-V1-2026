@@ -6,8 +6,11 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   SPECIES_OPTIONS,
+  SPECIES_COLORS,
+  colorForSpecies,
   isAllowedSpecies,
   mapSpeciesFromDb,
+  speciesWithCatches,
 } from "../js/catchSpecies.js";
 import {
   CATCH_SOURCE_HANDHELD,
@@ -101,6 +104,23 @@ describe("species list", () => {
   it("does not convert salmon to other", () => {
     assert.equal(mapSpeciesFromDb("salmon"), "salmon");
     assert.equal(mapSpeciesFromDb(" pike "), "pike");
+  });
+
+  it("uses one shared color mapping", () => {
+    assert.equal(SPECIES_COLORS.pike, "#1B5E20");
+    assert.equal(SPECIES_COLORS.perch, "#F57F17");
+    assert.equal(SPECIES_COLORS.zander, "#0D47A1");
+    assert.equal(SPECIES_COLORS.trout, "#616161");
+    assert.equal(SPECIES_COLORS.salmon, "#D81B60");
+    assert.equal(SPECIES_COLORS.other, "#4A148C");
+    assert.equal(colorForSpecies("pike"), "#1B5E20");
+  });
+
+  it("lists only species that have catches, in app order", () => {
+    assert.deepEqual(
+      speciesWithCatches([{ species: "zander" }, { species: "pike" }, { species: "zander" }]),
+      ["pike", "zander"]
+    );
   });
 });
 
