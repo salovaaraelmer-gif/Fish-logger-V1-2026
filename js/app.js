@@ -23,7 +23,6 @@ import {
 import {
   startSession,
   endActiveSession,
-  markAnglerInactive,
   markSessionCsvExportedById,
   saveActiveSessionTitle,
   saveSessionTitleIfParticipant,
@@ -696,14 +695,17 @@ async function pushSessionTimesToSupabase(startMs, endMs, cloudSessionId) {
  * @param {string} sessionId
  * @param {HTMLElement | null} container
  * @param {boolean} editable
+ * @param {{ includeLocations?: boolean, includeTargets?: boolean }} [options]
  */
-async function renderSessionMetadataPickers(sessionId, container, editable) {
+async function renderSessionMetadataPickers(sessionId, container, editable, options = {}) {
   if (!container) return;
   container.innerHTML = "";
   if (!sessionId) {
     container.classList.add("hidden");
     return;
   }
+  const includeLocations = options.includeLocations !== false;
+  const includeTargets = options.includeTargets !== false;
   container.classList.remove("hidden");
   await ensureDefaultTargetSpeciesCatalog();
   if (navigator.onLine) {
@@ -711,50 +713,73 @@ async function renderSessionMetadataPickers(sessionId, container, editable) {
   }
   const catalogs = await getUserCatalogDisplayLists();
   const selected = await getSessionSelectedCatalogIds(sessionId);
-
-  const locWrap = document.createElement("div");
-  const tgtWrap = document.createElement("div");
-  container.append(locWrap, tgtWrap);
-
   const locItems = [...catalogs.locations];
   const tgtItems = [...catalogs.targets];
 
-  mountCreatableMultiSelect({
-    container: locWrap,
-    label: "Fishing spots",
-    items: locItems,
-    selectedIds: selected.locationIds,
-    disabled: !editable,
-    onChange: async (ids) => {
-      const cur = await getSessionSelectedCatalogIds(sessionId);
-      const r = await setSessionCatalogSelections(sessionId, ids, cur.targetSpeciesIds);
-      if (!r.ok) showError(r.error);
-      void renderHistorySection();
-    },
-    onCreateNew: async (name) => {
-      const r = await createCatalogItem("location", name);
-      return r.ok ? r.item : null;
-    },
-  });
+  if (includeLocations) {
+    const locWrap = document.createElement("div");
+    container.appendChild(locWrap);
+    mountCreatableMultiSelect({
+      container: locWrap,
+      label: "Fishing spots",
+      items: locItems,
+      selectedIds: selected.locationIds,
+      disabled: !editable,
+      searchable: true,
+      onChange: async (ids) => {
+        const cur = await getSessionSelectedCatalogIds(sessionId);
+        const r = await setSessionCatalogSelections(sessionId, ids, cur.targetSpeciesIds);
+        if (!r.ok) showError(r.error);
+        void renderHistorySection();
+      },
+      onCreateNew: async (name) => {
+        const r = await createCatalogItem("location", name);
+        return r.ok ? r.item : null;
+      },
+    });
+  }
 
-  mountCreatableMultiSelect({
-    container: tgtWrap,
-    label: "Target species",
-    items: tgtItems,
-    selectedIds: selected.targetSpeciesIds,
-    disabled: !editable,
-    onChange: async (ids) => {
-      const cur = await getSessionSelectedCatalogIds(sessionId);
-      const r = await setSessionCatalogSelections(sessionId, cur.locationIds, ids);
-      if (!r.ok) showError(r.error);
-      void renderHistorySection();
-    },
-    onCreateNew: async (name) => {
-      const r = await createCatalogItem("target", name);
-      return r.ok ? r.item : null;
-    },
-  });
+  if (includeTargets) {
+    const tgtWrap = document.createElement("div");
+    container.appendChild(tgtWrap);
+    mountCreatableMultiSelect({
+      container: tgtWrap,
+      label: "Target species",
+      items: tgtItems,
+      selectedIds: selected.targetSpeciesIds,
+      disabled: !editable,
+      onChange: async (ids) => {
+        const cur = await getSessionSelectedCatalogIds(sessionId);
+        const r = await setSessionCatalogSelections(sessionId, cur.locationIds, ids);
+        if (!r.ok) showError(r.error);
+        void renderHistorySection();
+      },
+      onCreateNew: async (name) => {
+        const r = await createCatalogItem("target", name);
+        return r.ok ? r.item : null;
+      },
+    });
+  }
 }
+
+/**
+ * Catches list on the active Session tab (under the future dashboard).
+ * @param {string} sessionId
+ */
+async function renderSessionHomeCatches(sessionId) {
+  const listEl = document.getElementById("session-home-catches-list");
+  const emptyEl = document.getElementById("session-home-catches-empty");
+  if (!listEl) return;
+  const catches = await getCatchesForSession(sessionId);
+  emptyEl?.classList.toggle("hidden", catches.length > 0);
+  await renderCatchList(listEl, sessionId, false, { activeSession: true, allowEditDelete: true });
+}
+
+/**
+ * Target species chosen on the start-session page, applied after the session exists.
+ * @type {string[]}
+ */
+let pendingStartTargetIds = [];
 
 /**
  * @param {import('./db.js').Session} session
@@ -1124,9 +1149,6 @@ function destroyFishEditMapUi() {
   destroyFishEditLocationMap(document.getElementById("fish-edit-location-map"));
 }
 
-/** Home screen: anglers block (list + session roster) expanded. Persists across re-renders. */
-let homeAnglersExpanded = false;
-
 /** Active Supabase `sessions.id` after a successful cloud insert when starting a session; cleared when the session ends. Also restored from IndexedDB on load (see `rehydrateSupabaseSessionContext`). */
 let activeSupabaseSessionId = null;
 
@@ -1201,7 +1223,7 @@ async function maybeStartParticipantSessionPoll(localSessionId) {
         return;
       }
       await rehydrateSupabaseSessionContext();
-      await renderSessionLiveView(s.id);
+      await renderSessionHomeCatches(s.id);
       await refreshCatchesTableIfOpen();
     } catch (e) {
       console.warn("[participantSync] poll:", e);
@@ -2368,6 +2390,14 @@ async function openSessionEndOverlay() {
   closeCatchesOverlay();
   await withAppSpinner(async () => {
     await populateSessionEndCatchesTable();
+    const authId = await getAuthUserId();
+    const canEdit = authId ? await anglerBelongsToSessionRoster(session.id, authId) : false;
+    await renderSessionMetadataPickers(
+      session.id,
+      document.getElementById("session-end-spots"),
+      canEdit,
+      { includeLocations: true, includeTargets: false }
+    );
   });
   document.getElementById("session-end-overlay")?.classList.remove("hidden");
 }
@@ -2541,20 +2571,6 @@ async function renderSessionLiveView(sessionId) {
 }
 
 /**
- * @param {boolean} hasActiveSession
- */
-function syncHomeAnglersToggleUi(hasActiveSession) {
-  const panel = document.getElementById("angler-edit-panel");
-  const btn = document.getElementById("btn-toggle-anglers");
-  if (!hasActiveSession) homeAnglersExpanded = false;
-  panel?.classList.toggle("hidden", !homeAnglersExpanded);
-  btn?.classList.toggle("hidden", !hasActiveSession);
-  btn?.setAttribute("aria-expanded", homeAnglersExpanded ? "true" : "false");
-  btn?.classList.toggle("is-active", homeAnglersExpanded);
-  if (btn) btn.textContent = homeAnglersExpanded ? "Hide participants" : "Show participants";
-}
-
-/**
  * Upserts local angler row id = auth user id (display name from profile).
  * @param {{ id: string, user_metadata?: Record<string, unknown> } | null | undefined} user
  * @returns {Promise<string | null>}
@@ -2685,9 +2701,8 @@ async function renderHome() {
   const meta = document.getElementById("session-meta");
   const noS = document.getElementById("block-no-session");
   const act = document.getElementById("block-active-session");
-  const roster = document.getElementById("session-roster");
 
-  if (!meta || !noS || !act || !roster) return;
+  if (!meta || !noS || !act) return;
 
   if (!session) {
     stopSessionTimer();
@@ -2702,83 +2717,16 @@ async function renderHome() {
     meta.hidden = true;
     noS.classList.remove("hidden");
     act.classList.add("hidden");
-    roster.classList.add("hidden");
-    homeAnglersExpanded = false;
-    document.getElementById("session-times-active")?.classList.add("hidden");
-    document.getElementById("session-metadata-active")?.classList.add("hidden");
-    syncHomeAnglersToggleUi(false);
+    closeSessionSettingsOverlay();
   } else {
-    const start = new Date(session.startTime);
-    let line = `Session running (started ${start.toLocaleString("en-GB")}).`;
-    if (
-      typeof session.initialLocationLat === "number" &&
-      typeof session.initialLocationLng === "number"
-    ) {
-      const acc =
-        typeof session.initialLocationAccuracyM === "number"
-          ? ` ±${Math.round(session.initialLocationAccuracyM)} m`
-          : "";
-      line += ` Start point: ${session.initialLocationLat.toFixed(4)}, ${session.initialLocationLng.toFixed(4)}${acc}.`;
-    }
-    meta.hidden = false;
-    meta.textContent = line;
+    meta.hidden = true;
+    meta.textContent = "";
     noS.classList.add("hidden");
     act.classList.remove("hidden");
-    roster.classList.remove("hidden");
     startSessionTimer(session.startTime);
     syncSessionTitleHeader(session);
-    await renderSessionLiveView(session.id);
     await maybeStartParticipantSessionPoll(session.id);
-
-    const authId = await getAuthUserId();
-    const canEdit = authId ? await anglerBelongsToSessionRoster(session.id, authId) : false;
-    await renderSessionTimesEditor(
-      session,
-      document.getElementById("session-times-active"),
-      canEdit
-    );
-    await renderSessionMetadataPickers(
-      session.id,
-      document.getElementById("session-metadata-active"),
-      canEdit
-    );
-    syncHomeAnglersToggleUi(true);
-  }
-
-  if (session) {
-    const ownerUserId = await getSessionOwnerUserId(session);
-    const sas = await getSessionAnglersForSession(session.id);
-    const nameById = await fetchProfileDisplayNames(sas.map((sa) => sa.anglerId));
-    const rows = document.getElementById("session-angler-rows");
-    if (rows) {
-      rows.innerHTML = "";
-      for (const sa of sas) {
-        const row = document.createElement("div");
-        row.className = "angler-item";
-        const name = formatAnglerLabelWithOwner(
-          nameById[sa.anglerId] || sa.anglerId,
-          sa.anglerId,
-          ownerUserId
-        );
-        const status = sa.isActive ? "active" : "left";
-        row.innerHTML = `<span>${escapeHtml(name)} <span class="meta">(${status})</span></span>`;
-        if (sa.isActive) {
-          const b = document.createElement("button");
-          b.type = "button";
-          b.className = "btn small-btn";
-          b.textContent = "Mark as left";
-          b.dataset.sessionId = session.id;
-          b.dataset.anglerId = sa.anglerId;
-          b.addEventListener("click", async () => {
-            const r = await markAnglerInactive(session.id, sa.anglerId);
-            if (!r.ok) showError(r.reason);
-            await renderHome();
-          });
-          row.appendChild(b);
-        }
-        rows.appendChild(row);
-      }
-    }
+    await renderSessionHomeCatches(session.id);
   }
 
   await renderHistorySection();
@@ -2902,7 +2850,8 @@ async function renderHistorySection() {
 function buildStartSessionParticipantPicker(selfAnglerId, selfDisplayName) {
   const box = document.getElementById("start-angler-picks");
   const confirm = document.getElementById("start-confirm");
-  if (!box || !confirm) return;
+  const continueBtn = document.getElementById("start-continue");
+  if (!box || !confirm || !continueBtn) return;
 
   /** @type {Set<string>} */
   const selected = new Set();
@@ -3073,7 +3022,15 @@ function buildStartSessionParticipantPicker(selfAnglerId, selfDisplayName) {
   box.append(selfRow, selWrap, searchWrap);
 
   renderSelectedChips();
-  confirm.disabled = false;
+  continueBtn.disabled = !selfAnglerId;
+
+  continueBtn.onclick = async () => {
+    if (!selfAnglerId) return;
+    selected.add(selfAnglerId);
+    showStartSessionStep("targets");
+    await mountStartTargetPicker();
+    document.getElementById("tab-session")?.scrollTo(0, 0);
+  };
 
   confirm.onclick = async () => {
     selected.add(selfAnglerId);
@@ -3103,6 +3060,17 @@ function buildStartSessionParticipantPicker(selfAnglerId, selfDisplayName) {
       showError(r.reason);
       return;
     }
+
+    if (pendingStartTargetIds.length) {
+      const cur = await getSessionSelectedCatalogIds(r.sessionId);
+      const sel = await setSessionCatalogSelections(
+        r.sessionId,
+        cur.locationIds,
+        pendingStartTargetIds
+      );
+      if (!sel.ok) showError(sel.error);
+    }
+    pendingStartTargetIds = [];
 
     const ownerUidEarly = await getAuthUserId();
     if (ownerUidEarly) {
@@ -3222,6 +3190,7 @@ function buildStartSessionParticipantPicker(selfAnglerId, selfDisplayName) {
 
     showSessionHomeScreen();
     selected.clear();
+    showStartSessionStep("participants");
     closeCatchesOverlay();
     closeSessionEndOverlay();
     await renderHome();
@@ -3523,6 +3492,63 @@ function showSessionHomeScreen() {
   document.getElementById("screen-start-session")?.classList.remove("is-visible");
 }
 
+/**
+ * @param {"participants" | "targets"} step
+ */
+function showStartSessionStep(step) {
+  document.getElementById("start-step-participants")?.classList.toggle("hidden", step !== "participants");
+  document.getElementById("start-step-targets")?.classList.toggle("hidden", step !== "targets");
+}
+
+async function mountStartTargetPicker() {
+  const wrap = document.getElementById("start-target-picker");
+  if (!wrap) return;
+  wrap.innerHTML = "";
+  wrap.classList.remove("hidden");
+  await ensureDefaultTargetSpeciesCatalog();
+  if (navigator.onLine) {
+    await syncUserCatalogsFromCloud();
+  }
+  const catalogs = await getUserCatalogDisplayLists();
+  const tgtWrap = document.createElement("div");
+  wrap.appendChild(tgtWrap);
+  mountCreatableMultiSelect({
+    container: tgtWrap,
+    label: "Target species",
+    items: [...catalogs.targets],
+    selectedIds: pendingStartTargetIds,
+    onChange: (ids) => {
+      pendingStartTargetIds = ids;
+    },
+    onCreateNew: async (name) => {
+      const r = await createCatalogItem("target", name);
+      return r.ok ? r.item : null;
+    },
+  });
+}
+
+async function openSessionSettingsOverlay() {
+  const session = await getActiveSessionForParticipantUi();
+  if (!session) return;
+  const authId = await getAuthUserId();
+  const canEdit = authId ? await anglerBelongsToSessionRoster(session.id, authId) : false;
+  await renderSessionTimesEditor(
+    session,
+    document.getElementById("session-times-active"),
+    canEdit
+  );
+  await renderSessionMetadataPickers(
+    session.id,
+    document.getElementById("session-metadata-active"),
+    canEdit
+  );
+  document.getElementById("session-settings-overlay")?.classList.remove("hidden");
+}
+
+function closeSessionSettingsOverlay() {
+  document.getElementById("session-settings-overlay")?.classList.add("hidden");
+}
+
 function showSessionStartScreen() {
   document.getElementById("session-home-header")?.classList.add("hidden");
   document.getElementById("screen-home")?.classList.remove("is-visible");
@@ -3678,7 +3704,6 @@ async function onAuthSignedOut() {
   stopSessionTimer();
   clearFishLoggingLocationCache();
   fishState.editingCatchId = null;
-  homeAnglersExpanded = false;
   closeProfileOverlay();
   closeMenuSheet();
   showSessionHomeScreen();
@@ -3688,6 +3713,7 @@ async function onAuthSignedOut() {
   document.getElementById("catches-overlay")?.classList.add("hidden");
   document.getElementById("session-end-overlay")?.classList.add("hidden");
   document.getElementById("session-summary-overlay")?.classList.add("hidden");
+  closeSessionSettingsOverlay();
   lastIndexedDbUserId = null;
   lastActivatedUserId = null;
 }
@@ -4256,15 +4282,33 @@ function mainAppInit() {
       data: { user },
     } = await supabase.auth.getUser();
     const selfName = user ? getDisplayNameFromUser(user) : "";
+    pendingStartTargetIds = [];
+    showStartSessionStep("participants");
     buildStartSessionParticipantPicker(selfId, selfName);
     showSessionStartScreen();
   });
 
   document.getElementById("start-back")?.addEventListener("click", () => {
+    pendingStartTargetIds = [];
+    showStartSessionStep("participants");
     showSessionHomeScreen();
   });
 
+  document.getElementById("start-targets-back")?.addEventListener("click", () => {
+    showStartSessionStep("participants");
+    document.getElementById("tab-session")?.scrollTo(0, 0);
+  });
+
+  document.getElementById("btn-session-settings")?.addEventListener("click", () => {
+    void openSessionSettingsOverlay();
+  });
+
+  document.getElementById("session-settings-back")?.addEventListener("click", () => {
+    closeSessionSettingsOverlay();
+  });
+
   document.getElementById("btn-end-session")?.addEventListener("click", () => {
+    closeSessionSettingsOverlay();
     openSessionEndOverlay();
   });
 
@@ -4302,17 +4346,6 @@ function mainAppInit() {
     await renderHome();
     showSuccess("Session ended");
     await openSessionSummaryOverlay(endedSessionId);
-  });
-
-  document.getElementById("btn-toggle-anglers")?.addEventListener("click", () => {
-    homeAnglersExpanded = !homeAnglersExpanded;
-    syncHomeAnglersToggleUi(true);
-  });
-
-  document.getElementById("btn-show-catches")?.addEventListener("click", () => {
-    closeSessionEndOverlay();
-    closeSessionSummaryOverlay();
-    openCatchesOverlay();
   });
 
   document.getElementById("catches-close")?.addEventListener("click", () => {

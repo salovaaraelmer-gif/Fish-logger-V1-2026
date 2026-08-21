@@ -1,9 +1,17 @@
 /**
- * Compact multi-select with optional "create new" catalog entry.
+ * Compact multi-select: picking an option adds it immediately (no Add button).
+ * Optional type-to-search list for catalogs such as fishing spots.
  * @module creatableMultiSelect
  */
 
 import { formatCatalogItemLabel } from "./sessionMetadataService.js";
+import { filterUnselectedCatalogItems } from "./catalogSelectFilter.js";
+
+export {
+  catalogItemMatchesQuery,
+  filterUnselectedCatalogItems,
+  unselectedCatalogItems,
+} from "./catalogSelectFilter.js";
 
 /**
  * @typedef {import('./sessionMetadataService.js').CatalogItemDisplay} CatalogItemDisplay
@@ -18,6 +26,7 @@ import { formatCatalogItemLabel } from "./sessionMetadataService.js";
  *   onChange: (ids: string[]) => void,
  *   onCreateNew: (name: string) => Promise<CatalogItemDisplay | null>,
  *   disabled?: boolean,
+ *   searchable?: boolean,
  * }} MountOptions
  */
 
@@ -27,6 +36,7 @@ import { formatCatalogItemLabel } from "./sessionMetadataService.js";
 export function mountCreatableMultiSelect(opts) {
   const { container, label, items, selectedIds, onChange, onCreateNew } = opts;
   const disabled = opts.disabled === true;
+  const searchable = opts.searchable === true;
   container.innerHTML = "";
   container.className = "creatable-multi-select stack";
 
@@ -39,30 +49,33 @@ export function mountCreatableMultiSelect(opts) {
   chips.className = "creatable-multi-chips";
   container.appendChild(chips);
 
+  /** @type {HTMLInputElement | null} */
+  let searchInput = null;
+  /** @type {HTMLElement | null} */
+  let suggestList = null;
+  if (searchable) {
+    const searchWrap = document.createElement("div");
+    searchWrap.className = "creatable-multi-search-wrap";
+    searchInput = document.createElement("input");
+    searchInput.type = "search";
+    searchInput.className = "creatable-multi-search-input";
+    searchInput.placeholder = "Search or type a new name";
+    searchInput.autocomplete = "off";
+    searchInput.disabled = disabled;
+    suggestList = document.createElement("div");
+    suggestList.className = "creatable-multi-suggest hidden";
+    suggestList.setAttribute("role", "listbox");
+    searchWrap.append(searchInput, suggestList);
+    container.appendChild(searchWrap);
+  }
+
   const row = document.createElement("div");
   row.className = "creatable-multi-row";
-
   const select = document.createElement("select");
   select.className = "creatable-multi-select-input";
   select.disabled = disabled;
-  const empty = document.createElement("option");
-  empty.value = "";
-  empty.textContent = "Select…";
-  select.appendChild(empty);
-  for (const item of items) {
-    const opt = document.createElement("option");
-    opt.value = item.id;
-    opt.textContent = formatCatalogItemLabel(item);
-    select.appendChild(opt);
-  }
+  select.setAttribute("aria-label", label);
   row.appendChild(select);
-
-  const addBtn = document.createElement("button");
-  addBtn.type = "button";
-  addBtn.className = "btn small-btn";
-  addBtn.textContent = "Add";
-  addBtn.disabled = disabled;
-  row.appendChild(addBtn);
   container.appendChild(row);
 
   const newRow = document.createElement("div");
@@ -79,10 +92,63 @@ export function mountCreatableMultiSelect(opts) {
   newBtn.textContent = "+ New";
   newBtn.disabled = disabled;
   newRow.append(newInput, newBtn);
-  container.appendChild(newRow);
+  if (!searchable) container.appendChild(newRow);
 
   /** @type {Set<string>} */
   const selected = new Set(selectedIds);
+
+  function available(query) {
+    return filterUnselectedCatalogItems(items, selected, query ?? "");
+  }
+
+  function fillSelect() {
+    const placeholder = document.createElement("option");
+    placeholder.value = "";
+    const remaining = available("");
+    placeholder.textContent = remaining.length === 0 ? "All selected" : "Select…";
+    select.innerHTML = "";
+    select.appendChild(placeholder);
+    for (const item of remaining) {
+      const opt = document.createElement("option");
+      opt.value = item.id;
+      opt.textContent = formatCatalogItemLabel(item);
+      select.appendChild(opt);
+    }
+    select.value = "";
+    select.disabled = disabled || remaining.length === 0;
+  }
+
+  function hideSuggest() {
+    suggestList?.classList.add("hidden");
+  }
+
+  function renderSuggest() {
+    if (!searchable || !suggestList || !searchInput) return;
+    const query = searchInput.value;
+    const matches = available(query);
+    suggestList.innerHTML = "";
+    if (matches.length === 0) {
+      const empty = document.createElement("p");
+      empty.className = "meta creatable-multi-suggest-empty";
+      empty.textContent = query.trim() ? "No matches — press Enter to add as new" : "No spots left to add";
+      suggestList.appendChild(empty);
+      suggestList.classList.remove("hidden");
+      return;
+    }
+    for (const item of matches) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "btn creatable-multi-suggest-item";
+      btn.setAttribute("role", "option");
+      btn.textContent = formatCatalogItemLabel(item);
+      btn.addEventListener("mousedown", (e) => {
+        e.preventDefault();
+        addId(item.id);
+      });
+      suggestList.appendChild(btn);
+    }
+    suggestList.classList.remove("hidden");
+  }
 
   function renderChips() {
     chips.innerHTML = "";
@@ -101,7 +167,9 @@ export function mountCreatableMultiSelect(opts) {
         rm.addEventListener("click", () => {
           selected.delete(id);
           onChange([...selected]);
+          fillSelect();
           renderChips();
+          if (searchable && searchInput === document.activeElement) renderSuggest();
         });
         chip.appendChild(rm);
       }
@@ -109,38 +177,74 @@ export function mountCreatableMultiSelect(opts) {
     }
   }
 
-  addBtn.addEventListener("click", () => {
-    const id = select.value;
-    if (!id) return;
+  /**
+   * @param {string} id
+   */
+  function addId(id) {
+    if (!id || selected.has(id)) return;
     selected.add(id);
-    select.value = "";
     onChange([...selected]);
+    fillSelect();
     renderChips();
-  });
+    if (searchInput) searchInput.value = "";
+    hideSuggest();
+  }
 
-  newBtn.addEventListener("click", async () => {
-    const name = newInput.value.trim();
-    if (!name) return;
-    newBtn.disabled = true;
-    const created = await onCreateNew(name);
-    newBtn.disabled = false;
+  /**
+   * @param {string} name
+   */
+  async function createAndAdd(name) {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    const created = await onCreateNew(trimmed);
     if (!created) return;
-    const existing = items.find((i) => i.id === created.id);
-    if (!existing) items.push(created);
+    if (!items.find((i) => i.id === created.id)) items.push(created);
     items.sort((a, b) => a.userNumber - b.userNumber || a.name.localeCompare(b.name, "en"));
-    select.innerHTML = "";
-    select.appendChild(empty);
-    for (const item of items) {
-      const opt = document.createElement("option");
-      opt.value = item.id;
-      opt.textContent = formatCatalogItemLabel(item);
-      select.appendChild(opt);
-    }
     selected.add(created.id);
     newInput.value = "";
+    if (searchInput) searchInput.value = "";
     onChange([...selected]);
+    fillSelect();
     renderChips();
+    hideSuggest();
+  }
+
+  select.addEventListener("change", () => {
+    const id = select.value;
+    if (!id) return;
+    addId(id);
   });
 
+  newBtn.addEventListener("click", () => {
+    void createAndAdd(newInput.value);
+  });
+
+  if (searchInput) {
+    searchInput.addEventListener("focus", () => renderSuggest());
+    searchInput.addEventListener("input", () => renderSuggest());
+    searchInput.addEventListener("keydown", (e) => {
+      if (e.key !== "Enter") return;
+      e.preventDefault();
+      const query = searchInput.value;
+      const matches = available(query);
+      const exact = matches.find(
+        (item) => item.name.trim().toLowerCase() === query.trim().toLowerCase()
+      );
+      if (exact) {
+        addId(exact.id);
+        return;
+      }
+      if (matches.length === 1) {
+        addId(matches[0].id);
+        return;
+      }
+      void createAndAdd(query);
+    });
+    searchInput.addEventListener("blur", () => {
+      setTimeout(() => hideSuggest(), 120);
+    });
+  }
+
+  fillSelect();
   renderChips();
 }

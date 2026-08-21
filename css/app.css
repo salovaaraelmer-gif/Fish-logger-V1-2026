@@ -14,6 +14,7 @@
   --tap-min: 52px;
   --stack-gap: 0.75rem;
   font-size: 18px;
+  color-scheme: dark;
 }
 
 *,
@@ -685,6 +686,25 @@ h2 {
   text-align: center;
 }
 
+.session-home-catches {
+  margin-top: 0.25rem;
+}
+
+.session-home-catches-heading {
+  margin: 0.35rem 0 0.15rem;
+  font-size: 1.05rem;
+}
+
+.session-home-footer {
+  margin-top: 0.75rem;
+  padding: 0.75rem 0 0.25rem;
+  border-top: 1px solid var(--border);
+  position: sticky;
+  bottom: 0;
+  z-index: 3;
+  background: var(--bg);
+}
+
 .session-live-title {
   margin: 0.75rem 0 0.35rem;
 }
@@ -861,6 +881,8 @@ input[type="search"],
 input[type="number"],
 input[type="tel"],
 input[type="url"],
+input[type="datetime-local"],
+select,
 textarea {
   width: 100%;
   min-height: var(--tap-min);
@@ -870,6 +892,8 @@ textarea {
   background: var(--surface);
   color: var(--text);
   font-size: 1.05rem;
+  font-family: inherit;
+  color-scheme: dark;
 }
 
 input[type="text"]:focus-visible,
@@ -879,10 +903,23 @@ input[type="search"]:focus-visible,
 input[type="number"]:focus-visible,
 input[type="tel"]:focus-visible,
 input[type="url"]:focus-visible,
+input[type="datetime-local"]:focus-visible,
+select:focus-visible,
 textarea:focus-visible {
   outline: none;
   border-color: var(--accent);
   box-shadow: 0 0 0 2px rgba(63, 185, 80, 0.25);
+}
+
+input[type="datetime-local"]:disabled,
+select:disabled {
+  opacity: 0.55;
+}
+
+input[type="datetime-local"]::-webkit-calendar-picker-indicator {
+  filter: invert(0.85);
+  cursor: pointer;
+  opacity: 0.9;
 }
 
 textarea {
@@ -1127,11 +1164,19 @@ textarea {
 .session-end-inner {
   max-width: min(1100px, 100%);
   margin: 0 auto;
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
 }
 
 .session-end-actions {
   flex-wrap: wrap;
   gap: 0.5rem;
+  margin-top: auto;
+  padding-top: 1rem;
+  position: sticky;
+  bottom: 0;
+  background: var(--bg);
 }
 
 .start-self-line {
@@ -1142,6 +1187,15 @@ textarea {
   min-height: 100%;
 }
 
+#screen-start-session.is-visible > div:not(.hidden) {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 100%;
+  gap: var(--stack-gap);
+}
+
+#screen-start-session #start-continue,
 #screen-start-session #start-confirm {
   margin-top: auto;
 }
@@ -1532,7 +1586,46 @@ textarea {
 
 .session-time-input {
   width: 100%;
-  max-width: 20rem;
+  max-width: none;
+}
+
+.session-settings-inner {
+  max-width: 520px;
+  margin: 0 auto;
+}
+
+.session-settings-top {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.session-settings-top h2 {
+  margin: 0;
+  flex: 1 1 auto;
+}
+
+.btn.session-settings-back {
+  width: auto;
+  min-width: var(--tap-min);
+  flex-shrink: 0;
+  font-size: 1.35rem;
+  line-height: 1;
+  padding: 0.35rem 0.65rem;
+}
+
+#session-settings-overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--bg);
+  z-index: 52;
+  overflow: auto;
+  padding: 1rem;
+}
+
+#session-settings-overlay.hidden {
+  display: none !important;
 }
 
 .creatable-multi-select {
@@ -1559,7 +1652,7 @@ textarea {
 .creatable-multi-chip-remove {
   border: none;
   background: transparent;
-  color: var(--text-muted);
+  color: var(--muted);
   cursor: pointer;
   padding: 0 0.15rem;
   font-size: 1.1rem;
@@ -1575,9 +1668,46 @@ textarea {
 }
 
 .creatable-multi-select-input,
-.creatable-multi-new-input {
+.creatable-multi-new-input,
+.creatable-multi-search-input {
   flex: 1;
   min-width: 8rem;
+}
+
+.creatable-multi-search-wrap {
+  position: relative;
+}
+
+.creatable-multi-suggest {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 0.25rem);
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  max-height: 220px;
+  overflow: auto;
+  padding: 0.35rem;
+  border: 2px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
+}
+
+.creatable-multi-suggest.hidden {
+  display: none !important;
+}
+
+.creatable-multi-suggest-item {
+  text-align: left;
+  justify-content: flex-start;
+  width: 100%;
+}
+
+.creatable-multi-suggest-empty {
+  margin: 0.25rem 0.4rem;
 }
 
 .dash-top-fish {

@@ -179,35 +179,34 @@
 
             <div id="block-active-session" class="stack hidden">
               <p class="session-timer" id="session-timer" aria-live="polite"></p>
-              <div id="session-times-active" class="session-times-edit stack hidden" aria-label="Session times"></div>
-              <div id="session-metadata-active" class="session-metadata-edit stack"></div>
-              <h2 class="session-live-title">Session</h2>
-              <div id="session-live-view" class="session-live-view stack" aria-live="polite"></div>
               <button type="button" class="btn btn-primary" id="btn-log-catch">Log catch</button>
-              <button type="button" class="btn" id="btn-show-catches">Show catches</button>
-              <button type="button" class="btn btn-danger" id="btn-end-session">End session</button>
-            </div>
-
-            <button type="button" class="btn hidden" id="btn-toggle-anglers" aria-expanded="false">
-              Show participants
-            </button>
-
-            <div id="angler-edit-panel" class="stack angler-edit-panel hidden">
-              <h2>Participants</h2>
-              <p class="meta">Participants are chosen at the start of the session from registered users.</p>
-
-              <div id="session-roster" class="hidden" style="margin-top: 1.5rem">
-                <h2>In this session</h2>
-                <div id="session-angler-rows" class="stack"></div>
+              <div id="session-live-dashboard" class="session-dash-placeholder hidden" hidden></div>
+              <section id="session-home-catches" class="session-home-catches stack" aria-labelledby="session-home-catches-heading">
+                <h2 id="session-home-catches-heading" class="session-home-catches-heading">Catches</h2>
+                <p class="meta hidden" id="session-home-catches-empty">No catches logged.</p>
+                <div class="catch-list" id="session-home-catches-list" role="list" aria-label="Catches in this session"></div>
+              </section>
+              <div class="session-home-footer stack">
+                <button type="button" class="btn" id="btn-session-settings">Settings</button>
+                <button type="button" class="btn btn-danger" id="btn-end-session">End session</button>
               </div>
             </div>
           </section>
 
           <section id="screen-start-session" class="screen" aria-labelledby="start-session-title">
-            <button type="button" class="btn btn-ghost" id="start-back">Back</button>
-            <h1 id="start-session-title" class="app-tab-title">Start session</h1>
-            <div id="start-angler-picks" class="stack start-angler-picks"></div>
-            <button type="button" class="btn btn-primary" id="start-confirm" disabled>Start</button>
+            <div id="start-step-participants">
+              <button type="button" class="btn btn-ghost" id="start-back">Back</button>
+              <h1 id="start-session-title" class="app-tab-title">Start session</h1>
+              <div id="start-angler-picks" class="stack start-angler-picks"></div>
+              <button type="button" class="btn btn-primary" id="start-continue" disabled>Continue</button>
+            </div>
+            <div id="start-step-targets" class="hidden">
+              <button type="button" class="btn btn-ghost" id="start-targets-back">Back</button>
+              <h1 class="app-tab-title">Target species</h1>
+              <p class="meta">Optional. Select species from the list — they are added as you pick them.</p>
+              <div id="start-target-picker" class="session-metadata-edit stack"></div>
+              <button type="button" class="btn btn-primary" id="start-confirm">Start</button>
+            </div>
           </section>
         </section>
 
@@ -569,16 +568,28 @@
       </div>
     </div>
 
+    <!-- Active session settings -->
+    <div id="session-settings-overlay" class="hidden">
+      <div class="session-settings-inner stack">
+        <div class="session-settings-top">
+          <button type="button" class="btn btn-ghost session-settings-back" id="session-settings-back" aria-label="Back">
+            ←
+          </button>
+          <h2>Settings</h2>
+        </div>
+        <div id="session-times-active" class="session-times-edit stack" aria-label="Session times"></div>
+        <div id="session-metadata-active" class="session-metadata-edit stack"></div>
+      </div>
+    </div>
+
     <!-- End session: catch summary -->
     <div id="session-end-overlay" class="hidden">
-      <div class="session-end-inner">
+      <div class="session-end-inner stack">
         <h2>End session</h2>
+        <p class="meta">Where did you fish? Select spots — they are added as you pick them.</p>
+        <div id="session-end-spots" class="session-metadata-edit stack"></div>
         <p class="meta">Review catches. You can export CSV from the ended session view (⋯ menu).</p>
         <p class="catch-session-strip meta" id="session-end-session-strip" hidden></p>
-        <div class="row-actions session-end-actions">
-          <button type="button" class="btn btn-danger" id="session-end-final">End session</button>
-          <button type="button" class="btn btn-ghost" id="session-end-cancel">Cancel</button>
-        </div>
         <div id="session-end-view-tabs" class="catches-view-tabs" role="tablist" aria-label="Catches list or map">
           <button type="button" class="btn catches-tab-btn" id="session-end-tab-list" role="tab" aria-selected="true" data-tab="list">
             List
@@ -603,6 +614,10 @@
           </p>
           <div id="session-end-map-legend" class="catches-map-legend" aria-label="Species"></div>
           <div id="session-end-map-container" class="catches-map-container"></div>
+        </div>
+        <div class="row-actions session-end-actions">
+          <button type="button" class="btn btn-ghost" id="session-end-cancel">Cancel</button>
+          <button type="button" class="btn btn-danger" id="session-end-final">End session</button>
         </div>
       </div>
     </div>
