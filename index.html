@@ -460,113 +460,120 @@
       </div>
     </div>
 
-    <!-- Session catches table -->
+    <!-- Session catches / history detail -->
     <div id="catches-overlay" class="hidden">
       <div class="catches-inner">
-        <div class="row-actions" style="margin-bottom: 1rem">
-          <button type="button" class="btn btn-ghost" id="catches-close">Close</button>
-        </div>
-        <div class="catches-overlay-top-row">
-          <h2 id="catches-overlay-title">Catches in this session</h2>
-          <div class="catches-session-menu-wrap">
-            <button
-              type="button"
-              id="catches-session-menu-btn"
-              class="catches-session-menu-btn hidden"
-              aria-label="Session actions"
-              aria-haspopup="true"
-              aria-expanded="false"
-            >
-              ⋯
-            </button>
-            <div id="catches-session-menu" class="catches-session-menu hidden" role="menu">
+        <div id="catches-home-panel">
+          <div class="catches-overlay-toolbar">
+            <button type="button" class="btn btn-ghost" id="catches-close">Close</button>
+            <div class="catches-session-menu-wrap">
               <button
                 type="button"
-                id="catches-session-menu-export-csv"
-                class="catches-session-menu-item"
-                role="menuitem"
+                id="catches-session-menu-btn"
+                class="catches-session-menu-btn hidden"
+                aria-label="Session actions"
+                aria-haspopup="true"
+                aria-expanded="false"
               >
-                Export CSV
+                ⋯
               </button>
-              <button
-                type="button"
-                id="catches-session-menu-delete"
-                class="catches-session-menu-item catches-session-menu-item-danger"
-                role="menuitem"
-              >
-                Delete session
-              </button>
+              <div id="catches-session-menu" class="catches-session-menu hidden" role="menu">
+                <button
+                  type="button"
+                  id="catches-session-menu-export-csv"
+                  class="catches-session-menu-item"
+                  role="menuitem"
+                >
+                  Export CSV
+                </button>
+                <button
+                  type="button"
+                  id="catches-session-menu-delete"
+                  class="catches-session-menu-item catches-session-menu-item-danger"
+                  role="menuitem"
+                >
+                  Delete session
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-        <div id="catches-view-tabs" class="catches-view-tabs hidden" role="tablist" aria-label="Catches list or map">
-          <button type="button" class="btn catches-tab-btn" id="catches-tab-list" role="tab" aria-selected="true" data-tab="list">
-            List
-          </button>
-          <button type="button" class="btn catches-tab-btn" id="catches-tab-map" role="tab" aria-selected="false" data-tab="map">
-            Map
-          </button>
-        </div>
-        <div id="catches-list-panel">
-        <div id="catches-ended-title-wrap" class="session-title-block catches-ended-title-wrap hidden" aria-hidden="true">
-          <p class="meta catches-ended-title-label">Title</p>
-          <div class="session-title-row">
-            <span
-              id="catches-ended-title-display"
-              class="session-title-display"
-              tabindex="-1"
-            ></span>
+          <div id="catches-ended-title-wrap" class="session-title-block catches-ended-title-wrap hidden" aria-hidden="true">
+            <div class="session-title-row">
+              <span
+                id="catches-ended-title-display"
+                class="session-title-display"
+                tabindex="-1"
+              ></span>
+            </div>
+            <input
+              type="text"
+              id="catches-ended-title-input"
+              class="session-title-input hidden"
+              autocomplete="off"
+              aria-label="Ended session title"
+            />
           </div>
-          <input
-            type="text"
-            id="catches-ended-title-input"
-            class="session-title-input hidden"
-            autocomplete="off"
-            aria-label="Ended session title"
-          />
-        </div>
-        <p class="catch-session-strip meta" id="catches-session-strip" hidden></p>
-
-        <div id="session-metadata-ended" class="session-metadata-edit stack hidden"></div>
-        <div id="catches-ended-dashboard" class="ended-session-dashboard hidden">
-          <section class="dash-panel" aria-labelledby="ended-dash-summary-h">
-            <h3 id="ended-dash-summary-h" class="dash-panel-title">Summary</h3>
-            <dl class="dash-dl" id="ended-dash-summary-dl"></dl>
-          </section>
-          <section class="dash-panel" aria-labelledby="ended-dash-top-fish-h">
-            <h3 id="ended-dash-top-fish-h" class="dash-panel-title">Largest fish by species</h3>
-            <div id="ended-dash-top-fish" class="dash-top-fish"></div>
-          </section>
-          <section class="dash-panel" aria-labelledby="ended-dash-anglers-h">
-            <h3 id="ended-dash-anglers-h" class="dash-panel-title">Catches by angler</h3>
-            <ul id="ended-dash-by-angler" class="dash-list"></ul>
-          </section>
-          <section class="dash-panel" aria-labelledby="ended-dash-species-h">
-            <h3 id="ended-dash-species-h" class="dash-panel-title">Catches by species</h3>
-            <ul id="ended-dash-by-species" class="dash-list"></ul>
-          </section>
-          <h3 class="dash-panel-title dash-catches-heading" id="ended-dash-catches-heading">All catches</h3>
+          <p class="catch-session-strip meta" id="catches-session-strip" hidden></p>
+          <div class="catches-nav-pages stack">
+            <button type="button" class="btn" id="catches-open-list">List</button>
+            <button type="button" class="btn" id="catches-open-map">Map</button>
+          </div>
+          <div id="catches-ended-dashboard" class="ended-session-dashboard hidden">
+            <section class="dash-panel" aria-labelledby="ended-dash-summary-h">
+              <h3 id="ended-dash-summary-h" class="dash-panel-title">Summary</h3>
+              <dl class="dash-dl" id="ended-dash-summary-dl"></dl>
+            </section>
+          </div>
+          <div class="catches-home-footer">
+            <button type="button" class="btn" id="catches-open-options">Options</button>
+          </div>
         </div>
 
-        <p class="meta hidden" id="catches-empty">No catches logged.</p>
-        <div class="catches-table-wrap" id="catches-table-wrap">
-          <div
-            class="catch-list"
-            id="catches-table-body"
-            role="list"
-            aria-label="Catches"
-          ></div>
+        <div id="catches-list-panel" class="hidden">
+          <div class="catches-page-top">
+            <button type="button" class="btn btn-ghost session-settings-back" id="catches-list-back" aria-label="Back">
+              ←
+            </button>
+            <h2>Catches</h2>
+          </div>
+          <p class="meta hidden" id="catches-empty">No catches logged.</p>
+          <div class="catches-table-wrap" id="catches-table-wrap">
+            <div
+              class="catch-list"
+              id="catches-table-body"
+              role="list"
+              aria-label="Catches"
+            ></div>
+          </div>
         </div>
-        </div>
-        <div id="catches-map-panel" class="catches-map-panel hidden" role="tabpanel" aria-label="Satellite map">
+
+        <div id="catches-map-panel" class="catches-map-panel hidden" role="region" aria-label="Satellite map">
+          <div class="catches-page-top">
+            <button type="button" class="btn btn-ghost session-settings-back" id="catches-map-back" aria-label="Back">
+              ←
+            </button>
+            <h2>Map</h2>
+          </div>
           <p class="meta" id="catches-map-no-loc" hidden>
             None of the catches have location data. The map only shows logged coordinates.
           </p>
           <div id="catches-map-legend" class="catches-map-legend" aria-label="Species"></div>
           <div id="catches-map-container" class="catches-map-container"></div>
         </div>
+
+        <div id="catches-options-panel" class="hidden">
+          <div class="catches-page-top">
+            <button type="button" class="btn btn-ghost session-settings-back" id="catches-options-back" aria-label="Back">
+              ←
+            </button>
+            <h2>Options</h2>
+          </div>
+          <div id="session-times-ended" class="session-times-edit stack" aria-label="Session times"></div>
+          <div id="session-metadata-ended" class="session-metadata-edit stack hidden"></div>
+        </div>
       </div>
     </div>
+
 
     <!-- Active session settings -->
     <div id="session-settings-overlay" class="hidden">
@@ -632,14 +639,6 @@
           <section class="dash-panel" aria-labelledby="session-summary-dash-summary-h">
             <h3 id="session-summary-dash-summary-h" class="dash-panel-title">Summary</h3>
             <dl class="dash-dl" id="session-summary-dash-dl"></dl>
-          </section>
-          <section class="dash-panel" aria-labelledby="session-summary-dash-anglers-h">
-            <h3 id="session-summary-dash-anglers-h" class="dash-panel-title">Catches by angler</h3>
-            <ul id="session-summary-dash-by-angler" class="dash-list"></ul>
-          </section>
-          <section class="dash-panel" aria-labelledby="session-summary-dash-species-h">
-            <h3 id="session-summary-dash-species-h" class="dash-panel-title">Catches by species</h3>
-            <ul id="session-summary-dash-by-species" class="dash-list"></ul>
           </section>
           <section class="dash-panel" aria-labelledby="session-summary-dash-top-fish-h">
             <h3 id="session-summary-dash-top-fish-h" class="dash-panel-title">Largest fish by species</h3>

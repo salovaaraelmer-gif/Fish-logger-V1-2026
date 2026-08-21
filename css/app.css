@@ -1274,6 +1274,7 @@ textarea {
 #catches-overlay {
   position: fixed;
   inset: 0;
+  bottom: var(--bottom-nav-space);
   background: var(--bg);
   z-index: 48;
   overflow: auto;
@@ -1285,16 +1286,38 @@ textarea {
   margin: 0 auto;
 }
 
-.catches-overlay-top-row {
+.catches-overlay-toolbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 0.5rem;
-  position: relative;
+  margin-bottom: 0.75rem;
 }
 
-.catches-overlay-top-row h2 {
+.catches-overlay-toolbar #catches-close {
+  width: auto;
+  flex: 0 0 auto;
+}
+
+.catches-nav-pages {
+  margin: 0.5rem 0 1rem;
+}
+
+.catches-home-footer {
+  margin-top: 0.75rem;
+  padding: 0.75rem 0 0.25rem;
+}
+
+.catches-page-top {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.catches-page-top h2 {
   margin: 0;
+  flex: 1 1 auto;
 }
 
 .catches-session-menu-btn {

@@ -695,7 +695,7 @@ async function pushSessionTimesToSupabase(startMs, endMs, cloudSessionId) {
  * @param {string} sessionId
  * @param {HTMLElement | null} container
  * @param {boolean} editable
- * @param {{ includeLocations?: boolean, includeTargets?: boolean }} [options]
+ * @param {{ includeLocations?: boolean, includeTargets?: boolean, targetLabel?: string }} [options]
  */
 async function renderSessionMetadataPickers(sessionId, container, editable, options = {}) {
   if (!container) return;
@@ -745,7 +745,7 @@ async function renderSessionMetadataPickers(sessionId, container, editable, opti
     container.appendChild(tgtWrap);
     mountCreatableMultiSelect({
       container: tgtWrap,
-      label: "Target species",
+      label: options.targetLabel || "Target species",
       items: tgtItems,
       selectedIds: selected.targetSpeciesIds,
       disabled: !editable,
@@ -1394,32 +1394,21 @@ function closeCatchesOverlay() {
   document.getElementById("catches-overlay")?.classList.add("hidden");
   destroyCatchesMap(document.getElementById("catches-map-container"));
   pendingCatchesOverlayMap = null;
+  setCatchesOverlayPage("home");
 }
 
 /**
- * @param {"list" | "map"} which
+ * @param {"home" | "list" | "map" | "options"} page
  */
-function setCatchesOverlayTab(which) {
-  const listPanel = document.getElementById("catches-list-panel");
-  const mapPanel = document.getElementById("catches-map-panel");
-  const btnList = document.getElementById("catches-tab-list");
-  const btnMap = document.getElementById("catches-tab-map");
+function setCatchesOverlayPage(page) {
+  document.getElementById("catches-home-panel")?.classList.toggle("hidden", page !== "home");
+  document.getElementById("catches-list-panel")?.classList.toggle("hidden", page !== "list");
+  document.getElementById("catches-map-panel")?.classList.toggle("hidden", page !== "map");
+  document.getElementById("catches-options-panel")?.classList.toggle("hidden", page !== "options");
   const container = document.getElementById("catches-map-container");
-  if (!listPanel || !mapPanel) return;
-  if (which === "map") {
-    listPanel.classList.add("hidden");
-    mapPanel.classList.remove("hidden");
-    btnList?.setAttribute("aria-selected", "false");
-    btnMap?.setAttribute("aria-selected", "true");
-    if (pendingCatchesOverlayMap && container) {
-      mountCatchesMap(container, pendingCatchesOverlayMap);
-    }
+  if (page === "map" && pendingCatchesOverlayMap && container) {
+    mountCatchesMap(container, pendingCatchesOverlayMap);
     invalidateActiveCatchesMapSize();
-  } else {
-    listPanel.classList.remove("hidden");
-    mapPanel.classList.add("hidden");
-    btnList?.setAttribute("aria-selected", "true");
-    btnMap?.setAttribute("aria-selected", "false");
   }
 }
 
@@ -1842,8 +1831,8 @@ function renderTopFishBySpecies(container, catches, nameById, ownerUserId = null
  * @param {Record<string, string>} nameById
  * @param {{
  *   summaryDl: HTMLDListElement,
- *   byAnglerUl: HTMLUListElement,
- *   bySpeciesUl: HTMLUListElement,
+ *   byAnglerUl?: HTMLUListElement | null,
+ *   bySpeciesUl?: HTMLUListElement | null,
  *   topFishEl?: HTMLElement | null,
  * }} els
  * @param {string | null} [ownerUserId]
@@ -1851,8 +1840,8 @@ function renderTopFishBySpecies(container, catches, nameById, ownerUserId = null
 async function fillEndedSessionDashboardPanels(session, sessionAnglers, catches, nameById, els, ownerUserId = null) {
   const { summaryDl, byAnglerUl, bySpeciesUl, topFishEl } = els;
   summaryDl.innerHTML = "";
-  byAnglerUl.innerHTML = "";
-  bySpeciesUl.innerHTML = "";
+  if (byAnglerUl) byAnglerUl.innerHTML = "";
+  if (bySpeciesUl) bySpeciesUl.innerHTML = "";
 
   const dateLabel = formatSessionDateLabel(session.startTime);
   const startClock = formatClock24(session.startTime);
@@ -1875,16 +1864,16 @@ async function fillEndedSessionDashboardPanels(session, sessionAnglers, catches,
 
   const metaMap = await getSessionMetadataDisplayBySessionIds([session.id]);
   const meta = metaMap.get(session.id);
-  if (meta) {
-    appendDashDlRow(
-      summaryDl,
-      "Fishing spots",
-      meta.locationNames.length ? meta.locationNames.join(", ") : "No location"
-    );
-    if (meta.targetNames.length) {
-      appendDashDlRow(summaryDl, "Target species", meta.targetNames.join(", "));
-    }
-  }
+  appendDashDlRow(
+    summaryDl,
+    "Fishing spots",
+    meta?.locationNames.length ? meta.locationNames.join(", ") : "No location"
+  );
+  appendDashDlRow(
+    summaryDl,
+    "Targeted species",
+    meta?.targetNames.length ? meta.targetNames.join(", ") : "—"
+  );
 
   appendDashDlRow(summaryDl, "Total catches", String(catches.length));
 
@@ -1916,16 +1905,18 @@ async function fillEndedSessionDashboardPanels(session, sessionAnglers, catches,
     }))
     .sort((a, b) => a.name.localeCompare(b.name, "en"));
 
-  if (anglerRows.length === 0) {
-    const li = document.createElement("li");
-    li.className = "meta";
-    li.textContent = "No anglers in this session.";
-    byAnglerUl.appendChild(li);
-  } else {
-    for (const row of anglerRows) {
+  if (byAnglerUl) {
+    if (anglerRows.length === 0) {
       const li = document.createElement("li");
-      li.textContent = `${row.name}: ${row.count}`;
+      li.className = "meta";
+      li.textContent = "No anglers in this session.";
       byAnglerUl.appendChild(li);
+    } else {
+      for (const row of anglerRows) {
+        const li = document.createElement("li");
+        li.textContent = `${row.name}: ${row.count}`;
+        byAnglerUl.appendChild(li);
+      }
     }
   }
 
@@ -1937,17 +1928,19 @@ async function fillEndedSessionDashboardPanels(session, sessionAnglers, catches,
   const speciesKeys = [...countBySpecies.keys()].sort(
     (a, b) => SPECIES_OPTIONS.indexOf(a) - SPECIES_OPTIONS.indexOf(b)
   );
-  if (speciesKeys.length === 0) {
-    const li = document.createElement("li");
-    li.className = "meta";
-    li.textContent = "No catches logged.";
-    bySpeciesUl.appendChild(li);
-  } else {
-    for (const key of speciesKeys) {
-      const label = SPECIES_LABELS[key] || key;
+  if (bySpeciesUl) {
+    if (speciesKeys.length === 0) {
       const li = document.createElement("li");
-      li.textContent = `${label}: ${countBySpecies.get(key)}`;
+      li.className = "meta";
+      li.textContent = "No catches logged.";
       bySpeciesUl.appendChild(li);
+    } else {
+      for (const key of speciesKeys) {
+        const label = SPECIES_LABELS[key] || key;
+        const li = document.createElement("li");
+        li.textContent = `${label}: ${countBySpecies.get(key)}`;
+        bySpeciesUl.appendChild(li);
+      }
     }
   }
 
@@ -2183,7 +2176,7 @@ async function populateCatchesTable(sessionIdOverride) {
   const prevViewSid = catchesOv?.dataset.viewSessionId;
   if (String(prevViewSid || "") !== String(sessionIdOverride || "")) {
     endedSessionTitleEditing = false;
-    setCatchesOverlayTab("list");
+    setCatchesOverlayPage(sessionIdOverride ? "home" : "list");
   }
   if (catchesOv) {
     if (sessionIdOverride) {
@@ -2193,7 +2186,6 @@ async function populateCatchesTable(sessionIdOverride) {
     }
   }
 
-  const titleEl = document.getElementById("catches-overlay-title");
   const detailMenuBtn = document.getElementById("catches-session-menu-btn");
   const listEl = document.getElementById("catches-table-body");
   const stripEl = document.getElementById("catches-session-strip");
@@ -2203,7 +2195,6 @@ async function populateCatchesTable(sessionIdOverride) {
   if (!listEl) return;
 
   let sessionId = sessionIdOverride;
-  let overlayTitle = "Catches in this session";
   let emptyMsg = "No catches in this session.";
 
   if (!sessionId) {
@@ -2221,12 +2212,10 @@ async function populateCatchesTable(sessionIdOverride) {
       }
       emptyEl?.classList.remove("hidden");
       wrap?.classList.add("hidden");
-      if (titleEl) titleEl.textContent = "Catches in this session";
       if (emptyEl) emptyEl.textContent = "No active session.";
       listEl.setAttribute("aria-label", "Catches in this session");
       syncEndedSessionTitleRowInCatchesOverlay(undefined, null, false);
-      document.getElementById("catches-view-tabs")?.classList.add("hidden");
-      setCatchesOverlayTab("list");
+      setCatchesOverlayPage("list");
       await syncCatchesOverlayMap(null, null, undefined);
       return;
     }
@@ -2235,13 +2224,10 @@ async function populateCatchesTable(sessionIdOverride) {
     catchesSessionMenuSessionId = null;
     catchesSessionMenuOpen = false;
     syncCatchesSessionMenuUi();
-    if (titleEl) titleEl.textContent = overlayTitle;
-    listEl.setAttribute("aria-label", overlayTitle);
+    listEl.setAttribute("aria-label", "Catches in this session");
   } else {
-    overlayTitle = "Ended session";
     emptyMsg = "No catches logged in this session.";
-    if (titleEl) titleEl.textContent = overlayTitle;
-    listEl.setAttribute("aria-label", overlayTitle);
+    listEl.setAttribute("aria-label", "Catches");
 
     const session = await getSessionById(sessionIdOverride);
     if (session && session.endTime != null && navigator.onLine && session.supabaseSessionId) {
@@ -2264,9 +2250,7 @@ async function populateCatchesTable(sessionIdOverride) {
     catchesSessionMenuOpen = false;
     syncCatchesSessionMenuUi();
     const summaryDl = document.getElementById("ended-dash-summary-dl");
-    const byAnglerUl = document.getElementById("ended-dash-by-angler");
-    const bySpeciesUl = document.getElementById("ended-dash-by-species");
-    if (session && summaryDl && byAnglerUl && bySpeciesUl) {
+    if (session && summaryDl) {
       const [sessionAnglers, catches] = await Promise.all([
         getSessionAnglersForSession(sessionIdOverride),
         getCatchesForSession(sessionIdOverride),
@@ -2276,36 +2260,29 @@ async function populateCatchesTable(sessionIdOverride) {
       ];
       const nameById = await fetchProfileDisplayNames(anglerIds);
       const ownerUserId = await getSessionOwnerUserId(session);
-      const topFishEl = document.getElementById("ended-dash-top-fish");
       await fillEndedSessionDashboardPanels(
         session,
         sessionAnglers,
         catches,
         nameById,
-        {
-          summaryDl,
-          byAnglerUl,
-          bySpeciesUl,
-          topFishEl,
-        },
+        { summaryDl },
         ownerUserId
       );
       dashEl?.classList.remove("hidden");
-      const metaEnded = document.getElementById("session-metadata-ended");
-      if (metaEnded) {
-        metaEnded.classList.remove("hidden");
-        metaEnded.innerHTML = "";
-        const uid = await getAuthUserId();
-        const canEdit =
-          !!uid && (await anglerBelongsToSessionRoster(sessionIdOverride, uid));
-        const timesWrap = document.createElement("div");
-        timesWrap.className = "session-times-edit stack";
-        const pickWrap = document.createElement("div");
-        pickWrap.className = "session-metadata-pickers stack";
-        metaEnded.append(timesWrap, pickWrap);
-        await renderSessionTimesEditor(session, timesWrap, canEdit);
-        await renderSessionMetadataPickers(sessionIdOverride, pickWrap, canEdit);
-      }
+      const uid = await getAuthUserId();
+      const canEdit =
+        !!uid && (await anglerBelongsToSessionRoster(sessionIdOverride, uid));
+      await renderSessionTimesEditor(
+        session,
+        document.getElementById("session-times-ended"),
+        canEdit
+      );
+      await renderSessionMetadataPickers(
+        sessionIdOverride,
+        document.getElementById("session-metadata-ended"),
+        canEdit,
+        { targetLabel: "Targeted species" }
+      );
     } else {
       dashEl?.classList.add("hidden");
       document.getElementById("session-metadata-ended")?.classList.add("hidden");
@@ -2320,8 +2297,6 @@ async function populateCatchesTable(sessionIdOverride) {
     stripEl.textContent = formatSessionStripLabel(sessionId);
     stripEl.removeAttribute("hidden");
   }
-
-  document.getElementById("catches-view-tabs")?.classList.remove("hidden");
 
   let allowEditDelete = false;
   if (sessionIdOverride) {
@@ -2413,9 +2388,7 @@ function closeSessionEndOverlay() {
 async function populateSessionSummaryOverlay(sessionId) {
   const session = await getSessionById(sessionId);
   const summaryDl = document.getElementById("session-summary-dash-dl");
-  const byAnglerUl = document.getElementById("session-summary-dash-by-angler");
-  const bySpeciesUl = document.getElementById("session-summary-dash-by-species");
-  if (!session || !summaryDl || !byAnglerUl || !bySpeciesUl) return;
+  if (!session || !summaryDl) return;
 
   const [sessionAnglers, catches] = await Promise.all([
     getSessionAnglersForSession(sessionId),
@@ -2432,12 +2405,7 @@ async function populateSessionSummaryOverlay(sessionId) {
     sessionAnglers,
     catches,
     nameById,
-    {
-      summaryDl,
-      byAnglerUl,
-      bySpeciesUl,
-      topFishEl,
-    },
+    { summaryDl, topFishEl },
     ownerUserId
   );
 }
@@ -4246,11 +4214,25 @@ function mainAppInit() {
   wireFishMeasurementInputs();
   wireSessionTitleEditor();
   wireEndedSessionTitleEditor();
-  document.getElementById("catches-tab-list")?.addEventListener("click", () => {
-    setCatchesOverlayTab("list");
+  document.getElementById("catches-open-list")?.addEventListener("click", () => {
+    setCatchesOverlayPage("list");
   });
-  document.getElementById("catches-tab-map")?.addEventListener("click", () => {
-    setCatchesOverlayTab("map");
+  document.getElementById("catches-open-map")?.addEventListener("click", () => {
+    setCatchesOverlayPage("map");
+  });
+  document.getElementById("catches-open-options")?.addEventListener("click", () => {
+    setCatchesOverlayPage("options");
+  });
+  document.getElementById("catches-list-back")?.addEventListener("click", () => {
+    setCatchesOverlayPage("home");
+  });
+  document.getElementById("catches-map-back")?.addEventListener("click", () => {
+    setCatchesOverlayPage("home");
+  });
+  document.getElementById("catches-options-back")?.addEventListener("click", () => {
+    const sid = document.getElementById("catches-overlay")?.dataset.viewSessionId;
+    setCatchesOverlayPage("home");
+    if (sid) void populateCatchesTable(sid);
   });
   document.getElementById("session-end-tab-list")?.addEventListener("click", () => {
     setSessionEndViewTab("list");
