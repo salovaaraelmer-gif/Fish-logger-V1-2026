@@ -268,6 +268,19 @@
               </div>
             </div>
           </details>
+          <button type="button" class="profile-stats-box" id="profile-stats-open" aria-label="Open stats">
+            <h2 id="profile-stats-heading">Stats</h2>
+            <div class="stats-overview-cards">
+              <div class="stats-card">
+                <span class="stats-card-value" id="profile-stat-sessions-value">0</span>
+                <span class="stats-card-label">Sessions</span>
+              </div>
+              <div class="stats-card">
+                <span class="stats-card-value" id="profile-stat-fish-value">0</span>
+                <span class="stats-card-label">Logged fish</span>
+              </div>
+            </div>
+          </button>
           <section id="history-section" class="stack history-section" aria-labelledby="history-heading">
             <h2 id="history-heading">History</h2>
             <p class="meta" id="history-empty" hidden>No ended sessions.</p>
@@ -648,6 +661,56 @@
         </div>
 
         <button type="button" class="btn btn-primary" id="session-summary-close">Back to home</button>
+      </div>
+    </div>
+
+    <div id="stats-overlay" class="hidden" role="dialog" aria-labelledby="stats-title">
+      <div class="stats-inner stack">
+        <div class="catches-page-top">
+          <button type="button" class="btn btn-ghost session-settings-back" id="stats-back" aria-label="Back">
+            ←
+          </button>
+          <h1 id="stats-title" class="app-tab-title">Stats</h1>
+        </div>
+        <select id="stats-year" class="stats-year-select" aria-label="Stats year"></select>
+
+        <section class="stack" aria-labelledby="stats-overview-heading">
+          <h2 id="stats-overview-heading" class="stats-section-title">Overview</h2>
+          <div class="stats-overview-cards">
+            <div class="stats-card">
+              <span class="stats-card-value" id="stats-overview-sessions-value">0</span>
+              <span class="stats-card-label">Sessions</span>
+            </div>
+            <div class="stats-card">
+              <span class="stats-card-value" id="stats-overview-fish-value">0</span>
+              <span class="stats-card-label">Logged fish</span>
+            </div>
+          </div>
+        </section>
+
+        <section class="stack" aria-labelledby="stats-species-heading">
+          <h2 id="stats-species-heading" class="stats-section-title">Species statistics</h2>
+          <div id="stats-species-picker" class="stats-species-pick" role="tablist" aria-label="Species"></div>
+          <div id="stats-species-data"></div>
+        </section>
+
+        <section class="stack" aria-labelledby="stats-month-heading">
+          <h2 id="stats-month-heading" class="stats-section-title">Monthly catches</h2>
+          <div id="stats-month-picker" class="stats-species-pick" role="tablist" aria-label="Monthly species filter"></div>
+          <div id="stats-month-chart" class="stats-chart" aria-label="Catch counts by month"></div>
+        </section>
+
+        <section class="stack" aria-labelledby="stats-time-heading">
+          <h2 id="stats-time-heading" class="stats-section-title">Fishing time</h2>
+          <div class="stats-line">
+            <h3 class="stats-line-label">Total fishing time</h3>
+            <p class="stats-line-value" id="stats-time-total">0 min</p>
+          </div>
+          <div class="stats-line">
+            <h3 class="stats-line-label">Average session</h3>
+            <p class="stats-line-value" id="stats-time-average">—</p>
+          </div>
+        </section>
       </div>
     </div>
 

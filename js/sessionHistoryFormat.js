@@ -12,7 +12,14 @@ import { formatKalapaivaDate } from "./sessionTitle.js";
  */
 export function formatSessionDuration(startMs, endMs) {
   if (endMs == null || !Number.isFinite(endMs)) return null;
-  const ms = endMs - startMs;
+  return formatDurationFromMs(endMs - startMs);
+}
+
+/**
+ * @param {number} ms
+ * @returns {string | null}
+ */
+export function formatDurationFromMs(ms) {
   if (!Number.isFinite(ms) || ms < 0) return null;
   const totalMin = Math.floor(ms / 60000);
   const h = Math.floor(totalMin / 60);

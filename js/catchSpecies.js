@@ -34,6 +34,8 @@ export const SPECIES_COLORS = Object.freeze({
   other: "#4A148C",
 });
 
+export const ALL_SPECIES_ICON_SRC = "./assets/species/all.png";
+
 const SPECIES_ICON_FILES = Object.freeze({
   pike: "./assets/species/pike.png",
   perch: "./assets/species/perch.png",

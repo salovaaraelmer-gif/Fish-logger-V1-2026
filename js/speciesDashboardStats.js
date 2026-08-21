@@ -60,23 +60,37 @@ export function defaultSelectedSpecies(targetSpeciesKeys, speciesList) {
 }
 
 /**
- * @param {{ anglerId: string, species: string, length?: number | null }[]} catches
+ * Five longest measured catches (length required). Lengths only for session dashboard.
+ * @param {{ length?: number | null, weight_kg?: number | null }[]} catches
+ * @returns {{ length: number, weightKg: number | null }[]}
+ */
+export function top5MeasuredCatches(catches) {
+  return [...catches]
+    .filter((c) => typeof c.length === "number" && Number.isFinite(c.length) && c.length > 0)
+    .sort((a, b) => /** @type {number} */ (b.length) - /** @type {number} */ (a.length))
+    .slice(0, 5)
+    .map((c) => ({
+      length: /** @type {number} */ (c.length),
+      weightKg:
+        typeof c.weight_kg === "number" && Number.isFinite(c.weight_kg) ? c.weight_kg : null,
+    }));
+}
+
+/**
+ * @param {{ anglerId: string, species: string, length?: number | null, weight_kg?: number | null }[]} catches
  * @param {string} anglerId
  * @param {string} species
- * @returns {{ catchCount: number, top5Lengths: number[], top5Total: number }}
+ * @returns {{ catchCount: number, top5Lengths: number[], top5Total: number, top5Fish: { length: number, weightKg: number | null }[] }}
  */
 export function statsForAnglerSpecies(catches, anglerId, species) {
   const anglerCatches = catches.filter((c) => c.anglerId === anglerId && c.species === species);
-  const top5Lengths = anglerCatches
-    .map((c) => c.length)
-    .filter((n) => typeof n === "number" && Number.isFinite(n) && n > 0)
-    .sort((a, b) => /** @type {number} */ (b) - /** @type {number} */ (a))
-    .slice(0, 5)
-    .map((n) => /** @type {number} */ (n));
+  const top5Fish = top5MeasuredCatches(anglerCatches);
+  const top5Lengths = top5Fish.map((f) => f.length);
   return {
     catchCount: anglerCatches.length,
     top5Lengths,
     top5Total: top5Lengths.reduce((sum, n) => sum + n, 0),
+    top5Fish,
   };
 }
 

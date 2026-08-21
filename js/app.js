@@ -86,6 +86,7 @@ import {
   profileDisplayLabel,
 } from "./supabaseProfile.js";
 import { closeProfileOverlay, fillProfileFields, wireProfileUi } from "./profileUI.js";
+import { closeStatsPage, refreshProfileStatsPreview, wireUserStatsUi } from "./userStatsUI.js";
 import { closeMenuSheet, setActiveAppTab, wireAppTabs, wireOverlayScrollbars } from "./appTabs.js";
 import { hideAppSpinner, resetAppSpinner, showAppSpinner, withAppSpinner } from "./appSpinner.js";
 import {
@@ -1606,6 +1607,7 @@ function navigateHomeFromSessionDetail() {
   syncCatchesSessionMenuUi();
   closeSessionSummaryOverlay();
   closeSessionEndOverlay();
+  closeStatsPage();
   destroyFishEditMapUi();
   closeFishOverlay();
   window.scrollTo({ top: 0, behavior: "smooth" });
@@ -2711,6 +2713,7 @@ async function renderHome() {
   }
 
   await renderHistorySection();
+  void refreshProfileStatsPreview();
 }
 
 /**
@@ -2722,6 +2725,7 @@ async function openHistorySessionCatches(sessionId) {
   closeFishOverlay();
   closeSessionEndOverlay();
   closeSessionSummaryOverlay();
+  closeStatsPage();
   await withAppSpinner(async () => {
     await populateCatchesTable(sessionId);
   });
@@ -4195,6 +4199,7 @@ function mainAppInit() {
       if (tab === "profile") {
         void fillProfileFields();
         void renderHistorySection();
+        void refreshProfileStatsPreview();
       }
     },
   });
@@ -4203,8 +4208,10 @@ function mainAppInit() {
     onOpen: () => {
       setActiveAppTab("profile");
       void renderHistorySection();
+      void refreshProfileStatsPreview();
     },
   });
+  wireUserStatsUi();
   wireFishMeasurementInputs();
   wireSessionTitleEditor();
   wireEndedSessionTitleEditor();

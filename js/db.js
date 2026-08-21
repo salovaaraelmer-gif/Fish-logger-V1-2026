@@ -523,6 +523,35 @@ export async function getCatchesForSession(sessionId) {
 }
 
 /**
+ * All local catches (any session).
+ * @returns {Promise<CatchRecord[]>}
+ */
+export async function getAllCatches() {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const r = db.transaction("catches", "readonly").objectStore("catches").getAll();
+    r.onerror = () => reject(r.error);
+    r.onsuccess = () => {
+      const list = /** @type {CatchRecord[]} */ (r.result || []);
+      resolve(list.map((row) => migrateCatchV1ToV2(row)));
+    };
+  });
+}
+
+/**
+ * All local sessions (active and ended).
+ * @returns {Promise<Session[]>}
+ */
+export async function getAllSessions() {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const r = db.transaction("sessions", "readonly").objectStore("sessions").getAll();
+    r.onerror = () => reject(r.error);
+    r.onsuccess = () => resolve(/** @type {Session[]} */ (r.result || []));
+  });
+}
+
+/**
  * Active session: endTime === null. At most one should exist.
  * @returns {Promise<Session | null>}
  */
@@ -598,6 +627,21 @@ export async function getSessionAnglersForSession(sessionId) {
     const r = idx.getAll(sessionId);
     r.onerror = () => reject(r.error);
     r.onsuccess = () => resolve(r.result || []);
+  });
+}
+
+/**
+ * Roster rows for one angler across all sessions.
+ * @param {string} anglerId
+ * @returns {Promise<SessionAngler[]>}
+ */
+export async function getSessionAnglerRowsForAngler(anglerId) {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const idx = db.transaction("sessionAnglers", "readonly").objectStore("sessionAnglers").index("byAngler");
+    const r = idx.getAll(anglerId);
+    r.onerror = () => reject(r.error);
+    r.onsuccess = () => resolve(/** @type {SessionAngler[]} */ (r.result || []));
   });
 }
 
