@@ -1,5 +1,5 @@
 ---
-description: Handheld device logic is documentation-only until the spec allows firmware.
+description: Handheld device logic is documentation-only until the spec allows firmware. Remind of pre-build decisions first.
 alwaysApply: true
 ---
 
@@ -14,3 +14,21 @@ Working agreement (2026-08-21):
 - Do **not** implement AnglrLog Web Bluetooth / Settings → Connect Handheld unless the spec or the user asks for that next.
 - Open items in spec §26 and considerations in §27 are **not** implementation tasks.
 - Existing phone/database helpers (`js/handheldCatchService.js`, catch origin columns) may be documented or lightly adjusted if a **spec change** requires it; do not build the transport around them yet.
+
+## When building starts — remind first
+
+If the user asks to **start building** the handheld (firmware, keypad/OLED, device BLE, NMEA client, or AnglrLog Web Bluetooth / Connect Handheld):
+
+1. **Stop before writing implementation code.**
+2. **Remind them** of the "Worth deciding before anything is built" list (spec §27 and `docs/NOTES_2026-08-21.md`). Paste the list in the reply; do not only link it.
+3. Do not start coding until they acknowledge the list, or record decisions in the numbered spec sections.
+
+Primary reminders:
+
+1. **Prototype GPS without NMEA** — do not stamp a later phone GPS fix onto an earlier catch. Null location vs pushing GPS *to* the handheld during the session.
+2. **When `caught_at` is taken** — press `1 LOG CATCH` vs after water temperature.
+3. **How to skip a displayed NMEA value** — `*` currently means accept; a NMEA field is not empty.
+4. **Resume after disconnect / display sleep** — values stay in memory, UI returns to home.
+5. **Web Bluetooth on Android Chrome** — HTTPS, user gesture, foreground; silent reconnect is not assumed; 5 s save ACK can fail if the PWA is backgrounded.
+
+Also mention if still open: `manual`/`nmea` vs old `sonar`/`sensor` test strings; session-scoped `public.anglers.id`; phone vs handheld validation ranges; species page 2 `*`/`#`; 4–5 anglers on 20×4; GATT UUIDs/payload format; implicit decimal display while typing.

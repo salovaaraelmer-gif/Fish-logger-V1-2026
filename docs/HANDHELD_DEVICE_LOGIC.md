@@ -4,6 +4,8 @@
 **Firmware:** Do **not** implement ESP32 / keypad / OLED firmware from this spec yet.  
 **Phone BLE:** Do **not** implement Web Bluetooth or a Connect Handheld UI until this document says so.
 
+**When building starts:** remind the user of [Worth deciding before anything is built](#worth-deciding-before-anything-is-built) before writing firmware or Web Bluetooth code.
+
 This file is the starting point for the dedicated physical catch logger. Change numbered sections here when a decision is made. Do not treat open items in [§26](#26-still-to-be-finalized) or [§27](#27-considerations--not-decided) as implementation tasks.
 
 Related existing work (phone / database only; not firmware):
@@ -668,6 +670,20 @@ The following items remain open. They are **not** firmware tasks yet:
 ## 27. Considerations — not decided
 
 These are points that follow from the baseline above. They do **not** change §§1–26. Record a decision in the relevant section when one is made.
+
+### Worth deciding before anything is built
+
+Remind the user of this list **before** writing firmware or Web Bluetooth code:
+
+1. **Prototype GPS without NMEA** — do not stamp a later phone GPS fix onto an earlier catch. Null location vs pushing GPS *to* the handheld during the session.
+2. **When `caught_at` is taken** — press `1 LOG CATCH` vs after water temperature.
+3. **How to skip a displayed NMEA value** — `*` currently means accept; a field showing NMEA is not empty.
+4. **Resume after disconnect / display sleep** — values stay in memory, UI returns to home.
+5. **Web Bluetooth on Android Chrome** — HTTPS, user gesture, foreground; silent reconnect is not assumed; a 5 s save ACK can fail if the PWA is backgrounded.
+
+Also still open: `manual` / `nmea` vs old `sonar` / `sensor` test strings; session-scoped `public.anglers.id`; phone vs handheld validation ranges; species page 2 `*` / `#`; 4–5 anglers on 20×4; GATT UUIDs and payload format; showing implicit decimals while typing.
+
+The rest of this section is background for those items.
 
 ### Catch time vs start of the form
 
