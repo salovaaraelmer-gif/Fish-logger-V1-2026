@@ -726,6 +726,7 @@ async function renderSessionMetadataPickers(sessionId, container, editable, opti
       selectedIds: selected.locationIds,
       disabled: !editable,
       searchable: true,
+      allowCreate: true,
       onChange: async (ids) => {
         const cur = await getSessionSelectedCatalogIds(sessionId);
         const r = await setSessionCatalogSelections(sessionId, ids, cur.targetSpeciesIds);
@@ -748,15 +749,12 @@ async function renderSessionMetadataPickers(sessionId, container, editable, opti
       items: tgtItems,
       selectedIds: selected.targetSpeciesIds,
       disabled: !editable,
+      allowCreate: false,
       onChange: async (ids) => {
         const cur = await getSessionSelectedCatalogIds(sessionId);
         const r = await setSessionCatalogSelections(sessionId, cur.locationIds, ids);
         if (!r.ok) showError(r.error);
         void renderHistorySection();
-      },
-      onCreateNew: async (name) => {
-        const r = await createCatalogItem("target", name);
-        return r.ok ? r.item : null;
       },
     });
   }
@@ -2892,6 +2890,7 @@ function buildStartSessionParticipantPicker(selfAnglerId, selfDisplayName) {
       chip.append(label, rm);
       wrap.appendChild(chip);
     }
+    wrap.classList.toggle("hidden", wrap.childElementCount === 0);
   }
 
   /**
@@ -2980,7 +2979,7 @@ function buildStartSessionParticipantPicker(selfAnglerId, selfDisplayName) {
 
   const selWrap = document.createElement("div");
   selWrap.id = "start-selected-wrap";
-  selWrap.className = "start-selected-chips";
+  selWrap.className = "start-selected-chips hidden";
 
   const searchWrap = document.createElement("div");
   searchWrap.className = "stack start-search-block";
@@ -3016,7 +3015,7 @@ function buildStartSessionParticipantPicker(selfAnglerId, selfDisplayName) {
 
   const hint = document.createElement("p");
   hint.id = "start-search-hint";
-  hint.className = "meta";
+  hint.className = "meta start-search-hint";
 
   searchWrap.append(searchLabel, searchInput, searchResults, hint);
   box.append(selfRow, selWrap, searchWrap);
@@ -3061,16 +3060,13 @@ function buildStartSessionParticipantPicker(selfAnglerId, selfDisplayName) {
       return;
     }
 
-    if (pendingStartTargetIds.length) {
+    const startTargetIds = [...pendingStartTargetIds];
+    pendingStartTargetIds = [];
+    if (startTargetIds.length) {
       const cur = await getSessionSelectedCatalogIds(r.sessionId);
-      const sel = await setSessionCatalogSelections(
-        r.sessionId,
-        cur.locationIds,
-        pendingStartTargetIds
-      );
+      const sel = await setSessionCatalogSelections(r.sessionId, cur.locationIds, startTargetIds);
       if (!sel.ok) showError(sel.error);
     }
-    pendingStartTargetIds = [];
 
     const ownerUidEarly = await getAuthUserId();
     if (ownerUidEarly) {
@@ -3123,7 +3119,6 @@ function buildStartSessionParticipantPicker(selfAnglerId, selfDisplayName) {
           supabaseSessionId: data.id,
           ownerUserId: localS.ownerUserId ?? authUserId,
         });
-        await syncSessionLinksToCloud(r.sessionId, data.id);
       }
     } else {
       console.error("[Supabase] sessions insert: no row id returned", data);
@@ -3183,6 +3178,13 @@ function buildStartSessionParticipantPicker(selfAnglerId, selfDisplayName) {
           }
           if (rosterOk) {
             setSyncStatus("synced");
+            const cur = await getSessionSelectedCatalogIds(r.sessionId);
+            const sel = await setSessionCatalogSelections(
+              r.sessionId,
+              cur.locationIds,
+              startTargetIds.length ? startTargetIds : cur.targetSpeciesIds
+            );
+            if (!sel.ok) showError(sel.error);
           }
         }
       }
@@ -3517,12 +3519,9 @@ async function mountStartTargetPicker() {
     label: "Target species",
     items: [...catalogs.targets],
     selectedIds: pendingStartTargetIds,
+    allowCreate: false,
     onChange: (ids) => {
       pendingStartTargetIds = ids;
-    },
-    onCreateNew: async (name) => {
-      const r = await createCatalogItem("target", name);
-      return r.ok ? r.item : null;
     },
   });
 }

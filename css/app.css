@@ -13,6 +13,7 @@
   --radius: 14px;
   --tap-min: 52px;
   --stack-gap: 0.75rem;
+  --bottom-nav-space: calc(var(--tap-min) + 0.7rem + env(safe-area-inset-bottom, 0px));
   font-size: 18px;
   color-scheme: dark;
 }
@@ -122,7 +123,7 @@ body {
   border-top: 1px solid var(--border);
   background: var(--surface);
   padding: 0.25rem 0.2rem calc(0.25rem + env(safe-area-inset-bottom, 0px));
-  z-index: 40;
+  z-index: 60;
 }
 
 .app-nav-btn {
@@ -939,7 +940,7 @@ textarea {
 
 .error-toast {
   position: fixed;
-  bottom: 1rem;
+  bottom: calc(var(--bottom-nav-space) + 0.75rem);
   left: 50%;
   transform: translateX(-50%);
   max-width: min(92vw, 480px);
@@ -949,7 +950,7 @@ textarea {
   border-radius: var(--radius);
   color: #fff;
   font-weight: 600;
-  z-index: 100;
+  z-index: 45;
   display: none;
 }
 
@@ -959,7 +960,7 @@ textarea {
 
 .success-toast {
   position: fixed;
-  bottom: 1rem;
+  bottom: calc(var(--bottom-nav-space) + 0.75rem);
   left: 50%;
   transform: translateX(-50%);
   max-width: min(92vw, 480px);
@@ -969,7 +970,7 @@ textarea {
   border-radius: var(--radius);
   color: var(--text);
   font-weight: 600;
-  z-index: 100;
+  z-index: 45;
   display: none;
 }
 
@@ -1133,6 +1134,7 @@ textarea {
 #session-end-overlay {
   position: fixed;
   inset: 0;
+  bottom: var(--bottom-nav-space);
   background: var(--bg);
   z-index: 55;
   overflow: auto;
@@ -1146,6 +1148,7 @@ textarea {
 #session-summary-overlay {
   position: fixed;
   inset: 0;
+  bottom: var(--bottom-nav-space);
   background: var(--bg);
   z-index: 56;
   overflow: auto;
@@ -1180,7 +1183,19 @@ textarea {
 }
 
 .start-self-line {
-  margin: 0 0 0.75rem;
+  margin: 0;
+}
+
+.start-selected-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0;
+}
+
+.start-selected-chips:empty,
+.start-selected-chips.hidden {
+  display: none;
 }
 
 #screen-start-session.is-visible {
@@ -1198,14 +1213,6 @@ textarea {
 #screen-start-session #start-continue,
 #screen-start-session #start-confirm {
   margin-top: auto;
-}
-
-.start-selected-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  margin-bottom: 0.75rem;
-  min-height: 0;
 }
 
 .participant-chip {
@@ -1231,6 +1238,14 @@ textarea {
 .start-search-block input[type="search"] {
   width: 100%;
   min-height: var(--tap-min);
+}
+
+.start-search-block .start-search-hint {
+  margin: 0;
+}
+
+.start-search-block .start-search-hint:empty {
+  display: none;
 }
 
 .start-search-results {

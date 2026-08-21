@@ -39,6 +39,41 @@ function sortByUserNumber(a, b) {
 }
 
 /**
+ * Attach a cloud catalog id to a local row, inserting if needed.
+ * @param {"location" | "target"} kind
+ * @param {UserFishingLocation | UserTargetSpecies} row
+ * @returns {Promise<string | null>}
+ */
+async function ensureCatalogSupabaseId(kind, row) {
+  if (row.supabaseId) return row.supabaseId;
+  if (!navigator.onLine || !row.userId) return null;
+  const table = kind === "location" ? "user_fishing_locations" : "user_target_species";
+  const put = kind === "location" ? putUserFishingLocation : putUserTargetSpecies;
+  const ins = await supabase
+    .from(table)
+    .insert({ user_id: row.userId, name: row.name, user_number: row.userNumber })
+    .select("id")
+    .single();
+  if (!ins.error && ins.data?.id) {
+    const sbId = String(ins.data.id);
+    await put({ ...row, supabaseId: sbId });
+    return sbId;
+  }
+  const existing = await supabase
+    .from(table)
+    .select("id")
+    .eq("user_id", row.userId)
+    .eq("name", row.name)
+    .maybeSingle();
+  if (existing.data?.id) {
+    const sbId = String(existing.data.id);
+    await put({ ...row, supabaseId: sbId });
+    return sbId;
+  }
+  return null;
+}
+
+/**
  * @param {UserFishingLocation[] | UserTargetSpecies[]} rows
  * @returns {number}
  */
@@ -65,19 +100,27 @@ export async function ensureDefaultTargetSpeciesCatalog() {
   if (!uid) return;
   const existing = await getAllUserTargetSpecies();
   const mine = existing.filter((r) => r.userId === uid);
-  if (mine.length > 0) return;
+  if (mine.length > 0) {
+    if (navigator.onLine) {
+      for (const row of mine) {
+        await ensureCatalogSupabaseId("target", row);
+      }
+    }
+    return;
+  }
   let n = 1;
   for (const name of DEFAULT_TARGET_SPECIES_NAMES) {
-    await putUserTargetSpecies({
+    const row = {
       id: newLocalId(),
       userId: uid,
       name,
       userNumber: n++,
       supabaseId: null,
-    });
-  }
-  if (navigator.onLine) {
-    await syncUserCatalogsFromCloud();
+    };
+    await putUserTargetSpecies(row);
+    if (navigator.onLine) {
+      await ensureCatalogSupabaseId("target", row);
+    }
   }
 }
 
@@ -150,6 +193,7 @@ export async function createCatalogItem(kind, rawName) {
     const all = (await getAllUserFishingLocations()).filter((r) => r.userId === uid);
     const dup = all.find((r) => r.name.toLowerCase() === name.toLowerCase());
     if (dup) {
+      await ensureCatalogSupabaseId("location", dup);
       return { ok: true, item: { id: dup.id, name: dup.name, userNumber: dup.userNumber } };
     }
     const userNumber = nextUserNumber(all);
@@ -177,6 +221,7 @@ export async function createCatalogItem(kind, rawName) {
   const all = (await getAllUserTargetSpecies()).filter((r) => r.userId === uid);
   const dup = all.find((r) => r.name.toLowerCase() === name.toLowerCase());
   if (dup) {
+    await ensureCatalogSupabaseId("target", dup);
     return { ok: true, item: { id: dup.id, name: dup.name, userNumber: dup.userNumber } };
   }
   const userNumber = nextUserNumber(all);
@@ -281,14 +326,7 @@ export async function syncSessionLinksToCloud(sessionId, cloudSessionId) {
 
   for (const link of locLinks) {
     const cat = locByLocal.get(link.locationId);
-    let sbLocId = cat?.supabaseId;
-    if (!sbLocId && cat) {
-      const created = await createCatalogItem("location", cat.name);
-      if (created.ok) {
-        const refreshed = (await getAllUserFishingLocations()).find((r) => r.id === created.item.id);
-        sbLocId = refreshed?.supabaseId ?? null;
-      }
-    }
+    const sbLocId = cat ? await ensureCatalogSupabaseId("location", cat) : null;
     if (sbLocId) {
       const ins = await supabase
         .from("session_fishing_locations")
@@ -299,14 +337,7 @@ export async function syncSessionLinksToCloud(sessionId, cloudSessionId) {
 
   for (const link of spLinks) {
     const cat = spByLocal.get(link.targetSpeciesId);
-    let sbSpId = cat?.supabaseId;
-    if (!sbSpId && cat) {
-      const created = await createCatalogItem("target", cat.name);
-      if (created.ok) {
-        const refreshed = (await getAllUserTargetSpecies()).find((r) => r.id === created.item.id);
-        sbSpId = refreshed?.supabaseId ?? null;
-      }
-    }
+    const sbSpId = cat ? await ensureCatalogSupabaseId("target", cat) : null;
     if (sbSpId) {
       const ins = await supabase
         .from("session_target_species")
@@ -338,6 +369,12 @@ export async function loadSessionLinksFromCloud(localSessionId, cloudSessionId) 
   ]);
 
   if (locRes.error || spRes.error) return;
+
+  const cloudEmpty = !(locRes.data?.length) && !(spRes.data?.length);
+  if (cloudEmpty) {
+    await syncSessionLinksToCloud(localSessionId, cloudSessionId);
+    return;
+  }
 
   const uid = await getAuthUserId();
   if (!uid) return;

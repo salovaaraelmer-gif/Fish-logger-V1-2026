@@ -24,9 +24,10 @@ export {
  *   items: CatalogItemDisplay[],
  *   selectedIds: string[],
  *   onChange: (ids: string[]) => void,
- *   onCreateNew: (name: string) => Promise<CatalogItemDisplay | null>,
+ *   onCreateNew?: (name: string) => Promise<CatalogItemDisplay | null>,
  *   disabled?: boolean,
  *   searchable?: boolean,
+ *   allowCreate?: boolean,
  * }} MountOptions
  */
 
@@ -37,6 +38,7 @@ export function mountCreatableMultiSelect(opts) {
   const { container, label, items, selectedIds, onChange, onCreateNew } = opts;
   const disabled = opts.disabled === true;
   const searchable = opts.searchable === true;
+  const allowCreate = opts.allowCreate === true && typeof onCreateNew === "function";
   container.innerHTML = "";
   container.className = "creatable-multi-select stack";
 
@@ -59,7 +61,7 @@ export function mountCreatableMultiSelect(opts) {
     searchInput = document.createElement("input");
     searchInput.type = "search";
     searchInput.className = "creatable-multi-search-input";
-    searchInput.placeholder = "Search or type a new name";
+    searchInput.placeholder = allowCreate ? "Search or type a new name" : "Search";
     searchInput.autocomplete = "off";
     searchInput.disabled = disabled;
     suggestList = document.createElement("div");
@@ -92,7 +94,7 @@ export function mountCreatableMultiSelect(opts) {
   newBtn.textContent = "+ New";
   newBtn.disabled = disabled;
   newRow.append(newInput, newBtn);
-  if (!searchable) container.appendChild(newRow);
+  if (allowCreate && !searchable) container.appendChild(newRow);
 
   /** @type {Set<string>} */
   const selected = new Set(selectedIds);
@@ -130,7 +132,11 @@ export function mountCreatableMultiSelect(opts) {
     if (matches.length === 0) {
       const empty = document.createElement("p");
       empty.className = "meta creatable-multi-suggest-empty";
-      empty.textContent = query.trim() ? "No matches — press Enter to add as new" : "No spots left to add";
+      empty.textContent = query.trim()
+        ? allowCreate
+          ? "No matches — press Enter to add as new"
+          : "No matches"
+        : "No spots left to add";
       suggestList.appendChild(empty);
       suggestList.classList.remove("hidden");
       return;
@@ -154,15 +160,14 @@ export function mountCreatableMultiSelect(opts) {
     chips.innerHTML = "";
     for (const id of selected) {
       const item = items.find((i) => i.id === id);
-      if (!item) continue;
       const chip = document.createElement("span");
       chip.className = "creatable-multi-chip";
-      chip.textContent = formatCatalogItemLabel(item);
+      chip.textContent = item ? formatCatalogItemLabel(item) : id;
       if (!disabled) {
         const rm = document.createElement("button");
         rm.type = "button";
         rm.className = "creatable-multi-chip-remove";
-        rm.setAttribute("aria-label", `Remove ${item.name}`);
+        rm.setAttribute("aria-label", `Remove ${item?.name || id}`);
         rm.textContent = "×";
         rm.addEventListener("click", () => {
           selected.delete(id);
@@ -195,7 +200,7 @@ export function mountCreatableMultiSelect(opts) {
    */
   async function createAndAdd(name) {
     const trimmed = name.trim();
-    if (!trimmed) return;
+    if (!trimmed || typeof onCreateNew !== "function") return;
     const created = await onCreateNew(trimmed);
     if (!created) return;
     if (!items.find((i) => i.id === created.id)) items.push(created);
@@ -238,7 +243,7 @@ export function mountCreatableMultiSelect(opts) {
         addId(matches[0].id);
         return;
       }
-      void createAndAdd(query);
+      if (allowCreate) void createAndAdd(query);
     });
     searchInput.addEventListener("blur", () => {
       setTimeout(() => hideSuggest(), 120);
