@@ -48,6 +48,8 @@ When the address bar shows `file:///...`, the page’s origin is treated special
 | `Plan v1.ini` | Product/spec notes (V1 scope and data model) |
 | `docs/SUPABASE_SQL.md` | Supabase MCP setup + SQL fallback |
 | `docs/NOTES_2026-08-20.md` | Session notes (mobile nav / Feed plan, continue on another PC) |
+| `docs/NOTES_2026-08-21.md` | Handheld spec baseline: docs only, no firmware yet |
+| `docs/HANDHELD_DEVICE_LOGIC.md` | AnglrLog Handheld device logic (baseline; do not implement firmware yet) |
 | `SUPABASE_*.md` | SQL snippets for profiles, catches, RLS (run in dashboard) |
 
 ## Out of scope (V1)

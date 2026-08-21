@@ -1,0 +1,16 @@
+---
+description: Handheld device logic is documentation-only until the spec allows firmware.
+alwaysApply: true
+---
+
+# AnglrLog Handheld — no firmware yet
+
+Canonical spec: **`docs/HANDHELD_DEVICE_LOGIC.md`**.
+
+Working agreement (2026-08-21):
+
+- That document is the **baseline**. Update numbered sections there when a product decision is made.
+- Do **not** implement ESP32 firmware, keypad/OLED drivers, BLE GATT on the device, NMEA client code, or a `firmware/` tree unless `docs/HANDHELD_DEVICE_LOGIC.md` (or the user) explicitly says firmware work may start.
+- Do **not** implement AnglrLog Web Bluetooth / Settings → Connect Handheld unless the spec or the user asks for that next.
+- Open items in spec §26 and considerations in §27 are **not** implementation tasks.
+- Existing phone/database helpers (`js/handheldCatchService.js`, catch origin columns) may be documented or lightly adjusted if a **spec change** requires it; do not build the transport around them yet.
