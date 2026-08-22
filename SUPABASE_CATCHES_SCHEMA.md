@@ -1,12 +1,14 @@
 # Supabase `catches` table — sync with the app
 
-The app stores the remote row UUID on each local catch as **`supabase_id`** (IndexedDB `CatchRecord`, DB version **7**).
+The app stores the remote row UUID on each local catch as **`supabase_id`** (IndexedDB `CatchRecord`, DB version **8**).
 
 ## IndexedDB
 
-- Opening the app upgrades **`FishLoggerV1`** to version **7**.
+- Opening the app upgrades **`FishLoggerV1`** to version **8**.
 - Version **7** backfills existing local catches with `source = 'phone'`, `device_id = null`, and a one-time `client_event_id`.
+- Version **8** backfills `photo_urls = []`.
 - Handheld-origin columns are applied in `supabase/migrations/20260820120000_catches_handheld_prep.sql`.
+- Catch photos: `supabase/migrations/20260822120000_catches_photo_urls.sql` and `SUPABASE_CATCH_PHOTOS.sql`.
 
 ## Required `public.catches` columns
 
@@ -39,6 +41,7 @@ The client sends **snake_case** fields aligned with local names. Ensure your tab
 | `source` | `text NOT NULL` | Catch origin. Default `'phone'`. CHECK `phone` \| `handheld`. Phone save always sends `'phone'`. |
 | `device_id` | `text` | Handheld device id. **NULL** for phone-created catches. |
 | `client_event_id` | `uuid NOT NULL` | Idempotency key generated once at create. UNIQUE. Retries reuse this value. |
+| `photo_urls` | `text[] NOT NULL` | Public Storage URLs, 0–2 photos. Default `'{}'`. CHECK `catches_photo_urls_max_two`. Handheld sends empty. |
 
 ## Example: add missing columns (PostgreSQL)
 

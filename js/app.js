@@ -63,6 +63,13 @@ import {
   parseOptionalWaterTempC,
   parseOptionalWeightKg,
 } from "./catchService.js";
+import { catchPhotoFileError, normalizePhotoUrls, resolveCatchPhotoUrls } from "./catchPhotoService.js";
+import {
+  closeCatchPhotoViewer,
+  openCatchPhotoViewer,
+  renderFishPhotoSlots,
+  wireCatchPhotoViewer,
+} from "./catchPhotoUi.js";
 import { isAllowedSpecies, SPECIES_LABELS, speciesWithCatches } from "./catchSpecies.js";
 import { mountSpeciesDashboard } from "./speciesDashboard.js";
 import { catalogNameToSpeciesKey } from "./speciesDashboardStats.js";
@@ -1201,6 +1208,10 @@ function wireEndedSessionTitleEditor() {
  */
 let fishState = freshFishState();
 
+/** Where to return after closing or saving an edited catch. */
+/** @type {null | { type: "catches", sessionId: string } | { type: "session-end" }} */
+let fishEditReturnView = null;
+
 function destroyFishEditMapUi() {
   destroyFishEditLocationMap(document.getElementById("fish-edit-location-map"));
 }
@@ -1367,7 +1378,93 @@ function freshFishState() {
     editMapLat: null,
     /** @type {number | null} */
     editMapLng: null,
+    /** @type {[import('./catchPhotoUi.js').FishPhotoSlot, import('./catchPhotoUi.js').FishPhotoSlot]} */
+    photoSlots: [null, null],
   };
+}
+
+/** Index of the Notes-step slot that the hidden file input will fill. */
+let fishPhotoPickIndex = 0;
+
+/**
+ * @param {import('./catchPhotoUi.js').FishPhotoSlot} slot
+ */
+function revokeFishPhotoSlot(slot) {
+  if (slot?.kind === "file" && slot.preview) URL.revokeObjectURL(slot.preview);
+}
+
+function compactFishPhotoSlots() {
+  const filled = fishState.photoSlots.filter(Boolean);
+  fishState.photoSlots = [filled[0] || null, filled[1] || null];
+}
+
+/**
+ * @param {unknown} urls
+ */
+function setFishPhotoSlotsFromUrls(urls) {
+  fishState.photoSlots.forEach(revokeFishPhotoSlot);
+  const n = normalizePhotoUrls(urls);
+  fishState.photoSlots = [
+    n[0] ? { kind: "url", url: n[0] } : null,
+    n[1] ? { kind: "url", url: n[1] } : null,
+  ];
+}
+
+function renderOpenFishPhotoSlots() {
+  renderFishPhotoSlots(
+    document.getElementById("fish-photo-slots"),
+    fishState.photoSlots,
+    {
+      onAdd: (index) => {
+        fishPhotoPickIndex = index;
+        const input = /** @type {HTMLInputElement | null} */ (document.getElementById("fish-photo-input"));
+        if (input) {
+          input.value = "";
+          input.click();
+        }
+      },
+      onRemove: (index) => {
+        revokeFishPhotoSlot(fishState.photoSlots[index]);
+        fishState.photoSlots[index] = null;
+        compactFishPhotoSlots();
+        renderOpenFishPhotoSlots();
+      },
+      onPreview: (url) => openCatchPhotoViewer(url),
+    }
+  );
+}
+
+/**
+ * @param {string} catchId
+ * @returns {Promise<{ urls: string[], error: string | null }>}
+ */
+async function resolveFishPhotosForSave(catchId) {
+  /** @type {import('./catchPhotoService.js').CatchPhotoSlot[]} */
+  const slots = [];
+  for (const slot of fishState.photoSlots) {
+    if (!slot) continue;
+    if (slot.kind === "url") slots.push({ kind: "url", url: slot.url });
+    else slots.push({ kind: "file", file: slot.file });
+  }
+  if (slots.length === 0) return { urls: [], error: null };
+  if (!slots.some((s) => s.kind === "file")) {
+    return { urls: slots.map((s) => (s.kind === "url" ? s.url : "")), error: null };
+  }
+  const userId = await getAuthUserId();
+  if (!userId) {
+    return {
+      urls: slots.filter((s) => s.kind === "url").map((s) => s.url),
+      error: "Sign in to upload photos.",
+    };
+  }
+  try {
+    const resolved = await resolveCatchPhotoUrls(userId, catchId, slots);
+    return { urls: resolved.urls, error: resolved.ok ? null : resolved.error };
+  } catch (err) {
+    const kept = slots.filter((s) => s.kind === "url").map((s) => s.url);
+    const msg = err instanceof Error ? err.message : "Photo upload failed.";
+    return { urls: kept, error: msg };
+  }
 }
 
 /**
@@ -1620,7 +1717,58 @@ function dismissCoveringOverlaysForTabChange() {
 /** Hides the fish entry overlay and stops any in-progress GPS watch for logging. */
 function closeFishOverlay() {
   stopFishLoggingLocationWatch();
+  closeCatchPhotoViewer();
+  fishState.photoSlots.forEach(revokeFishPhotoSlot);
   document.getElementById("fish-overlay")?.classList.add("hidden");
+}
+
+function captureFishEditReturnView() {
+  const catchesOv = document.getElementById("catches-overlay");
+  if (catchesOv && !catchesOv.classList.contains("hidden")) {
+    fishEditReturnView = {
+      type: "catches",
+      sessionId: catchesOv.dataset.viewSessionId || "",
+    };
+    catchesOv.classList.add("hidden");
+    return;
+  }
+  const sessionEndOv = document.getElementById("session-end-overlay");
+  if (sessionEndOv && !sessionEndOv.classList.contains("hidden")) {
+    fishEditReturnView = { type: "session-end" };
+    sessionEndOv.classList.add("hidden");
+    return;
+  }
+  fishEditReturnView = null;
+}
+
+async function restoreFishEditReturnView() {
+  const ret = fishEditReturnView;
+  fishEditReturnView = null;
+  if (!ret) return;
+  if (ret.type === "catches") {
+    await withAppSpinner(async () => {
+      await populateCatchesTable(ret.sessionId || undefined);
+    });
+    document.getElementById("catches-overlay")?.classList.remove("hidden");
+    setCatchesOverlayPage("list");
+    return;
+  }
+  await withAppSpinner(async () => {
+    await populateSessionEndCatchesTable();
+  });
+  document.getElementById("session-end-overlay")?.classList.remove("hidden");
+}
+
+/**
+ * Close the catch form. After an edit, reopen the session catch list you came from.
+ */
+async function dismissFishOverlay() {
+  const shouldReturn = Boolean(fishState.editingCatchId && fishEditReturnView);
+  fishState.editingCatchId = null;
+  destroyFishEditMapUi();
+  closeFishOverlay();
+  if (shouldReturn) await restoreFishEditReturnView();
+  else fishEditReturnView = null;
 }
 
 /**
@@ -2125,6 +2273,28 @@ function buildCatchCardEl(c, nameById, opts = {}) {
     notesEl.className = "catch-card-notes";
     notesEl.textContent = notes;
     article.appendChild(notesEl);
+  }
+
+  const photoUrls = normalizePhotoUrls(c.photo_urls);
+  if (photoUrls.length > 0) {
+    const photosRow = document.createElement("div");
+    photosRow.className = "catch-card-photos";
+    photoUrls.forEach((url, i) => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "catch-card-photo-thumb";
+      btn.setAttribute("aria-label", `View photo ${i + 1}`);
+      const img = document.createElement("img");
+      img.src = url;
+      img.alt = "";
+      btn.appendChild(img);
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        openCatchPhotoViewer(url);
+      });
+      photosRow.appendChild(btn);
+    });
+    article.appendChild(photosRow);
   }
 
   return article;
@@ -3343,18 +3513,18 @@ function showFishStep(n) {
   const hintEl = document.getElementById("fish-location-hint");
   if (n === 3 && fishState.editingCatchId) {
     editWrap?.classList.remove("hidden");
-    if (hintEl) {
-      hintEl.textContent = "Notes. You can adjust the location on the map above.";
-    }
+    hintEl?.classList.add("hidden");
     void scheduleFishEditMapMount();
   } else {
     editWrap?.classList.add("hidden");
     destroyFishEditMapUi();
     if (hintEl && n === 3) {
+      hintEl.classList.remove("hidden");
       hintEl.textContent =
         "Location and weather are fetched automatically on save if location is available.";
     }
   }
+  if (n === 3) renderOpenFishPhotoSlots();
 }
 
 /**
@@ -3386,8 +3556,9 @@ async function scheduleFishEditMapMount() {
  * @param {import('./db.js').CatchRecord} record
  */
 async function openFishOverlayForEdit(record) {
-  closeCatchesOverlay();
+  captureFishEditReturnView();
   closeSessionEndOverlay();
+  fishState.photoSlots.forEach(revokeFishPhotoSlot);
   fishState = freshFishState();
   fishState.editingCatchId = record.id;
   fishState.anglerId = record.anglerId;
@@ -3440,6 +3611,8 @@ async function openFishOverlayForEdit(record) {
   if (depth) depth.value = fishState.depthStr;
   if (wt) wt.value = fishState.waterTempStr;
   if (notes) notes.value = fishState.notes;
+  setFishPhotoSlotsFromUrls(record.photo_urls);
+  renderOpenFishPhotoSlots();
   syncFishStateFromMeasurementInputs();
 
   await populateFishAnglers();
@@ -3456,6 +3629,8 @@ async function openFishOverlayForEdit(record) {
 }
 
 async function openFishOverlay() {
+  fishEditReturnView = null;
+  fishState.photoSlots.forEach(revokeFishPhotoSlot);
   fishState = freshFishState();
   const next2 = document.getElementById("fish-next-2");
   if (next2) next2.disabled = true;
@@ -3463,6 +3638,8 @@ async function openFishOverlay() {
   box?.querySelectorAll("button").forEach((el) => el.classList.remove("btn-selected"));
   const notes = /** @type {HTMLTextAreaElement | null} */ (document.getElementById("fish-notes"));
   if (notes) notes.value = "";
+  setFishPhotoSlotsFromUrls([]);
+  renderOpenFishPhotoSlots();
   clearFishMeasurementInputs();
   fishState.lengthStr = "";
   fishState.weightStr = "";
@@ -4474,10 +4651,29 @@ function mainAppInit() {
     closeSessionSummaryOverlay();
   });
 
+  wireCatchPhotoViewer();
+  document.getElementById("fish-photo-input")?.addEventListener("change", () => {
+    const input = /** @type {HTMLInputElement | null} */ (document.getElementById("fish-photo-input"));
+    const file = input?.files && input.files[0];
+    if (input) input.value = "";
+    if (!file) return;
+    const fileErr = catchPhotoFileError(file);
+    if (fileErr) {
+      showError(fileErr);
+      return;
+    }
+    const index = fishPhotoPickIndex === 1 ? 1 : 0;
+    revokeFishPhotoSlot(fishState.photoSlots[index]);
+    fishState.photoSlots[index] = {
+      kind: "file",
+      file,
+      preview: URL.createObjectURL(file),
+    };
+    renderOpenFishPhotoSlots();
+  });
+
   document.getElementById("fish-close")?.addEventListener("click", () => {
-    fishState.editingCatchId = null;
-    destroyFishEditMapUi();
-    closeFishOverlay();
+    void dismissFishOverlay();
   });
 
   document.getElementById("fish-back-2")?.addEventListener("click", () => showFishStep(1));
@@ -4566,6 +4762,9 @@ function mainAppInit() {
       }
     }
 
+    const catchId = fishState.editingCatchId || newId();
+    const photoResult = await resolveFishPhotosForSave(catchId);
+
     const inputPayload = {
       anglerId: fishState.anglerId,
       species: fishState.species || "",
@@ -4574,6 +4773,7 @@ function mainAppInit() {
       notes: fishState.notes,
       depth_m: depthP.value,
       water_temp_c: wtP.value,
+      photo_urls: photoResult.urls,
     };
 
     if (fishState.editingCatchId) {
@@ -4600,19 +4800,28 @@ function mainAppInit() {
         showError(`Supabase sync failed: ${syncUp.error}`);
       } else if (syncUp && syncUp.ok) {
         setSyncStatus("synced");
+        if (photoResult.error) showError(photoResult.error);
+        else showSuccess("Changes saved");
+      } else if (photoResult.error) {
+        showError(photoResult.error);
+      } else {
+        showSuccess("Changes saved");
       }
       fishState.editingCatchId = null;
       destroyFishEditMapUi();
       closeFishOverlay();
-      showSuccess("Changes saved");
-      await refreshCatchesTableIfOpen();
-      await renderHome();
+      if (fishEditReturnView) {
+        await restoreFishEditReturnView();
+      } else {
+        await refreshCatchesTableIfOpen();
+        await renderHome();
+      }
       return;
     }
 
     let result;
     try {
-      result = await saveCatch(inputPayload, loc);
+      result = await saveCatch({ ...inputPayload, id: catchId }, loc);
     } catch (err) {
       console.error("[catch] saveCatch threw:", err);
       if (btn) {
@@ -4640,12 +4849,14 @@ function mainAppInit() {
     const syncCreate = await syncCatchCreateToSupabase(savedCatch);
     if (syncCreate && syncCreate.ok) {
       console.log("[catch] insert ok (supabase)");
+      setSyncStatus("synced");
+      if (photoResult.error) showError(photoResult.error);
     } else if (syncCreate && !syncCreate.ok) {
       console.error("[catch] insert error (supabase):", syncCreate.error);
       setSyncStatus(navigator.onLine ? "error" : "offline");
       showError(`Supabase save failed: ${syncCreate.error}`);
-    } else if (syncCreate && syncCreate.ok) {
-      setSyncStatus("synced");
+    } else if (photoResult.error) {
+      showError(photoResult.error);
     }
 
     showFishStep(4);

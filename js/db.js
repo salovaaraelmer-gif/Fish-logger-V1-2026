@@ -8,13 +8,14 @@ import {
   newClientEventId,
   normalizeCatchSource,
   normalizeDeviceId,
+  normalizePhotoUrls,
 } from "./catchRecordMap.js";
 
 /** Base name; each user gets a separate DB: `${DB_NAME_BASE}_${userId}` (logical `sessions_${userId}` etc.). */
 const DB_NAME_BASE = "FishLoggerV1";
 /** Pre–user-scoping database; removed on startup after login. */
 const LEGACY_DB_NAME = "FishLoggerV1";
-const DB_VERSION = 7;
+const DB_VERSION = 8;
 
 /** @type {string | null} */
 let scopedUserId = null;
@@ -115,9 +116,10 @@ export function clearUserIndexedDb() {
  *   wind_direction_deg: number | null,
  *   supabase_id: string | null,
  *   source: "phone" | "handheld",
- *   device_id: string | null,
- *   client_event_id: string,
- * }} CatchRecord
+   *   device_id: string | null,
+   *   client_event_id: string,
+   *   photo_urls: string[],
+   * }} CatchRecord
  */
 /** @typedef {{ id: string, userId: string, name: string, userNumber: number, supabaseId?: string | null }} UserFishingLocation */
 /** @typedef {{ id: string, userId: string, name: string, userNumber: number, supabaseId?: string | null }} UserTargetSpecies */
@@ -137,6 +139,7 @@ function migrateCatchV1ToV2(c) {
       ...rest,
       weight_kg: typeof raw.weight_kg === "number" ? raw.weight_kg : null,
       supabase_id: typeof raw.supabase_id === "string" && raw.supabase_id ? raw.supabase_id : null,
+      photo_urls: normalizePhotoUrls(raw.photo_urls),
       ...originFieldsForLocalCatch(raw),
     });
   }
@@ -171,6 +174,7 @@ function migrateCatchV1ToV2(c) {
     source: "phone",
     device_id: null,
     client_event_id: isUuid(c.client_event_id) ? c.client_event_id : newClientEventId(),
+    photo_urls: normalizePhotoUrls(c.photo_urls),
   };
 }
 
@@ -316,6 +320,22 @@ function openDb() {
           cursor.continue();
         };
       }
+
+      if (oldVersion < 8 && db.objectStoreNames.contains("catches")) {
+        const tx = /** @type {IDBTransaction} */ (e.target.transaction);
+        const store = tx.objectStore("catches");
+        const curReq = store.openCursor();
+        curReq.onsuccess = (ev) => {
+          const cursor = /** @type {IDBCursorWithValue | null} */ (ev.target.result);
+          if (!cursor) return;
+          const row = /** @type {Record<string, unknown>} */ (cursor.value);
+          const urls = normalizePhotoUrls(row.photo_urls);
+          if (!Array.isArray(row.photo_urls) || row.photo_urls.length !== urls.length) {
+            cursor.update({ ...row, photo_urls: urls });
+          }
+          cursor.continue();
+        };
+      }
     };
   });
 }
@@ -441,6 +461,7 @@ export async function putCatch(c) {
   const row = {
     ...c,
     ...originFieldsForLocalCatch(/** @type {Record<string, unknown>} */ (c)),
+    photo_urls: normalizePhotoUrls(c.photo_urls),
   };
   if (isUuid(c.client_event_id)) {
     row.client_event_id = c.client_event_id;

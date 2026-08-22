@@ -20,6 +20,7 @@ import {
   newClientEventId,
   normalizeCatchSource,
   normalizeDeviceId,
+  normalizePhotoUrls,
 } from "./catchRecordMap.js";
 
 export { SPECIES_OPTIONS };
@@ -136,6 +137,8 @@ function applyLocationFields(partial, loc) {
  *   notes: string,
  *   depth_m: number | null,
  *   water_temp_c: number | null,
+ *   photo_urls?: string[],
+ *   id?: string,
  * }} input
  * @param {DeviceLocation} deviceLoc
  * @returns {Promise<{ ok: true, record: import('./db.js').CatchRecord } | { ok: false, reason: string }>}
@@ -180,7 +183,7 @@ export async function saveCatch(input, deviceLoc) {
 
   /** @type {import('./db.js').CatchRecord} */
   const record = {
-    id: newId(),
+    id: typeof input.id === "string" && input.id.trim() ? input.id.trim() : newId(),
     sessionId: session.id,
     anglerId: input.anglerId,
     timestamp,
@@ -205,6 +208,7 @@ export async function saveCatch(input, deviceLoc) {
     source: CATCH_SOURCE_PHONE,
     device_id: null,
     client_event_id: newClientEventId(),
+    photo_urls: normalizePhotoUrls(input.photo_urls),
   };
 
   applyLocationFields(record, deviceLoc);
@@ -253,6 +257,20 @@ export async function saveCatch(input, deviceLoc) {
 
 /**
  * Updates an existing catch (active or ended session). Ended: editor must be on the session roster.
+ * Pass `photo_urls` to replace photos; omit it to keep the existing list.
+ *
+ * @param {{
+ *   anglerId: string,
+ *   species: string,
+ *   length: number | null,
+ *   weight_kg: number | null,
+ *   notes: string,
+ *   depth_m: number | null,
+ *   water_temp_c: number | null,
+ *   photo_urls?: string[],
+ * }} input
+ * @param {DeviceLocation} deviceLoc
+ * @param {import('./db.js').CatchRecord} existing
  */
 export async function updateCatch(input, deviceLoc, existing) {
   if (!existing.sessionId) {
@@ -332,6 +350,9 @@ export async function updateCatch(input, deviceLoc, existing) {
     source,
     device_id: normalizeDeviceId(source, existing.device_id),
     client_event_id: ensureClientEventId(existing.client_event_id),
+    photo_urls: normalizePhotoUrls(
+      input.photo_urls !== undefined ? input.photo_urls : existing.photo_urls
+    ),
   };
 
   applyLocationFields(record, deviceLoc);

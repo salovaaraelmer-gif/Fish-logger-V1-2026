@@ -21,7 +21,9 @@ import {
   handheldPayloadToCatchRecord,
   isClientEventIdConflict,
   isUuid,
+  MAX_CATCH_PHOTOS,
   normalizeDeviceId,
+  normalizePhotoUrls,
   parseCaughtAtMs,
 } from "../js/catchRecordMap.js";
 
@@ -84,6 +86,7 @@ function phoneRecord(overrides = {}) {
     source: CATCH_SOURCE_PHONE,
     device_id: null,
     client_event_id: EVENT_ID,
+    photo_urls: [],
     ...overrides,
   };
 }
@@ -149,6 +152,23 @@ describe("phone catch mapping", () => {
     assert.equal(payload.species, "pike");
     assert.equal(payload.user_id, AUTH_USER_ID);
     assert.equal(payload.angler_id, CLOUD_ANGLER_ID);
+    assert.deepEqual(payload.photo_urls, []);
+  });
+
+  it("sends at most two photo URLs", () => {
+    const payload = catchRecordToSupabasePayload(
+      phoneRecord({
+        photo_urls: ["https://example.com/a.jpg", "https://example.com/b.jpg", "https://example.com/c.jpg"],
+      }),
+      SESSION_ID,
+      CLOUD_ANGLER_ID,
+      "pike",
+      AUTH_USER_ID
+    );
+    assert.deepEqual(payload.photo_urls, [
+      "https://example.com/a.jpg",
+      "https://example.com/b.jpg",
+    ]);
   });
 
   it("strips a device_id on phone-originated catches", () => {
@@ -191,6 +211,21 @@ describe("handheld catch mapping", () => {
     assert.equal(rec.location_timestamp, 1724157296000);
     assert.equal(rec.depth_source !== "manual", true);
     assert.equal(rec.water_temp_source !== "manual", true);
+    assert.deepEqual(rec.photo_urls, []);
+  });
+
+  it("never copies photo URLs from a handheld payload", () => {
+    const mapped = handheldPayloadToCatchRecord(
+      handheldPayload({ photo_urls: ["https://example.com/should-not-keep.jpg"] }),
+      {
+        localSessionId: "local-session",
+        localAnglerId: AUTH_USER_ID,
+        localCatchId: LOCAL_CATCH_ID,
+      }
+    );
+    assert.equal(mapped.ok, true);
+    if (!mapped.ok) return;
+    assert.deepEqual(mapped.record.photo_urls, []);
   });
 
   it("does not generate a new client_event_id on a retry with the same payload", () => {
@@ -279,6 +314,36 @@ describe("participant pull mapping", () => {
     assert.equal(rec.client_event_id, EVENT_ID);
     assert.equal(rec.timestamp, CAUGHT_MS);
     assert.equal(rec.depth_source, "sonar");
+    assert.deepEqual(rec.photo_urls, []);
+  });
+
+  it("keeps up to two photo URLs from the cloud row", () => {
+    const rec = cloudCatchRowToLocal(
+      {
+        id: "77777777-7777-4777-8777-777777777777",
+        species: "pike",
+        length_cm: 50,
+        caught_at: CAUGHT_AT,
+        source: "phone",
+        client_event_id: EVENT_ID,
+        photo_urls: ["https://example.com/1.jpg", "https://example.com/2.jpg", "https://example.com/3.jpg"],
+      },
+      "local-session",
+      AUTH_USER_ID,
+      LOCAL_CATCH_ID
+    );
+    assert.deepEqual(rec.photo_urls, ["https://example.com/1.jpg", "https://example.com/2.jpg"]);
+  });
+});
+
+describe("catch photos", () => {
+  it("caps normalized URLs at two", () => {
+    assert.equal(MAX_CATCH_PHOTOS, 2);
+    assert.deepEqual(normalizePhotoUrls(null), []);
+    assert.deepEqual(normalizePhotoUrls(["  ", "https://a", "https://b", "https://c"]), [
+      "https://a",
+      "https://b",
+    ]);
   });
 });
 

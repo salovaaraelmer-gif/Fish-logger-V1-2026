@@ -123,6 +123,27 @@ function textOrNull(value) {
   return t ? t : null;
 }
 
+export const MAX_CATCH_PHOTOS = 2;
+
+/**
+ * Keep at most two non-empty photo URLs.
+ * @param {unknown} value
+ * @returns {string[]}
+ */
+export function normalizePhotoUrls(value) {
+  if (!Array.isArray(value)) return [];
+  /** @type {string[]} */
+  const out = [];
+  for (const item of value) {
+    if (typeof item !== "string") continue;
+    const t = item.trim();
+    if (!t) continue;
+    out.push(t);
+    if (out.length >= MAX_CATCH_PHOTOS) break;
+  }
+  return out;
+}
+
 /**
  * @param {import('./db.js').CatchRecord} record
  * @param {string} supabaseSessionId
@@ -176,6 +197,7 @@ export function catchRecordToSupabasePayload(
     source,
     device_id: normalizeDeviceId(source, record.device_id),
     client_event_id: record.client_event_id,
+    photo_urls: normalizePhotoUrls(record.photo_urls),
   };
 }
 
@@ -262,6 +284,7 @@ export function handheldPayloadToCatchRecord(payload, ids) {
     source: CATCH_SOURCE_HANDHELD,
     device_id: deviceId,
     client_event_id: payload.client_event_id,
+    photo_urls: [],
   };
 
   return { ok: true, record };
@@ -310,6 +333,7 @@ export function cloudCatchRowToLocal(row, localSessionId, anglerProfileId, local
     source,
     device_id: normalizeDeviceId(source, row.device_id),
     client_event_id: eventId,
+    photo_urls: normalizePhotoUrls(row.photo_urls),
   };
 }
 
@@ -337,4 +361,5 @@ export const CATCH_CLOUD_SELECT_COLUMNS = [
   "source",
   "device_id",
   "client_event_id",
+  "photo_urls",
 ].join(", ");

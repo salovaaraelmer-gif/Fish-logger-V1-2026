@@ -61,7 +61,7 @@ export function mountFishEditLocationMap(container, opts) {
 
   const map = L.map(container, {
     zoomControl: true,
-    attributionControl: true,
+    attributionControl: false,
   });
   fishEditMapInstance = map;
 

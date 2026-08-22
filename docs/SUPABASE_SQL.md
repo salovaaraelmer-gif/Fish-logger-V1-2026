@@ -30,8 +30,10 @@ The same expectation is encoded for Cursor in **`.cursor/rules/supabase-sql-summ
 | Doc | Contents |
 |-----|----------|
 | `SUPABASE_AVATARS.sql` | Profile pictures: `profiles.avatar_url` + Storage bucket `avatars` |
+| `SUPABASE_CATCH_PHOTOS.sql` | Catch photos: `catches.photo_urls` + Storage bucket `catch-photos` |
 | `SUPABASE_CATCHES_SCHEMA.md` | `catches` columns and examples |
 | `SUPABASE_AUTH_RLS.md` | Auth / RLS notes (if present) |
 | `docs/SUPABASE_SESSION_LOCATIONS_TARGETS.md` | Session locations, target species, `started_at`, GRANTs |
 | `supabase/migrations/20260820120000_catches_handheld_prep.sql` | Catch `source`, `device_id`, `client_event_id`, salmon species CHECK |
 | `supabase/migrations/20260821120000_session_metadata_owner_or_participant_rls.sql` | Session owner can write fishing spots / target species before roster exists |
+| `supabase/migrations/20260822120000_catches_photo_urls.sql` | Catch `photo_urls` (max 2) + `catch-photos` Storage bucket |

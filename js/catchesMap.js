@@ -157,7 +157,7 @@ export function mountCatchesMap(container, opts) {
 
   const map = L.map(container, {
     zoomControl: true,
-    attributionControl: true,
+    attributionControl: false,
   });
   activeMap = map;
 
