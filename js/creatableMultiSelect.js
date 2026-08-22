@@ -5,7 +5,10 @@
  */
 
 import { formatCatalogItemLabel } from "./sessionMetadataService.js";
-import { filterUnselectedCatalogItems } from "./catalogSelectFilter.js";
+import {
+  filterUnselectedCatalogItems,
+  shouldShowCatalogCreateRow,
+} from "./catalogSelectFilter.js";
 
 export {
   catalogItemMatchesQuery,
@@ -63,7 +66,11 @@ export function mountCreatableMultiSelect(opts) {
     searchInput.className = "creatable-multi-search-input";
     searchInput.placeholder = allowCreate ? "Search or type a new name" : "Search";
     searchInput.autocomplete = "off";
+    searchInput.name = "al_catalog_search";
+    searchInput.setAttribute("data-lpignore", "true");
+    searchInput.setAttribute("data-1p-ignore", "true");
     searchInput.disabled = disabled;
+    if (allowCreate) searchInput.enterKeyHint = "enter";
     suggestList = document.createElement("div");
     suggestList.className = "creatable-multi-suggest hidden";
     suggestList.setAttribute("role", "listbox");
@@ -87,6 +94,9 @@ export function mountCreatableMultiSelect(opts) {
   newInput.className = "creatable-multi-new-input";
   newInput.placeholder = "New name";
   newInput.autocomplete = "off";
+  newInput.name = "al_catalog_new_name";
+  newInput.setAttribute("data-lpignore", "true");
+  newInput.setAttribute("data-1p-ignore", "true");
   newInput.disabled = disabled;
   const newBtn = document.createElement("button");
   newBtn.type = "button";
@@ -94,7 +104,9 @@ export function mountCreatableMultiSelect(opts) {
   newBtn.textContent = "+ New";
   newBtn.disabled = disabled;
   newRow.append(newInput, newBtn);
-  if (allowCreate && !searchable) container.appendChild(newRow);
+  if (shouldShowCatalogCreateRow({ allowCreate, disabled })) {
+    container.appendChild(newRow);
+  }
 
   /** @type {Set<string>} */
   const selected = new Set(selectedIds);
@@ -124,6 +136,29 @@ export function mountCreatableMultiSelect(opts) {
     suggestList?.classList.add("hidden");
   }
 
+  /**
+   * @param {string} query
+   * @param {CatalogItemDisplay[]} matches
+   */
+  function appendCreateSuggestAction(query, matches) {
+    if (!allowCreate || disabled || !suggestList) return;
+    const trimmed = query.trim();
+    if (!trimmed) return;
+    const exact = matches.find(
+      (item) => item.name.trim().toLowerCase() === trimmed.toLowerCase()
+    );
+    if (exact) return;
+    const addBtn = document.createElement("button");
+    addBtn.type = "button";
+    addBtn.className = "btn creatable-multi-suggest-item";
+    addBtn.textContent = `Add “${trimmed}”`;
+    addBtn.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      void createAndAdd(trimmed);
+    });
+    suggestList.appendChild(addBtn);
+  }
+
   function renderSuggest() {
     if (!searchable || !suggestList || !searchInput) return;
     const query = searchInput.value;
@@ -132,12 +167,9 @@ export function mountCreatableMultiSelect(opts) {
     if (matches.length === 0) {
       const empty = document.createElement("p");
       empty.className = "meta creatable-multi-suggest-empty";
-      empty.textContent = query.trim()
-        ? allowCreate
-          ? "No matches — press Enter to add as new"
-          : "No matches"
-        : "No spots left to add";
+      empty.textContent = query.trim() ? "No matches" : "No spots left to add";
       suggestList.appendChild(empty);
+      appendCreateSuggestAction(query, matches);
       suggestList.classList.remove("hidden");
       return;
     }
@@ -153,6 +185,7 @@ export function mountCreatableMultiSelect(opts) {
       });
       suggestList.appendChild(btn);
     }
+    appendCreateSuggestAction(query, matches);
     suggestList.classList.remove("hidden");
   }
 

@@ -385,7 +385,7 @@
           <div id="fish-angler-buttons" class="stack"></div>
         </div>
 
-        <div id="fish-step-2" class="fish-step hidden">
+        <form id="fish-step-2" class="fish-step hidden" autocomplete="off" novalidate>
           <div class="fish-step-body">
             <h2>2. Catch</h2>
             <div class="field-label">Species (required)</div>
@@ -395,9 +395,16 @@
               <input
                 type="text"
                 id="fish-input-length"
+                name="al_catch_length_cm"
                 inputmode="numeric"
-                pattern="[0-9]*"
                 autocomplete="off"
+                autocapitalize="none"
+                autocorrect="off"
+                spellcheck="false"
+                enterkeyhint="done"
+                data-lpignore="true"
+                data-1p-ignore
+                data-form-type="other"
                 aria-label="Length in centimetres"
               />
             </div>
@@ -406,8 +413,16 @@
               <input
                 type="text"
                 id="fish-input-weight"
+                name="al_catch_weight_kg"
                 inputmode="decimal"
                 autocomplete="off"
+                autocapitalize="none"
+                autocorrect="off"
+                spellcheck="false"
+                enterkeyhint="done"
+                data-lpignore="true"
+                data-1p-ignore
+                data-form-type="other"
                 aria-label="Weight in kilograms"
                 placeholder="1.25"
               />
@@ -417,8 +432,16 @@
               <input
                 type="text"
                 id="fish-input-depth"
+                name="al_catch_depth_m"
                 inputmode="decimal"
                 autocomplete="off"
+                autocapitalize="none"
+                autocorrect="off"
+                spellcheck="false"
+                enterkeyhint="done"
+                data-lpignore="true"
+                data-1p-ignore
+                data-form-type="other"
                 aria-label="Depth in metres"
                 placeholder="e.g. 3.5"
               />
@@ -428,8 +451,16 @@
               <input
                 type="text"
                 id="fish-input-water-temp"
+                name="al_catch_water_temp_c"
                 inputmode="decimal"
                 autocomplete="off"
+                autocapitalize="none"
+                autocorrect="off"
+                spellcheck="false"
+                enterkeyhint="done"
+                data-lpignore="true"
+                data-1p-ignore
+                data-form-type="other"
                 aria-label="Water temperature in Celsius"
                 placeholder="e.g. 12"
               />
@@ -439,9 +470,9 @@
             <button type="button" class="btn" id="fish-back-2">Back</button>
             <button type="button" class="btn btn-primary" id="fish-next-2" disabled>Next</button>
           </div>
-        </div>
+        </form>
 
-        <div id="fish-step-3" class="fish-step hidden">
+        <form id="fish-step-3" class="fish-step hidden" autocomplete="off" novalidate>
           <div class="fish-step-body">
             <h2>3. Accurate location, notes & photos</h2>
             <div id="fish-edit-location-wrap" class="fish-edit-location-wrap hidden">
@@ -453,7 +484,16 @@
               Location and weather are fetched automatically on save if location is available.
             </p>
             <div class="field-label" id="fish-notes-label">Notes</div>
-            <textarea id="fish-notes" rows="2" placeholder="Optional"></textarea>
+            <textarea
+              id="fish-notes"
+              name="al_catch_notes"
+              rows="2"
+              placeholder="Optional"
+              autocomplete="off"
+              data-lpignore="true"
+              data-1p-ignore
+              data-form-type="other"
+            ></textarea>
             <div class="field-label" id="fish-photos-label">Photos</div>
             <div id="fish-photo-slots" class="fish-photo-slots"></div>
             <input
@@ -469,7 +509,7 @@
             <button type="button" class="btn" id="fish-back-3">Back</button>
             <button type="button" class="btn btn-primary" id="fish-save">Save</button>
           </div>
-        </div>
+        </form>
 
         <div id="fish-step-4" class="fish-step hidden">
           <div class="success-panel">
@@ -604,11 +644,11 @@
     <!-- Active session settings -->
     <div id="session-settings-overlay" class="hidden">
       <div class="session-settings-inner stack">
-        <div class="session-settings-top">
+        <div class="catches-page-top">
           <button type="button" class="btn btn-ghost session-settings-back" id="session-settings-back" aria-label="Back">
             ←
           </button>
-          <h2>Settings</h2>
+          <h1 class="app-tab-title">Settings</h1>
         </div>
         <div id="session-times-active" class="session-times-edit stack" aria-label="Session times"></div>
         <div id="session-metadata-active" class="session-metadata-edit stack"></div>

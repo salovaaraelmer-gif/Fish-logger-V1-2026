@@ -42,6 +42,12 @@ import {
   syncSessionLinksToCloud,
 } from "./sessionMetadataService.js";
 import { mountCreatableMultiSelect } from "./creatableMultiSelect.js";
+import { canCreateCatalogItem } from "./catalogSelectFilter.js";
+import {
+  onCatchFormOverlayHidden,
+  onCatchFormOverlayShown,
+  wireCatchFormUi,
+} from "./catchFormUi.js";
 import { formatSessionDuration } from "./sessionHistoryFormat.js";
 import { buildHistorySessionCard } from "./historySessionCard.js";
 import { defaultSessionTitleFromDate, getSessionDisplayTitle } from "./sessionTitle.js";
@@ -744,7 +750,8 @@ async function renderSessionMetadataPickers(sessionId, container, editable, opti
       selectedIds: selected.locationIds,
       disabled: !editable,
       searchable: true,
-      allowCreate: true,
+      // Independent of target-species create, which stays off.
+      allowCreate: canCreateCatalogItem("location"),
       onChange: async (ids) => {
         const cur = await getSessionSelectedCatalogIds(sessionId);
         const r = await setSessionCatalogSelections(sessionId, ids, cur.targetSpeciesIds);
@@ -767,7 +774,7 @@ async function renderSessionMetadataPickers(sessionId, container, editable, opti
       items: tgtItems,
       selectedIds: selected.targetSpeciesIds,
       disabled: !editable,
-      allowCreate: false,
+      allowCreate: canCreateCatalogItem("target"),
       onChange: async (ids) => {
         const cur = await getSessionSelectedCatalogIds(sessionId);
         const r = await setSessionCatalogSelections(sessionId, cur.locationIds, ids);
@@ -1780,7 +1787,15 @@ function closeFishOverlay() {
   stopFishLoggingLocationWatch();
   closeCatchPhotoViewer();
   fishState.photoSlots.forEach(revokeFishPhotoSlot);
-  document.getElementById("fish-overlay")?.classList.add("hidden");
+  const overlay = document.getElementById("fish-overlay");
+  overlay?.classList.add("hidden");
+  onCatchFormOverlayHidden(overlay);
+}
+
+function showFishOverlay() {
+  const overlay = document.getElementById("fish-overlay");
+  overlay?.classList.remove("hidden");
+  if (overlay) onCatchFormOverlayShown(overlay);
 }
 
 function captureFishEditReturnView() {
@@ -3712,7 +3727,7 @@ async function openFishOverlayForEdit(record) {
   });
 
   showFishStep(2);
-  document.getElementById("fish-overlay")?.classList.remove("hidden");
+  showFishOverlay();
 }
 
 async function openFishOverlay() {
@@ -3738,7 +3753,7 @@ async function openFishOverlay() {
   await populateFishAnglers();
   await prefillTelemetryFromLastCatch();
   showFishStep(1);
-  document.getElementById("fish-overlay")?.classList.remove("hidden");
+  showFishOverlay();
   startFishLoggingLocationWatch();
 }
 
@@ -3834,7 +3849,7 @@ async function mountStartTargetPicker() {
     label: "Target species",
     items: [...catalogs.targets],
     selectedIds: pendingStartTargetIds,
-    allowCreate: false,
+    allowCreate: canCreateCatalogItem("target"),
     onChange: (ids) => {
       pendingStartTargetIds = ids;
     },
@@ -4573,6 +4588,7 @@ function mainAppInit() {
     void refreshPastSessionsAndStats();
   });
   wireFishMeasurementInputs();
+  wireCatchFormUi(document.getElementById("fish-overlay"));
   wireSessionTitleEditor();
   wireEndedSessionTitleEditor();
   document.getElementById("catches-open-list")?.addEventListener("click", () => {

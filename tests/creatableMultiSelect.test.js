@@ -5,8 +5,10 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+  canCreateCatalogItem,
   catalogItemMatchesQuery,
   filterUnselectedCatalogItems,
+  shouldShowCatalogCreateRow,
   unselectedCatalogItems,
 } from "../js/catalogSelectFilter.js";
 
@@ -63,5 +65,22 @@ describe("filterUnselectedCatalogItems", () => {
   it("returns all unselected items when query is empty", () => {
     const left = filterUnselectedCatalogItems(items, [], "");
     assert.equal(left.length, 3);
+  });
+});
+
+describe("canCreateCatalogItem", () => {
+  it("keeps fishing-spot create on when target-species create is off", () => {
+    assert.equal(canCreateCatalogItem("location"), true);
+    assert.equal(canCreateCatalogItem("target"), false);
+    assert.equal(canCreateCatalogItem("location", { allowTargetCreate: false }), true);
+    assert.equal(canCreateCatalogItem("target", { allowLocationCreate: true }), false);
+  });
+});
+
+describe("shouldShowCatalogCreateRow", () => {
+  it("shows create for searchable fishing spots", () => {
+    assert.equal(shouldShowCatalogCreateRow({ allowCreate: true, disabled: false }), true);
+    assert.equal(shouldShowCatalogCreateRow({ allowCreate: false, disabled: false }), false);
+    assert.equal(shouldShowCatalogCreateRow({ allowCreate: true, disabled: true }), false);
   });
 });
