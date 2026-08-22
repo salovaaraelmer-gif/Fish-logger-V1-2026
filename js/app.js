@@ -85,7 +85,7 @@ import {
   searchProfiles,
   profileDisplayLabel,
 } from "./supabaseProfile.js";
-import { closeProfileOverlay, fillProfileFields, wireProfileUi } from "./profileUI.js";
+import { closeProfileOverlay, fillProfileFields, resetProfileMainView, wireProfileUi } from "./profileUI.js";
 import { closeStatsPage, refreshProfileStatsPreview, wireUserStatsUi } from "./userStatsUI.js";
 import { closeMenuSheet, setActiveAppTab, wireAppTabs, wireOverlayScrollbars } from "./appTabs.js";
 import { hideAppSpinner, resetAppSpinner, showAppSpinner, withAppSpinner } from "./appSpinner.js";
@@ -1450,10 +1450,15 @@ function showSuccess(msg) {
 }
 
 function closeCatchesOverlay() {
-  document.getElementById("catches-overlay")?.classList.add("hidden");
+  const ov = document.getElementById("catches-overlay");
+  ov?.classList.add("hidden");
+  if (ov) delete ov.dataset.viewSessionId;
   destroyCatchesMap(document.getElementById("catches-map-container"));
   pendingCatchesOverlayMap = null;
   setCatchesOverlayPage("home");
+  catchesSessionMenuSessionId = null;
+  catchesSessionMenuOpen = false;
+  syncCatchesSessionMenuUi();
 }
 
 /**
@@ -1597,20 +1602,19 @@ async function syncSessionEndMap(session) {
  * Leaves session detail (catches overlay) and related UI; use after deleting a session so the user is on home / history list, not a stale detail view.
  */
 function navigateHomeFromSessionDetail() {
-  const catchesOv = document.getElementById("catches-overlay");
-  if (catchesOv) {
-    catchesOv.classList.add("hidden");
-    delete catchesOv.dataset.viewSessionId;
-  }
-  catchesSessionMenuSessionId = null;
-  catchesSessionMenuOpen = false;
-  syncCatchesSessionMenuUi();
+  closeCatchesOverlay();
   closeSessionSummaryOverlay();
   closeSessionEndOverlay();
   closeStatsPage();
   destroyFishEditMapUi();
   closeFishOverlay();
   window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+/** Close pages that sit over the tabs so the bottom nav destination is visible. */
+function dismissCoveringOverlaysForTabChange() {
+  closeStatsPage();
+  closeCatchesOverlay();
 }
 
 /** Hides the fish entry overlay and stops any in-progress GPS watch for logging. */
@@ -4196,7 +4200,9 @@ async function handleAuthStateChange(event, session) {
 function mainAppInit() {
   wireAppTabs({
     onTabChange: (tab) => {
+      dismissCoveringOverlaysForTabChange();
       if (tab === "profile") {
+        resetProfileMainView();
         void fillProfileFields();
         void renderHistorySection();
         void refreshProfileStatsPreview();
@@ -4207,8 +4213,6 @@ function mainAppInit() {
     onError: showError,
     onOpen: () => {
       setActiveAppTab("profile");
-      void renderHistorySection();
-      void refreshProfileStatsPreview();
     },
   });
   wireUserStatsUi();

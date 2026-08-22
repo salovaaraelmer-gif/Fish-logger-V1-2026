@@ -6,16 +6,18 @@
 import {
   ALL_SPECIES_ICON_SRC,
   SPECIES_LABELS,
+  SPECIES_OPTIONS,
   colorForSpecies,
   speciesIconSrc,
 } from "./catchSpecies.js";
-import { statsForAnglerSpecies } from "./speciesDashboardStats.js";
 import {
   MONTH_LABELS,
   STATS_ALL_TIME,
   computeUserPeriodStats,
   formatTop5SummaryLine,
   monthlyCatchCounts,
+  speciesStatsLabel,
+  statsForUserSpecies,
   yearlyCatchCounts,
 } from "./userStatsCalc.js";
 import { loadUserStatsBundle } from "./userStatsService.js";
@@ -24,8 +26,8 @@ import { loadUserStatsBundle } from "./userStatsService.js";
 let bundle = null;
 /** @type {number | typeof STATS_ALL_TIME} */
 let selectedYear = new Date().getFullYear();
-/** @type {string | null} */
-let selectedSpecies = null;
+/** @type {string} */
+let selectedSpecies = SPECIES_OPTIONS[0];
 /** @type {string | typeof STATS_ALL_TIME} */
 let monthSpecies = STATS_ALL_TIME;
 
@@ -50,15 +52,14 @@ export function wireUserStatsUi() {
   document.getElementById("stats-year")?.addEventListener("change", (event) => {
     const el = /** @type {HTMLSelectElement} */ (event.target);
     selectedYear = el.value === STATS_ALL_TIME ? STATS_ALL_TIME : Number(el.value);
-    selectedSpecies = null;
-    monthSpecies = STATS_ALL_TIME;
     paintStatsPage();
   });
   document.getElementById("stats-species-picker")?.addEventListener("click", (event) => {
     const key = speciesKeyFromEvent(event);
-    if (!key || !bundle) return;
+    if (!key || key === STATS_ALL_TIME || !bundle) return;
     selectedSpecies = key;
     markPickerSelection("stats-species-picker", key);
+    setSelectedName("stats-species-selected-name", key);
     paintSpeciesData(periodCatches(), bundle.userId);
   });
   document.getElementById("stats-month-picker")?.addEventListener("click", (event) => {
@@ -66,6 +67,7 @@ export function wireUserStatsUi() {
     if (!key || !bundle) return;
     monthSpecies = key;
     markPickerSelection("stats-month-picker", key);
+    setSelectedName("stats-month-selected-name", key);
     fillChart(periodCatches(), selectedYear, monthSpecies);
   });
 }
@@ -80,7 +82,7 @@ export function closeStatsPage() {
 export async function openStatsPage() {
   selectedYear = new Date().getFullYear();
   monthSpecies = STATS_ALL_TIME;
-  selectedSpecies = null;
+  selectedSpecies = SPECIES_OPTIONS[0];
   bundle = await loadUserStatsBundle();
   document.getElementById("stats-overlay")?.classList.remove("hidden");
   paintStatsPage();
@@ -97,17 +99,12 @@ function paintStatsPage() {
   setCardValue("stats-overview-sessions-value", period.sessionCount);
   setCardValue("stats-overview-fish-value", period.fishCount);
 
-  if (!selectedSpecies || !period.speciesKeys.includes(selectedSpecies)) {
-    selectedSpecies = period.primarySpecies;
-  }
-  if (monthSpecies !== STATS_ALL_TIME && !period.speciesKeys.includes(monthSpecies)) {
-    monthSpecies = STATS_ALL_TIME;
-  }
-
-  fillSpeciesPicker("stats-species-picker", period.speciesKeys, selectedSpecies, false);
+  fillSpeciesPicker("stats-species-picker", selectedSpecies, false);
+  setSelectedName("stats-species-selected-name", selectedSpecies);
   paintSpeciesData(period.catches, bundle.userId);
 
-  fillSpeciesPicker("stats-month-picker", period.speciesKeys, monthSpecies, true);
+  fillSpeciesPicker("stats-month-picker", monthSpecies, true);
+  setSelectedName("stats-month-selected-name", monthSpecies);
   fillChart(period.catches, selectedYear, monthSpecies);
   const monthHeading = document.getElementById("stats-month-heading");
   if (monthHeading) {
@@ -157,16 +154,21 @@ function markPickerSelection(containerId, selected) {
 function paintSpeciesData(catches, userId) {
   const speciesBlock = document.getElementById("stats-species-data");
   if (!speciesBlock) return;
-  if (!selectedSpecies) {
-    speciesBlock.innerHTML = `<p class="meta">No catches in this period.</p>`;
-    return;
-  }
-  const stats = statsForAnglerSpecies(catches, userId, selectedSpecies);
+  const stats = statsForUserSpecies(catches, userId, selectedSpecies);
   speciesBlock.innerHTML = "";
   speciesBlock.append(
     statLine("Caught", String(stats.catchCount)),
     statLine("Top 5", formatTop5SummaryLine(stats.top5Fish))
   );
+}
+
+/**
+ * @param {string} id
+ * @param {string | typeof STATS_ALL_TIME} speciesKey
+ */
+function setSelectedName(id, speciesKey) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = speciesStatsLabel(speciesKey);
 }
 
 /**
@@ -200,19 +202,21 @@ function fillYearSelect(years, selected) {
 }
 
 /**
+ * Every canonical species, including zero-catch ones. All species is monthly-only.
  * @param {string} containerId
- * @param {string[]} speciesKeys
- * @param {string | typeof STATS_ALL_TIME | null} selected
+ * @param {string | typeof STATS_ALL_TIME} selected
  * @param {boolean} includeAll
  */
-function fillSpeciesPicker(containerId, speciesKeys, selected, includeAll) {
+function fillSpeciesPicker(containerId, selected, includeAll) {
   const row = document.getElementById(containerId);
   if (!row) return;
   row.innerHTML = "";
   if (includeAll) {
-    row.appendChild(speciesIconBtn(STATS_ALL_TIME, "All species", ALL_SPECIES_ICON_SRC, "#e6edf3", selected === STATS_ALL_TIME));
+    row.appendChild(
+      speciesIconBtn(STATS_ALL_TIME, "All species", ALL_SPECIES_ICON_SRC, "#e6edf3", selected === STATS_ALL_TIME)
+    );
   }
-  for (const key of speciesKeys) {
+  for (const key of SPECIES_OPTIONS) {
     const src = speciesIconSrc(key);
     if (!src) continue;
     row.appendChild(
@@ -269,6 +273,9 @@ function fillChart(catches, year, speciesKey) {
   const host = document.getElementById("stats-month-chart");
   if (!host) return;
   host.innerHTML = "";
+  const name = speciesStatsLabel(speciesKey);
+  const kind = year === STATS_ALL_TIME ? "yearly" : "monthly";
+  host.setAttribute("aria-label", `${kind} catch counts for ${name}`);
   const barColor = speciesKey === STATS_ALL_TIME ? "" : colorForSpecies(speciesKey);
   if (year === STATS_ALL_TIME) {
     const rows = yearlyCatchCounts(catches, speciesKey);

@@ -12,6 +12,8 @@ import {
   formatTop5SummaryLine,
   inYearPeriod,
   monthlyCatchCounts,
+  speciesStatsLabel,
+  statsForUserSpecies,
   yearlyCatchCounts,
   yearsFromTimestamps,
 } from "../js/userStatsCalc.js";
@@ -66,6 +68,36 @@ describe("computeUserPeriodStats", () => {
     const shared = statsForAnglerSpecies(stats.catches, "u1", "pike");
     assert.deepEqual(shared.top5Lengths, [110]);
     assert.equal(shared.top5Total, 110);
+  });
+});
+
+describe("speciesStatsLabel", () => {
+  it("names All species and each fish", () => {
+    assert.equal(speciesStatsLabel(STATS_ALL_TIME), "All species");
+    assert.equal(speciesStatsLabel("pike"), "Pike");
+  });
+});
+
+describe("statsForUserSpecies", () => {
+  const catches = [
+    { anglerId: "u1", species: "pike", length: 110, weight_kg: 8 },
+    { anglerId: "u1", species: "perch", length: 30, weight_kg: null },
+    { anglerId: "u2", species: "pike", length: 140, weight_kg: null },
+  ];
+
+  it("counts one species or every species for the user", () => {
+    const pike = statsForUserSpecies(catches, "u1", "pike");
+    assert.equal(pike.catchCount, 1);
+    assert.deepEqual(pike.top5Fish.map((f) => f.length), [110]);
+    const all = statsForUserSpecies(catches, "u1", STATS_ALL_TIME);
+    assert.equal(all.catchCount, 2);
+    assert.deepEqual(all.top5Fish.map((f) => f.length), [110, 30]);
+  });
+
+  it("keeps zero-catch species empty instead of dropping them", () => {
+    const trout = statsForUserSpecies(catches, "u1", "trout");
+    assert.equal(trout.catchCount, 0);
+    assert.deepEqual(trout.top5Fish, []);
   });
 });
 

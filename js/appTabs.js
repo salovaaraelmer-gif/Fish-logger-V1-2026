@@ -56,7 +56,12 @@ export function closeMenuSheet() {
   /* Menu is a tab now; kept so logout/sign-out paths stay valid. */
 }
 
+/** @type {((tab: AppTabId) => void) | null} */
+let tabChangeListener = null;
+
 /**
+ * Switch the visible tab. Re-selecting the current tab still notifies listeners
+ * so covering pages (stats, history session) can pop back to the destination.
  * @param {AppTabId} tab
  */
 export function setActiveAppTab(tab) {
@@ -72,6 +77,10 @@ export function setActiveAppTab(tab) {
     if (on) btn?.setAttribute("aria-current", "page");
     else btn?.removeAttribute("aria-current");
   }
+
+  if (typeof tabChangeListener === "function") {
+    tabChangeListener(tab);
+  }
 }
 
 /** @returns {AppTabId} */
@@ -84,6 +93,7 @@ export function getActiveAppTab() {
  */
 export function wireAppTabs(options = {}) {
   wireOverlayScrollbars();
+  tabChangeListener = typeof options.onTabChange === "function" ? options.onTabChange : null;
   const nav = document.getElementById("app-bottom-nav");
   nav?.addEventListener("click", (e) => {
     const btn = e.target instanceof Element ? e.target.closest(".app-nav-btn") : null;
@@ -91,9 +101,6 @@ export function wireAppTabs(options = {}) {
     const tab = btn.dataset.tab;
     if (!isAppTabId(tab)) return;
     setActiveAppTab(tab);
-    if (typeof options.onTabChange === "function") {
-      options.onTabChange(tab);
-    }
   });
 
   setActiveAppTab(activeTab);

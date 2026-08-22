@@ -729,6 +729,12 @@ select.stats-year-select {
   display: block;
 }
 
+.stats-selected-name {
+  margin: 0.2rem 0 0.45rem;
+  font-size: 0.98rem;
+  font-weight: 650;
+}
+
 .stats-line {
   margin: 0 0 0.55rem;
 }

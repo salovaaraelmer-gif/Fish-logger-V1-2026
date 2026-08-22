@@ -105,6 +105,13 @@ export function closeProfileOverlay() {
   /* Profile is a tab now; kept so logout/sign-out paths stay valid. */
 }
 
+/** Collapse nested profile UI so the tab shows the main profile screen. */
+export function resetProfileMainView() {
+  const info = document.querySelector("#tab-profile details.profile-info");
+  if (info instanceof HTMLDetailsElement) info.open = false;
+  document.getElementById("tab-profile")?.scrollTo(0, 0);
+}
+
 /**
  * @param {{ onError?: (msg: string) => void, onOpen?: () => void }} [options]
  * @returns {void}

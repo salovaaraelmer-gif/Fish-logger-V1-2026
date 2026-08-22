@@ -3,8 +3,9 @@
  * @module userStatsCalc
  */
 
-import { SPECIES_OPTIONS, speciesWithCatches } from "./catchSpecies.js";
+import { SPECIES_LABELS, SPECIES_OPTIONS, speciesWithCatches } from "./catchSpecies.js";
 import { formatDurationFromMs } from "./sessionHistoryFormat.js";
+import { top5MeasuredCatches } from "./speciesDashboardStats.js";
 
 export const STATS_ALL_TIME = "all";
 
@@ -72,6 +73,35 @@ export function formatTop5SummaryLine(fish) {
     }
   }
   return parts.join(" · ");
+}
+
+/**
+ * Visible label for a stats species filter (All species or a named fish).
+ * @param {string | typeof STATS_ALL_TIME | null | undefined} speciesKey
+ * @returns {string}
+ */
+export function speciesStatsLabel(speciesKey) {
+  if (!speciesKey || speciesKey === STATS_ALL_TIME) return "All species";
+  return SPECIES_LABELS[speciesKey] || speciesKey;
+}
+
+/**
+ * Personal catch stats for one species or every species in the period.
+ * @param {import('./db.js').CatchRecord[]} catches
+ * @param {string} userId
+ * @param {string | typeof STATS_ALL_TIME} speciesKey
+ * @returns {{ catchCount: number, top5Fish: { length: number, weightKg: number | null }[] }}
+ */
+export function statsForUserSpecies(catches, userId, speciesKey) {
+  const rows = catches.filter((c) => {
+    if (c.anglerId !== userId) return false;
+    if (speciesKey !== STATS_ALL_TIME && c.species !== speciesKey) return false;
+    return true;
+  });
+  return {
+    catchCount: rows.length,
+    top5Fish: top5MeasuredCatches(rows),
+  };
 }
 
 /**
