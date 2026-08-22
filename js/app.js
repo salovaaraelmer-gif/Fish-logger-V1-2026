@@ -86,7 +86,7 @@ import {
   profileDisplayLabel,
 } from "./supabaseProfile.js";
 import { closeProfileOverlay, fillProfileFields, resetProfileMainView, wireProfileUi } from "./profileUI.js";
-import { closeStatsPage, refreshProfileStatsPreview, wireUserStatsUi } from "./userStatsUI.js";
+import { closeStatsPage, refreshProfileStatsPreview, reloadOpenStatsFromLocal, wireUserStatsUi } from "./userStatsUI.js";
 import { closeMenuSheet, setActiveAppTab, wireAppTabs, wireOverlayScrollbars } from "./appTabs.js";
 import { hideAppSpinner, resetAppSpinner, showAppSpinner, withAppSpinner } from "./appSpinner.js";
 import {
@@ -106,7 +106,7 @@ import {
   getLastParticipantRehydrateOk,
   getParticipantEndedCloudRows,
 } from "./participantSessionCache.js";
-import { pullSessionRosterAndCatchesFromCloud } from "./supabaseParticipantSync.js";
+import { pullRosterAndCatchesForSessions, pullSessionRosterAndCatchesFromCloud } from "./supabaseParticipantSync.js";
 import {
   destroyCatchesMap,
   mountCatchesMap,
@@ -2625,6 +2625,82 @@ async function upsertLocalSessionFromCloudRow(cloud) {
   await loadSessionLinksFromCloud(localId, cloud.id);
 }
 
+/** Cloud session ids whose roster/catches were already pulled this sign-in. */
+const pulledEndedCloudSessionIds = new Set();
+
+/** @type {Promise<void> | null} */
+let endedCatchPullInFlight = null;
+
+function clearEndedCatchPullCache() {
+  pulledEndedCloudSessionIds.clear();
+}
+
+/**
+ * Local ended sessions from the participant cloud list, plus any other local ended rows.
+ * @returns {Promise<import('./db.js').Session[]>}
+ */
+async function localEndedSessionsForCatchPull() {
+  /** @type {import('./db.js').Session[]} */
+  const out = [];
+  const seen = new Set();
+  if (getLastParticipantRehydrateOk()) {
+    for (const cloud of getParticipantEndedCloudRows()) {
+      const local = await getSessionBySupabaseCloudId(cloud.id);
+      if (local && !seen.has(local.id)) {
+        seen.add(local.id);
+        out.push(local);
+      }
+    }
+  }
+  for (const s of await getAllEndedSessions()) {
+    if (!seen.has(s.id)) {
+      seen.add(s.id);
+      out.push(s);
+    }
+  }
+  return out;
+}
+
+/**
+ * Merge ended-session roster + catches into IndexedDB so history cards and stats match the cloud.
+ * @param {{ force?: boolean }} [opts]
+ */
+async function pullEndedSessionCatchesFromCloud(opts = {}) {
+  const force = opts.force === true;
+  if (endedCatchPullInFlight) await endedCatchPullInFlight;
+  const run = (async () => {
+    if (!navigator.onLine) return;
+    const uid = await getAuthUserId();
+    if (!uid) return;
+    const skip = force ? new Set() : pulledEndedCloudSessionIds;
+    if (force) pulledEndedCloudSessionIds.clear();
+    const sessions = await localEndedSessionsForCatchPull();
+    const { pulledCloudIds } = await pullRosterAndCatchesForSessions(sessions, {
+      skipCloudIds: skip,
+    });
+    for (const id of pulledCloudIds) pulledEndedCloudSessionIds.add(id);
+  })();
+  endedCatchPullInFlight = run;
+  try {
+    await run;
+  } finally {
+    if (endedCatchPullInFlight === run) endedCatchPullInFlight = null;
+  }
+}
+
+async function refreshPastSessionsAndStats() {
+  if (!navigator.onLine) {
+    showError("You're offline. Connect to refresh sessions.");
+    return;
+  }
+  await withAppSpinner(async () => {
+    clearEndedCatchPullCache();
+    await rehydrateSupabaseParticipantSessions();
+    await renderHistorySection();
+    await reloadOpenStatsFromLocal();
+  }, 0);
+}
+
 async function rehydrateSupabaseParticipantSessions() {
   const uid = await getAuthUserId();
   console.log("[participantSessions] currentUserId", uid || "(none)");
@@ -2659,6 +2735,7 @@ async function rehydrateSupabaseParticipantSessions() {
   for (const cloud of merged) {
     await upsertLocalSessionFromCloudRow(cloud);
   }
+  await pullEndedSessionCatchesFromCloud();
 }
 
 async function renderHome() {
@@ -2743,6 +2820,10 @@ async function renderHistorySection() {
   const listEl = document.getElementById("history-session-list");
   const emptyEl = document.getElementById("history-empty");
   if (!listEl || !emptyEl) return;
+
+  if (navigator.onLine) {
+    await pullEndedSessionCatchesFromCloud();
+  }
 
   /** @type {import('./db.js').Session[]} */
   let sessions;
@@ -3668,6 +3749,7 @@ async function onAuthSignedOut() {
   activeSupabaseAnglerRows = null;
   supabaseAnglerRowByLocalId.clear();
   setParticipantSessionFetchResult(false, [], []);
+  clearEndedCatchPullCache();
   clearParticipantSessionPoll();
   sessionTitleNeedsCloudSync = false;
   stopSessionTimer();
@@ -4216,6 +4298,12 @@ function mainAppInit() {
     },
   });
   wireUserStatsUi();
+  document.getElementById("history-refresh")?.addEventListener("click", () => {
+    void refreshPastSessionsAndStats();
+  });
+  document.getElementById("stats-refresh")?.addEventListener("click", () => {
+    void refreshPastSessionsAndStats();
+  });
   wireFishMeasurementInputs();
   wireSessionTitleEditor();
   wireEndedSessionTitleEditor();
@@ -4338,6 +4426,8 @@ function mainAppInit() {
     catchesSessionMenuOpen = false;
     syncCatchesSessionMenuUi();
     closeCatchesOverlay();
+    void renderHistorySection();
+    void reloadOpenStatsFromLocal();
   });
   document.getElementById("catches-session-menu-btn")?.addEventListener("click", (e) => {
     e.stopPropagation();

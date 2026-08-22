@@ -14,6 +14,7 @@ import {
   monthlyCatchCounts,
   speciesStatsLabel,
   statsForUserSpecies,
+  sessionsForPersonalStats,
   yearlyCatchCounts,
   yearsFromTimestamps,
 } from "../js/userStatsCalc.js";
@@ -98,6 +99,18 @@ describe("statsForUserSpecies", () => {
     const trout = statsForUserSpecies(catches, "u1", "trout");
     assert.equal(trout.catchCount, 0);
     assert.deepEqual(trout.top5Fish, []);
+  });
+});
+
+describe("sessionsForPersonalStats", () => {
+  it("keeps roster sessions and hosted sessions", () => {
+    const all = [
+      { id: "a", ownerUserId: "other" },
+      { id: "b", ownerUserId: "u1" },
+      { id: "c", ownerUserId: null },
+    ];
+    const rows = sessionsForPersonalStats(all, new Set(["a"]), "u1");
+    assert.deepEqual(rows.map((s) => s.id), ["a", "b"]);
   });
 });
 

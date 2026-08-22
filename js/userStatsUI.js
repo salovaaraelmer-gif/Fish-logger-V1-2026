@@ -44,6 +44,15 @@ export async function refreshProfileStatsPreview() {
   setCardValue("profile-stat-fish-value", period.fishCount);
 }
 
+/** Reload preview cards and the open Stats page from local data. */
+export async function reloadOpenStatsFromLocal() {
+  await refreshProfileStatsPreview();
+  const ov = document.getElementById("stats-overlay");
+  if (ov && !ov.classList.contains("hidden")) {
+    paintStatsPage();
+  }
+}
+
 export function wireUserStatsUi() {
   document.getElementById("profile-stats-open")?.addEventListener("click", () => {
     void openStatsPage();

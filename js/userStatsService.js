@@ -5,7 +5,7 @@
 
 import { getAllCatches, getAllSessions, getSessionAnglerRowsForAngler } from "./db.js";
 import { getAuthUserId } from "./auth.js";
-import { yearsFromTimestamps } from "./userStatsCalc.js";
+import { sessionsForPersonalStats, yearsFromTimestamps } from "./userStatsCalc.js";
 
 /**
  * @typedef {{
@@ -29,8 +29,9 @@ export async function loadUserStatsBundle() {
     getAllCatches(),
   ]);
   const sessionIds = new Set(roster.map((row) => row.sessionId));
-  const sessions = allSessions.filter((s) => sessionIds.has(s.id));
-  const catches = allCatches.filter((c) => c.anglerId === userId);
+  const sessions = sessionsForPersonalStats(allSessions, sessionIds, userId);
+  const inSessions = new Set(sessions.map((s) => s.id));
+  const catches = allCatches.filter((c) => c.anglerId === userId && inSessions.has(c.sessionId));
   const timestamps = [
     ...sessions.map((s) => s.startTime),
     ...catches.map((c) => c.timestamp),

@@ -608,8 +608,23 @@ h2 {
   border-top: 1px solid var(--border);
 }
 
-.history-section h2 {
+.history-heading-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
   margin-bottom: 0.5rem;
+}
+
+.history-heading-row h2 {
+  margin: 0;
+}
+
+.history-refresh-btn {
+  flex: 0 0 auto;
+  width: auto;
+  min-height: var(--tap-min);
+  padding: 0.35rem 0.7rem;
 }
 
 .profile-stats-box {
@@ -799,10 +814,6 @@ select.stats-year-select {
   font-size: 0.62rem;
   color: var(--muted);
   font-weight: 600;
-}
-
-.history-section h2 {
-  margin-bottom: 0.5rem;
 }
 
 .history-session-list {
@@ -1590,7 +1601,8 @@ textarea {
   margin-bottom: 0.75rem;
 }
 
-.catches-page-top h2 {
+.catches-page-top h2,
+.catches-page-top .app-tab-title {
   margin: 0;
   flex: 1 1 auto;
 }

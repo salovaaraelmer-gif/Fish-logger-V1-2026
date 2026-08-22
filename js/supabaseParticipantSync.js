@@ -138,3 +138,47 @@ export async function pullSessionRosterAndCatchesFromCloud(localSessionId, cloud
 
   return { ok: true };
 }
+
+/**
+ * @template T
+ * @param {T[]} items
+ * @param {number} limit
+ * @param {(item: T) => Promise<void>} worker
+ */
+async function runPool(items, limit, worker) {
+  if (items.length === 0) return;
+  let next = 0;
+  async function runOne() {
+    while (next < items.length) {
+      const i = next;
+      next += 1;
+      await worker(items[i]);
+    }
+  }
+  const n = Math.max(1, Math.min(limit, items.length));
+  await Promise.all(Array.from({ length: n }, () => runOne()));
+}
+
+/**
+ * Pull roster + catches for local sessions that have a cloud id.
+ * @param {{ id: string, supabaseSessionId?: string | null }[]} sessions
+ * @param {{ skipCloudIds?: Set<string>, concurrency?: number }} [opts]
+ * @returns {Promise<{ pulledCloudIds: string[] }>}
+ */
+export async function pullRosterAndCatchesForSessions(sessions, opts = {}) {
+  const skip = opts.skipCloudIds ?? new Set();
+  const concurrency = opts.concurrency ?? 3;
+  const jobs = sessions.filter((s) => {
+    const cloudId = typeof s.supabaseSessionId === "string" ? s.supabaseSessionId : "";
+    return Boolean(cloudId) && !skip.has(cloudId);
+  });
+  /** @type {string[]} */
+  const pulledCloudIds = [];
+  await runPool(jobs, concurrency, async (session) => {
+    const cloudSid = /** @type {string} */ (session.supabaseSessionId);
+    const pr = await pullSessionRosterAndCatchesFromCloud(session.id, cloudSid);
+    if (pr.ok) pulledCloudIds.push(cloudSid);
+    else console.warn("[participantSync] session pull:", pr.error);
+  });
+  return { pulledCloudIds };
+}

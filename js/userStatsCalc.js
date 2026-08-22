@@ -159,6 +159,16 @@ export function yearlyCatchCounts(catches, speciesKey) {
 }
 
 /**
+ * Sessions the user was on (roster) or hosted.
+ * @param {{ id: string, ownerUserId?: string | null }[]} allSessions
+ * @param {Set<string>} rosterSessionIds
+ * @param {string} userId
+ */
+export function sessionsForPersonalStats(allSessions, rosterSessionIds, userId) {
+  return allSessions.filter((s) => rosterSessionIds.has(s.id) || s.ownerUserId === userId);
+}
+
+/**
  * @param {import('./db.js').Session[]} sessions
  * @param {import('./db.js').CatchRecord[]} catches
  * @param {number | typeof STATS_ALL_TIME} year
