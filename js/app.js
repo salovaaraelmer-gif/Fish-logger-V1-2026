@@ -94,8 +94,23 @@ import {
   profileDisplayLabel,
 } from "./supabaseProfile.js";
 import { closeProfileOverlay, fillProfileFields, resetProfileMainView, wireProfileUi } from "./profileUI.js";
-import { closeStatsPage, refreshProfileStatsPreview, reloadOpenStatsFromLocal, wireUserStatsUi } from "./userStatsUI.js";
+import {
+  closeStatsPage,
+  openStatsPage,
+  refreshProfileStatsPreview,
+  reloadOpenStatsFromLocal,
+  wireUserStatsUi,
+} from "./userStatsUI.js";
 import { closeMenuSheet, setActiveAppTab, wireAppTabs, wireOverlayScrollbars } from "./appTabs.js";
+import { pathForAppTab, pathForSessionDetail, tabIdForRoute } from "./appRoutes.js";
+import {
+  backAppOr,
+  isAppRouterStarted,
+  navigateApp,
+  resetAppUrlHome,
+  routeFromLocation,
+  startAppRouter,
+} from "./appRouter.js";
 import { hideAppSpinner, resetAppSpinner, showAppSpinner, withAppSpinner } from "./appSpinner.js";
 import {
   catchRecordToSupabasePayload,
@@ -1700,12 +1715,11 @@ async function syncSessionEndMap(session) {
  * Leaves session detail (catches overlay) and related UI; use after deleting a session so the user is on home / history list, not a stale detail view.
  */
 function navigateHomeFromSessionDetail() {
-  closeCatchesOverlay();
-  closeSessionSummaryOverlay();
-  closeSessionEndOverlay();
-  closeStatsPage();
   destroyFishEditMapUi();
   closeFishOverlay();
+  closeSessionSummaryOverlay();
+  closeSessionEndOverlay();
+  navigateApp("/profile", { replace: true });
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
@@ -1714,6 +1728,51 @@ function dismissCoveringOverlaysForTabChange() {
   closeStatsPage();
   closeCatchesOverlay();
   closeMenuSheet();
+}
+
+/** @type {number} */
+let routeApplyGen = 0;
+
+/**
+ * Paint the view for a parsed route. History is already updated by the router.
+ * @param {import('./appRoutes.js').AppRoute} route
+ */
+async function applyAppRoute(route) {
+  const gen = ++routeApplyGen;
+  const canonical = route.name === "unknown" ? { name: /** @type {const} */ ("session") } : route;
+
+  if (canonical.name === "feed" || canonical.name === "map" || canonical.name === "session") {
+    dismissCoveringOverlaysForTabChange();
+    setActiveAppTab(tabIdForRoute(canonical));
+    return;
+  }
+
+  if (canonical.name === "profile") {
+    dismissCoveringOverlaysForTabChange();
+    setActiveAppTab("profile");
+    resetProfileMainView();
+    void fillProfileFields();
+    void renderHistorySection();
+    void refreshProfileStatsPreview();
+    return;
+  }
+
+  if (canonical.name === "stats") {
+    closeCatchesOverlay();
+    closeMenuSheet();
+    setActiveAppTab("profile");
+    await openStatsPage();
+    if (gen !== routeApplyGen) closeStatsPage();
+    return;
+  }
+
+  if (canonical.name === "sessionDetail") {
+    closeStatsPage();
+    closeMenuSheet();
+    setActiveAppTab("session");
+    await openHistorySessionCatches(canonical.sessionId);
+    if (gen !== routeApplyGen) closeCatchesOverlay();
+  }
 }
 
 /** Hides the fish entry overlay and stops any in-progress GPS watch for logging. */
@@ -3082,8 +3141,8 @@ async function renderHistorySection() {
         avatarUrl: profiles.get(sa.anglerId)?.avatar_url ?? null,
       })),
     });
-    btn.addEventListener("click", async () => {
-      await openHistorySessionCatches(s.id);
+    btn.addEventListener("click", () => {
+      navigateApp(pathForSessionDetail(s.id));
     });
     listEl.appendChild(btn);
   }
@@ -3962,6 +4021,7 @@ async function onAuthSignedOut() {
   fishState.editingCatchId = null;
   closeProfileOverlay();
   closeMenuSheet();
+  resetAppUrlHome();
   showSessionHomeScreen();
   setActiveAppTab("session");
   destroyFishEditMapUi();
@@ -4150,15 +4210,21 @@ async function revealSignedInSessionHome(user) {
     await prepareSignedInUserData(user);
     updateUserDisplayName(user);
     if (!mainAppStarted) {
-      mainAppInit();
+      await mainAppInit();
       mainAppStarted = true;
     }
-    setActiveAppTab("session");
     showSessionHomeScreen();
     try {
       await renderHome();
     } catch (err) {
       console.error("[Session] renderHome failed after login (non-blocking):", err);
+    }
+    if (!isAppRouterStarted()) {
+      await startAppRouter({
+        onRoute: (route) => applyAppRoute(route),
+      });
+    } else {
+      await applyAppRoute(routeFromLocation());
     }
     showMainApp();
     lastActivatedUserId = uid;
@@ -4486,23 +4552,20 @@ async function handleAuthStateChange(event, session) {
 
 function mainAppInit() {
   wireAppTabs({
-    onTabChange: (tab) => {
-      dismissCoveringOverlaysForTabChange();
-      if (tab === "profile") {
-        resetProfileMainView();
-        void fillProfileFields();
-        void renderHistorySection();
-        void refreshProfileStatsPreview();
-      }
+    onTabClick: (tab) => {
+      navigateApp(pathForAppTab(tab));
     },
   });
   wireProfileUi({
     onError: showError,
     onOpen: () => {
-      setActiveAppTab("profile");
+      navigateApp("/profile");
     },
   });
-  wireUserStatsUi();
+  wireUserStatsUi({
+    onOpen: () => navigateApp("/stats"),
+    onClose: () => backAppOr("/profile"),
+  });
   document.getElementById("history-refresh")?.addEventListener("click", () => {
     void refreshPastSessionsAndStats();
   });
@@ -4630,9 +4693,7 @@ function mainAppInit() {
   document.getElementById("catches-close")?.addEventListener("click", () => {
     catchesSessionMenuOpen = false;
     syncCatchesSessionMenuUi();
-    closeCatchesOverlay();
-    void renderHistorySection();
-    void reloadOpenStatsFromLocal();
+    backAppOr("/");
   });
   document.getElementById("catches-session-menu-btn")?.addEventListener("click", (e) => {
     e.stopPropagation();
@@ -4920,7 +4981,6 @@ function mainAppInit() {
     catchesSessionMenuOpen = false;
     syncCatchesSessionMenuUi();
   });
-
 }
 
 void bootstrap().catch((err) => {

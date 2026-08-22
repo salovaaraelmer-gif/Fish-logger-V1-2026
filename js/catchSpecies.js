@@ -34,15 +34,15 @@ export const SPECIES_COLORS = Object.freeze({
   other: "#4A148C",
 });
 
-export const ALL_SPECIES_ICON_SRC = "./assets/species/all.png";
+export const ALL_SPECIES_ICON_SRC = "/assets/species/all.png";
 
 const SPECIES_ICON_FILES = Object.freeze({
-  pike: "./assets/species/pike.png",
-  perch: "./assets/species/perch.png",
-  zander: "./assets/species/zander.png",
-  trout: "./assets/species/trout.png",
-  salmon: "./assets/species/salmon.png",
-  other: "./assets/species/other.png",
+  pike: "/assets/species/pike.png",
+  perch: "/assets/species/perch.png",
+  zander: "/assets/species/zander.png",
+  trout: "/assets/species/trout.png",
+  salmon: "/assets/species/salmon.png",
+  other: "/assets/species/other.png",
 });
 
 const SPECIES_COLOR_FALLBACK = "#546e7a";

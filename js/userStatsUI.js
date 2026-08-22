@@ -53,11 +53,24 @@ export async function reloadOpenStatsFromLocal() {
   }
 }
 
-export function wireUserStatsUi() {
+/**
+ * @param {{ onOpen?: () => void, onClose?: () => void }} [options]
+ */
+export function wireUserStatsUi(options = {}) {
   document.getElementById("profile-stats-open")?.addEventListener("click", () => {
+    if (typeof options.onOpen === "function") {
+      options.onOpen();
+      return;
+    }
     void openStatsPage();
   });
-  document.getElementById("stats-back")?.addEventListener("click", closeStatsPage);
+  document.getElementById("stats-back")?.addEventListener("click", () => {
+    if (typeof options.onClose === "function") {
+      options.onClose();
+      return;
+    }
+    closeStatsPage();
+  });
   document.getElementById("stats-year")?.addEventListener("change", (event) => {
     const el = /** @type {HTMLSelectElement} */ (event.target);
     selectedYear = el.value === STATS_ALL_TIME ? STATS_ALL_TIME : Number(el.value);

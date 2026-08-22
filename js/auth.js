@@ -183,8 +183,7 @@ export async function signOut() {
  */
 export function getAuthSiteUrl() {
   if (typeof window === "undefined") return "";
-  const { origin, pathname } = window.location;
-  return pathname && pathname !== "/" ? `${origin}${pathname}` : `${origin}/`;
+  return `${window.location.origin}/`;
 }
 
 /**
