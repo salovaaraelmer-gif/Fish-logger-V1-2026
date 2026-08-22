@@ -1551,12 +1551,14 @@ textarea {
   right: 0;
   width: 100%;
   max-width: var(--app-max-width);
+  height: 100dvh;
+  max-height: 100dvh;
   margin: 0 auto;
   background: var(--bg);
   z-index: 50;
-  overflow: auto;
+  overflow: hidden;
   padding: 1rem;
-  padding-bottom: calc(0.35rem + var(--bottom-nav-space));
+  padding-bottom: calc(0.5rem + var(--bottom-nav-space));
   display: flex;
   flex-direction: column;
 }
@@ -1714,6 +1716,22 @@ textarea {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  overflow: hidden;
+}
+
+.fish-inner > .row-actions {
+  flex: 0 0 auto;
+  margin-top: 0;
+  margin-bottom: 0.75rem;
+}
+
+#fish-step-1:not(.hidden),
+#fish-step-4:not(.hidden) {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 #fish-step-2:not(.hidden),
@@ -1722,12 +1740,24 @@ textarea {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  overflow: hidden;
+}
+
+.fish-step-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
 }
 
 #fish-step-2 .row-actions,
 #fish-step-3 .row-actions {
-  margin-top: auto;
+  flex: 0 0 auto;
+  margin-top: 0.5rem;
   padding-top: 0.75rem;
+  background: var(--bg);
 }
 
 #catches-overlay {

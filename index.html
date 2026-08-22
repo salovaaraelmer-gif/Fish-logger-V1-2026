@@ -385,52 +385,54 @@
         </div>
 
         <div id="fish-step-2" class="fish-step hidden">
-          <h2>2. Catch</h2>
-          <div class="field-label">Species (required)</div>
-          <div class="grid-2" id="species-buttons"></div>
-          <div style="margin-top: 1rem">
-            <div class="field-label">Length (cm), optional</div>
-            <input
-              type="text"
-              id="fish-input-length"
-              inputmode="numeric"
-              pattern="[0-9]*"
-              autocomplete="off"
-              aria-label="Length in centimetres"
-            />
-          </div>
-          <div style="margin-top: 0.75rem">
-            <div class="field-label">Weight (kg), optional</div>
-            <input
-              type="text"
-              id="fish-input-weight"
-              inputmode="decimal"
-              autocomplete="off"
-              aria-label="Weight in kilograms"
-              placeholder="1.25"
-            />
-          </div>
-          <div style="margin-top: 0.75rem">
-            <div class="field-label">Depth (m), optional</div>
-            <input
-              type="text"
-              id="fish-input-depth"
-              inputmode="decimal"
-              autocomplete="off"
-              aria-label="Depth in metres"
-              placeholder="e.g. 3.5"
-            />
-          </div>
-          <div style="margin-top: 0.75rem">
-            <div class="field-label">Water temperature (°C), optional</div>
-            <input
-              type="text"
-              id="fish-input-water-temp"
-              inputmode="decimal"
-              autocomplete="off"
-              aria-label="Water temperature in Celsius"
-              placeholder="e.g. 12"
-            />
+          <div class="fish-step-body">
+            <h2>2. Catch</h2>
+            <div class="field-label">Species (required)</div>
+            <div class="grid-2" id="species-buttons"></div>
+            <div style="margin-top: 1rem">
+              <div class="field-label">Length (cm), optional</div>
+              <input
+                type="text"
+                id="fish-input-length"
+                inputmode="numeric"
+                pattern="[0-9]*"
+                autocomplete="off"
+                aria-label="Length in centimetres"
+              />
+            </div>
+            <div style="margin-top: 0.75rem">
+              <div class="field-label">Weight (kg), optional</div>
+              <input
+                type="text"
+                id="fish-input-weight"
+                inputmode="decimal"
+                autocomplete="off"
+                aria-label="Weight in kilograms"
+                placeholder="1.25"
+              />
+            </div>
+            <div style="margin-top: 0.75rem">
+              <div class="field-label">Depth (m), optional</div>
+              <input
+                type="text"
+                id="fish-input-depth"
+                inputmode="decimal"
+                autocomplete="off"
+                aria-label="Depth in metres"
+                placeholder="e.g. 3.5"
+              />
+            </div>
+            <div style="margin-top: 0.75rem">
+              <div class="field-label">Water temperature (°C), optional</div>
+              <input
+                type="text"
+                id="fish-input-water-temp"
+                inputmode="decimal"
+                autocomplete="off"
+                aria-label="Water temperature in Celsius"
+                placeholder="e.g. 12"
+              />
+            </div>
           </div>
           <div class="row-actions">
             <button type="button" class="btn" id="fish-back-2">Back</button>
@@ -439,27 +441,29 @@
         </div>
 
         <div id="fish-step-3" class="fish-step hidden">
-          <h2>3. Accurate location, notes & photos</h2>
-          <div id="fish-edit-location-wrap" class="fish-edit-location-wrap hidden">
-            <div class="field-label">Map</div>
-            <p class="meta fish-edit-location-hint">Adjust the catch location by moving the dot.</p>
-            <div id="fish-edit-location-map" class="fish-edit-location-map" role="application" aria-label="Catch location"></div>
+          <div class="fish-step-body">
+            <h2>3. Accurate location, notes & photos</h2>
+            <div id="fish-edit-location-wrap" class="fish-edit-location-wrap hidden">
+              <div class="field-label">Map</div>
+              <p class="meta fish-edit-location-hint">Adjust the catch location by moving the dot.</p>
+              <div id="fish-edit-location-map" class="fish-edit-location-map" role="application" aria-label="Catch location"></div>
+            </div>
+            <p class="meta" id="fish-location-hint">
+              Location and weather are fetched automatically on save if location is available.
+            </p>
+            <div class="field-label" id="fish-notes-label">Notes</div>
+            <textarea id="fish-notes" rows="2" placeholder="Optional"></textarea>
+            <div class="field-label" id="fish-photos-label">Photos</div>
+            <div id="fish-photo-slots" class="fish-photo-slots"></div>
+            <input
+              id="fish-photo-input"
+              class="hidden"
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              aria-hidden="true"
+              tabindex="-1"
+            />
           </div>
-          <p class="meta" id="fish-location-hint">
-            Location and weather are fetched automatically on save if location is available.
-          </p>
-          <div class="field-label" id="fish-notes-label">Notes</div>
-          <textarea id="fish-notes" rows="2" placeholder="Optional"></textarea>
-          <div class="field-label" id="fish-photos-label">Photos</div>
-          <div id="fish-photo-slots" class="fish-photo-slots"></div>
-          <input
-            id="fish-photo-input"
-            class="hidden"
-            type="file"
-            accept="image/jpeg,image/png,image/webp"
-            aria-hidden="true"
-            tabindex="-1"
-          />
           <div class="row-actions">
             <button type="button" class="btn" id="fish-back-3">Back</button>
             <button type="button" class="btn btn-primary" id="fish-save">Save</button>
