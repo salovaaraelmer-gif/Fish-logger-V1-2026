@@ -3,10 +3,10 @@
  * @module appTabs
  */
 
-/** @typedef {"feed" | "map" | "session" | "profile" | "menu"} AppTabId */
+/** @typedef {"feed" | "map" | "session" | "profile"} AppTabId */
 
 /** @type {readonly AppTabId[]} */
-const APP_TABS = ["feed", "map", "session", "profile", "menu"];
+const APP_TABS = ["feed", "map", "session", "profile"];
 
 /** @type {AppTabId} */
 let activeTab = "session";
@@ -53,7 +53,7 @@ function isAppTabId(value) {
 }
 
 export function closeMenuSheet() {
-  /* Menu is a tab now; kept so logout/sign-out paths stay valid. */
+  document.getElementById("settings-overlay")?.classList.add("hidden");
 }
 
 /** @type {((tab: AppTabId) => void) | null} */

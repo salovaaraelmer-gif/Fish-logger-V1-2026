@@ -1,5 +1,5 @@
 /**
- * Profile tab: read-only Supabase profile + auth email; logout lives in the menu.
+ * Profile tab: read-only Supabase profile + auth email; settings overlay has logout.
  * @module profileUI
  */
 
@@ -102,11 +102,20 @@ export async function fillProfileFields() {
 }
 
 export function closeProfileOverlay() {
-  /* Profile is a tab now; kept so logout/sign-out paths stay valid. */
+  closeSettingsPage();
+}
+
+export function closeSettingsPage() {
+  document.getElementById("settings-overlay")?.classList.add("hidden");
+}
+
+function openSettingsPage() {
+  document.getElementById("settings-overlay")?.classList.remove("hidden");
 }
 
 /** Collapse nested profile UI so the tab shows the main profile screen. */
 export function resetProfileMainView() {
+  closeSettingsPage();
   const info = document.querySelector("#tab-profile details.profile-info");
   if (info instanceof HTMLDetailsElement) info.open = false;
   document.getElementById("tab-profile")?.scrollTo(0, 0);
@@ -119,6 +128,8 @@ export function resetProfileMainView() {
 export function wireProfileUi(options = {}) {
   const openBtn = document.getElementById("btn-open-profile");
   const logoutBtn = document.getElementById("menu-logout");
+  const settingsOpen = document.getElementById("profile-settings-open");
+  const settingsBack = document.getElementById("settings-back");
   const avatarBtn = document.getElementById("profile-avatar-btn");
   const avatarInput = /** @type {HTMLInputElement | null} */ (document.getElementById("profile-avatar-input"));
 
@@ -150,6 +161,13 @@ export function wireProfileUi(options = {}) {
       return;
     }
     showProfileAvatar(result.url);
+  });
+
+  settingsOpen?.addEventListener("click", () => {
+    openSettingsPage();
+  });
+  settingsBack?.addEventListener("click", () => {
+    closeSettingsPage();
   });
 
   logoutBtn?.addEventListener("click", async () => {

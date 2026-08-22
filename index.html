@@ -217,7 +217,22 @@
           aria-labelledby="nav-profile"
           hidden
         >
-          <h1 class="app-tab-title">Profile</h1>
+          <div class="profile-heading-row">
+            <h1 class="app-tab-title">Profile</h1>
+            <button type="button" class="profile-settings-btn" id="profile-settings-open" aria-label="Settings">
+              <svg class="profile-settings-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="1.75" />
+                <path
+                  d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+            </button>
+          </div>
           <div class="profile-hero">
             <button
               type="button"
@@ -292,24 +307,6 @@
             <div id="history-session-list" class="stack history-session-list"></div>
           </section>
         </section>
-
-        <section
-          id="tab-menu"
-          class="app-tab-panel"
-          role="tabpanel"
-          aria-labelledby="nav-menu"
-          hidden
-        >
-          <h1 class="app-tab-title">Menu</h1>
-          <section class="menu-coming" aria-labelledby="menu-coming-title">
-            <h2 id="menu-coming-title" class="menu-coming-title">Coming to the app</h2>
-            <div class="menu-coming-item">
-              <span>Dark and bright mode</span>
-              <span class="pill">Coming soon</span>
-            </div>
-          </section>
-          <button type="button" class="btn btn-danger menu-logout-btn" id="menu-logout">Log out</button>
-        </section>
       </div>
 
       <nav id="app-bottom-nav" class="app-bottom-nav" aria-label="Main">
@@ -370,13 +367,6 @@
               stroke-width="1.75"
               stroke-linecap="round"
             />
-          </svg>
-        </button>
-        <button type="button" class="app-nav-btn" id="nav-menu" data-tab="menu" aria-label="Menu">
-          <svg class="app-nav-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-            <path d="M4.5 7h15" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" />
-            <path d="M4.5 12h15" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" />
-            <path d="M4.5 17h15" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" />
           </svg>
         </button>
       </nav>
@@ -678,6 +668,25 @@
         </div>
 
         <button type="button" class="btn btn-primary" id="session-summary-close">Back to home</button>
+      </div>
+    </div>
+
+    <div id="settings-overlay" class="hidden" role="dialog" aria-labelledby="settings-title">
+      <div class="settings-inner stack">
+        <div class="catches-page-top">
+          <button type="button" class="btn btn-ghost session-settings-back" id="settings-back" aria-label="Back">
+            ←
+          </button>
+          <h1 id="settings-title" class="app-tab-title">Settings</h1>
+        </div>
+        <section class="menu-coming" aria-labelledby="menu-coming-title">
+          <h2 id="menu-coming-title" class="menu-coming-title">Coming to the app</h2>
+          <div class="menu-coming-item">
+            <span>Dark and bright mode</span>
+            <span class="pill">Coming soon</span>
+          </div>
+        </section>
+        <button type="button" class="btn btn-danger menu-logout-btn" id="menu-logout">Log out</button>
       </div>
     </div>
 

@@ -70,7 +70,8 @@ import {
   renderFishPhotoSlots,
   wireCatchPhotoViewer,
 } from "./catchPhotoUi.js";
-import { isAllowedSpecies, SPECIES_LABELS, speciesWithCatches } from "./catchSpecies.js";
+import { isAllowedSpecies, SPECIES_LABELS, speciesIconSrc, speciesWithCatches } from "./catchSpecies.js";
+import { createProfileAvatarFace } from "./profileAvatarFace.js";
 import { mountSpeciesDashboard } from "./speciesDashboard.js";
 import { catalogNameToSpeciesKey } from "./speciesDashboardStats.js";
 import { supabase } from "./supabase.js";
@@ -1712,6 +1713,7 @@ function navigateHomeFromSessionDetail() {
 function dismissCoveringOverlaysForTabChange() {
   closeStatsPage();
   closeCatchesOverlay();
+  closeMenuSheet();
 }
 
 /** Hides the fish entry overlay and stops any in-progress GPS watch for logging. */
@@ -1870,19 +1872,25 @@ function averageWaterTempC(catches) {
 
 /**
  * @param {number} ts
- * @param {boolean} activeSession — if true, HH:MM only (24h, colon); if false, date + 24h time with colon
+ * @param {boolean} [_activeSession]
  */
-function formatCatchListTime(ts, activeSession) {
+function formatCatchListTime(ts, _activeSession) {
   const d = new Date(ts);
-  if (activeSession) {
-    return formatClock24(ts);
-  }
   const datePart = d.toLocaleDateString("en-GB", {
-    day: "numeric",
-    month: "numeric",
+    day: "2-digit",
+    month: "2-digit",
     year: "numeric",
   });
   return `${datePart} · ${formatClock24(ts)}`;
+}
+
+/**
+ * @param {string} name
+ */
+function firstNameFromLabel(name) {
+  const s = (name || "").trim();
+  if (!s) return "Angler";
+  return s.split(/\s+/)[0];
 }
 
 /**
@@ -2104,167 +2112,194 @@ async function fillEndedSessionDashboardPanels(session, sessionAnglers, catches,
 }
 
 /**
- * @param {string} text
+ * @param {string} url
+ * @param {string} label
+ * @param {string} className
  */
-function appendSplitItem(row, text) {
-  const el = document.createElement("div");
-  el.className = "catch-card-split-item";
-  el.textContent = text;
-  row.appendChild(el);
+function catchPhotoThumbButton(url, label, className) {
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = className;
+  btn.setAttribute("aria-label", label);
+  const img = document.createElement("img");
+  img.src = url;
+  img.alt = "";
+  btn.appendChild(img);
+  btn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    openCatchPhotoViewer(url);
+  });
+  return btn;
+}
+
+/**
+ * @param {string[]} urls
+ * @returns {HTMLElement | null}
+ */
+function buildCatchCardPhotoStack(urls) {
+  if (urls.length === 0) return null;
+  const stack = document.createElement("div");
+  stack.className = "catch-card-photo-stack";
+  stack.appendChild(catchPhotoThumbButton(urls[0], "View photo 1", "catch-card-photo-main"));
+  if (urls[1]) {
+    const extra = catchPhotoThumbButton(urls[1], "View photo 2", "catch-card-photo-extra");
+    const plus = document.createElement("span");
+    plus.className = "catch-card-photo-plus";
+    plus.textContent = "+1";
+    extra.appendChild(plus);
+    stack.appendChild(extra);
+  }
+  return stack;
+}
+
+/**
+ * @param {import('./db.js').CatchRecord} c
+ * @returns {HTMLElement}
+ */
+function buildCatchCardMenu(c) {
+  const actions = document.createElement("div");
+  actions.className = "catch-card-actions";
+
+  const trigger = document.createElement("button");
+  trigger.type = "button";
+  trigger.className = "catch-card-menu-trigger";
+  trigger.setAttribute("aria-label", "Actions");
+  trigger.setAttribute("aria-haspopup", "true");
+  trigger.setAttribute("aria-expanded", "false");
+  trigger.textContent = "⋮";
+
+  const menu = document.createElement("div");
+  menu.className = "catch-card-menu";
+  menu.setAttribute("role", "menu");
+  menu.hidden = true;
+
+  const editBtn = document.createElement("button");
+  editBtn.type = "button";
+  editBtn.className = "catch-card-menu-item";
+  editBtn.setAttribute("role", "menuitem");
+  editBtn.textContent = "Edit";
+  editBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    menu.hidden = true;
+    trigger.setAttribute("aria-expanded", "false");
+    void openFishOverlayForEdit(c);
+  });
+
+  const delBtn = document.createElement("button");
+  delBtn.type = "button";
+  delBtn.className = "catch-card-menu-item catch-card-menu-item--danger";
+  delBtn.setAttribute("role", "menuitem");
+  delBtn.textContent = "Delete";
+  delBtn.addEventListener("click", async (e) => {
+    e.stopPropagation();
+    menu.hidden = true;
+    trigger.setAttribute("aria-expanded", "false");
+    if (!confirm("Delete this catch?")) return;
+    try {
+      const okCloud = await deleteCatchFromSupabaseBestEffort(c);
+      if (!okCloud) return;
+      await deleteCatch(c.id);
+      await refreshCatchesTableIfOpen();
+      await renderHome();
+    } catch {
+      showError("Delete failed.");
+    }
+  });
+
+  menu.append(editBtn, delBtn);
+  trigger.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const opening = menu.hidden;
+    document.querySelectorAll(".catch-card-menu").forEach((m) => {
+      m.hidden = true;
+      const t = m.previousElementSibling;
+      if (t?.classList.contains("catch-card-menu-trigger")) {
+        t.setAttribute("aria-expanded", "false");
+      }
+    });
+    if (opening) {
+      menu.hidden = false;
+      trigger.setAttribute("aria-expanded", "true");
+    }
+  });
+
+  actions.append(trigger, menu);
+  return actions;
 }
 
 /**
  * @param {import('./db.js').CatchRecord} c
  * @param {Record<string, string>} nameById
- * @param {{ activeSession?: boolean, allowEditDelete?: boolean, ownerUserId?: string | null }} opts
+ * @param {{
+ *   activeSession?: boolean,
+ *   allowEditDelete?: boolean,
+ *   ownerUserId?: string | null,
+ *   avatarById?: Record<string, string | null>,
+ * }} opts
  */
 function buildCatchCardEl(c, nameById, opts = {}) {
-  const activeSession = opts.activeSession === true;
   const allowEditDelete = opts.allowEditDelete === true;
-  const ownerUserId = opts.ownerUserId ?? null;
+  const avatarById = opts.avatarById || {};
 
   const article = document.createElement("article");
   article.className = "catch-card";
   article.setAttribute("role", "listitem");
 
-  const anglerName = formatAnglerLabelWithOwner(
-    nameById[c.anglerId] || c.anglerId,
-    c.anglerId,
-    ownerUserId
-  );
+  const main = document.createElement("div");
+  main.className = "catch-card-main";
+
+  const body = document.createElement("div");
+  body.className = "catch-card-body";
+
+  const anglerRow = document.createElement("div");
+  anglerRow.className = "catch-card-angler";
+  const face = createProfileAvatarFace(avatarById[c.anglerId]);
+  face.classList.add("catch-card-avatar");
+  const nameEl = document.createElement("span");
+  nameEl.className = "catch-card-angler-name";
+  nameEl.textContent = firstNameFromLabel(nameById[c.anglerId] || c.anglerId);
+  anglerRow.append(face, nameEl);
+
   const speciesLabel = SPECIES_LABELS[c.species] || c.species;
-  const timeStr = formatCatchListTime(c.timestamp, activeSession);
-
-  const rowHead = document.createElement("div");
-  rowHead.className = "catch-card-row-head";
-  const anglerStrong = document.createElement("strong");
-  anglerStrong.className = "catch-card-angler-name";
-  anglerStrong.textContent = anglerName;
-  rowHead.appendChild(anglerStrong);
-  rowHead.appendChild(document.createTextNode(` | ${speciesLabel} | ${timeStr}`));
-  article.appendChild(rowHead);
-
-  const hasLen = c.length != null && typeof c.length === "number" && c.length >= 1;
-  const hasWt =
-    c.weight_kg != null && typeof c.weight_kg === "number" && Number.isFinite(c.weight_kg);
-  const hasDepth = c.depth_m != null && typeof c.depth_m === "number" && Number.isFinite(c.depth_m);
-  const hasWtemp =
-    c.water_temp_c != null && typeof c.water_temp_c === "number" && Number.isFinite(c.water_temp_c);
-  const hasMetrics = hasLen || hasWt || hasDepth || hasWtemp;
-
-  const metricsStack = document.createElement("div");
-  metricsStack.className = "catch-card-metrics-stack";
-
-  if (hasLen || hasWt) {
-    const row = document.createElement("div");
-    row.className = "catch-card-row-split";
-    if (hasLen) {
-      appendSplitItem(row, `Length: ${c.length} cm`);
-    }
-    if (hasWt) {
-      const w = c.weight_kg.toLocaleString("en-GB", { maximumFractionDigits: 2 });
-      appendSplitItem(row, `Weight: ${w} kg`);
-    }
-    metricsStack.appendChild(row);
+  const fishParts = [speciesLabel];
+  if (c.length != null && typeof c.length === "number" && c.length >= 1) {
+    fishParts.push(`${c.length} cm`);
   }
-
-  if (hasDepth || hasWtemp) {
-    const row = document.createElement("div");
-    row.className = "catch-card-row-split catch-card-row-split--telemetry";
-    if (hasDepth) {
-      const dm = c.depth_m.toLocaleString("en-GB", { maximumFractionDigits: 2 });
-      appendSplitItem(row, `Depth: ${dm} m`);
-    }
-    if (hasWtemp) {
-      const wt = c.water_temp_c.toLocaleString("en-GB", { maximumFractionDigits: 1 });
-      appendSplitItem(row, `Water temp: ${wt} °C`);
-    }
-    metricsStack.appendChild(row);
+  if (c.weight_kg != null && typeof c.weight_kg === "number" && Number.isFinite(c.weight_kg)) {
+    fishParts.push(`${c.weight_kg.toLocaleString("en-GB", { maximumFractionDigits: 2 })} kg`);
   }
-
-  let actions = null;
-  if (allowEditDelete) {
-    actions = document.createElement("div");
-    actions.className = "catch-card-actions";
-
-    const trigger = document.createElement("button");
-    trigger.type = "button";
-    trigger.className = "btn catch-card-menu-trigger";
-    trigger.setAttribute("aria-label", "Actions");
-    trigger.setAttribute("aria-haspopup", "true");
-    trigger.setAttribute("aria-expanded", "false");
-    trigger.textContent = "⋯";
-
-    const menu = document.createElement("div");
-    menu.className = "catch-card-menu";
-    menu.setAttribute("role", "menu");
-    menu.hidden = true;
-
-    const editBtn = document.createElement("button");
-    editBtn.type = "button";
-    editBtn.className = "catch-card-menu-item";
-    editBtn.setAttribute("role", "menuitem");
-    editBtn.textContent = "Edit";
-    editBtn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      menu.hidden = true;
-      trigger.setAttribute("aria-expanded", "false");
-      void openFishOverlayForEdit(c);
-    });
-
-    const delBtn = document.createElement("button");
-    delBtn.type = "button";
-    delBtn.className = "catch-card-menu-item catch-card-menu-item--danger";
-    delBtn.setAttribute("role", "menuitem");
-    delBtn.textContent = "Delete";
-    delBtn.addEventListener("click", async (e) => {
-      e.stopPropagation();
-      menu.hidden = true;
-      trigger.setAttribute("aria-expanded", "false");
-      if (!confirm("Delete this catch?")) return;
-      try {
-        const okCloud = await deleteCatchFromSupabaseBestEffort(c);
-        if (!okCloud) return;
-        await deleteCatch(c.id);
-        await refreshCatchesTableIfOpen();
-        await renderHome();
-      } catch {
-        showError("Delete failed.");
-      }
-    });
-
-    menu.append(editBtn, delBtn);
-
-    trigger.addEventListener("click", (e) => {
-      e.stopPropagation();
-      const opening = menu.hidden;
-      document.querySelectorAll(".catch-card-menu").forEach((m) => {
-        m.hidden = true;
-        const t = m.previousElementSibling;
-        if (t?.classList.contains("catch-card-menu-trigger")) {
-          t.setAttribute("aria-expanded", "false");
-        }
-      });
-      if (opening) {
-        menu.hidden = false;
-        trigger.setAttribute("aria-expanded", "true");
-      }
-    });
-
-    actions.append(trigger, menu);
+  const fishRow = document.createElement("div");
+  fishRow.className = "catch-card-fish";
+  const iconSrc = speciesIconSrc(c.species);
+  if (iconSrc) {
+    const icon = document.createElement("img");
+    icon.className = "catch-card-species-icon";
+    icon.src = iconSrc;
+    icon.alt = "";
+    fishRow.appendChild(icon);
   }
+  const fishText = document.createElement("span");
+  fishText.textContent = fishParts.join(" · ");
+  fishRow.appendChild(fishText);
 
-  if (hasMetrics || allowEditDelete) {
-    const metricsWrap = document.createElement("div");
-    metricsWrap.className = "catch-card-metrics-wrap";
-    if (!hasMetrics && allowEditDelete) {
-      metricsWrap.classList.add("catch-card-metrics-wrap--empty");
-    }
-    metricsWrap.appendChild(metricsStack);
-    if (actions) {
-      metricsWrap.appendChild(actions);
-    }
-    article.appendChild(metricsWrap);
+  const whenEl = document.createElement("div");
+  whenEl.className = "catch-card-meta";
+  whenEl.textContent = formatCatchListTime(c.timestamp, opts.activeSession === true);
+
+  body.append(anglerRow, fishRow, whenEl);
+
+  const condParts = [];
+  if (c.depth_m != null && typeof c.depth_m === "number" && Number.isFinite(c.depth_m)) {
+    condParts.push(`Depth ${c.depth_m.toLocaleString("en-GB", { maximumFractionDigits: 2 })} m`);
+  }
+  if (c.water_temp_c != null && typeof c.water_temp_c === "number" && Number.isFinite(c.water_temp_c)) {
+    condParts.push(`Water ${c.water_temp_c.toLocaleString("en-GB", { maximumFractionDigits: 1 })} °C`);
+  }
+  if (condParts.length > 0) {
+    const condEl = document.createElement("div");
+    condEl.className = "catch-card-meta";
+    condEl.textContent = condParts.join(" · ");
+    body.appendChild(condEl);
   }
 
   const notes = (c.notes || "").trim();
@@ -2272,31 +2307,14 @@ function buildCatchCardEl(c, nameById, opts = {}) {
     const notesEl = document.createElement("div");
     notesEl.className = "catch-card-notes";
     notesEl.textContent = notes;
-    article.appendChild(notesEl);
+    body.appendChild(notesEl);
   }
 
-  const photoUrls = normalizePhotoUrls(c.photo_urls);
-  if (photoUrls.length > 0) {
-    const photosRow = document.createElement("div");
-    photosRow.className = "catch-card-photos";
-    photoUrls.forEach((url, i) => {
-      const btn = document.createElement("button");
-      btn.type = "button";
-      btn.className = "catch-card-photo-thumb";
-      btn.setAttribute("aria-label", `View photo ${i + 1}`);
-      const img = document.createElement("img");
-      img.src = url;
-      img.alt = "";
-      btn.appendChild(img);
-      btn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        openCatchPhotoViewer(url);
-      });
-      photosRow.appendChild(btn);
-    });
-    article.appendChild(photosRow);
-  }
-
+  main.appendChild(body);
+  const photos = buildCatchCardPhotoStack(normalizePhotoUrls(c.photo_urls));
+  if (photos) main.appendChild(photos);
+  if (allowEditDelete) main.appendChild(buildCatchCardMenu(c));
+  article.appendChild(main);
   return article;
 }
 
@@ -2304,7 +2322,7 @@ function buildCatchCardEl(c, nameById, opts = {}) {
  * @param {HTMLElement | null} container
  * @param {string} sessionId
  * @param {boolean} emptyPlaceholderRow
- * @param {{ activeSession?: boolean, allowEditDelete?: boolean, sortNewestFirst?: boolean, ownerUserId?: string | null }} [listOptions] — activeSession true: catch time HH:MM only; false: date + time; sortNewestFirst false = oldest-first (history)
+ * @param {{ activeSession?: boolean, allowEditDelete?: boolean, sortNewestFirst?: boolean, ownerUserId?: string | null }} [listOptions]
  * @returns {Promise<number>} number of catches rendered
  */
 async function renderCatchList(container, sessionId, emptyPlaceholderRow, listOptions = {}) {
@@ -2320,7 +2338,17 @@ async function renderCatchList(container, sessionId, emptyPlaceholderRow, listOp
   }
   const catches = await getCatchesForSession(sessionId);
   const anglerIds = [...new Set(catches.map((c) => c.anglerId))];
-  const nameById = await fetchProfileDisplayNames(anglerIds);
+  const profiles = await fetchProfilesByIds(anglerIds);
+  /** @type {Record<string, string>} */
+  const nameById = {};
+  /** @type {Record<string, string | null>} */
+  const avatarById = {};
+  for (const id of anglerIds) {
+    const row = profiles.get(id);
+    nameById[id] = profileDisplayLabel(row, id);
+    const url = row && typeof row.avatar_url === "string" ? row.avatar_url.trim() : "";
+    avatarById[id] = url || null;
+  }
   const newestFirst = listOptions.sortNewestFirst !== false;
   const sorted = [...catches].sort((a, b) =>
     newestFirst ? b.timestamp - a.timestamp : a.timestamp - b.timestamp
@@ -2337,7 +2365,7 @@ async function renderCatchList(container, sessionId, emptyPlaceholderRow, listOp
   }
   for (const c of sorted) {
     container.appendChild(
-      buildCatchCardEl(c, nameById, { activeSession, allowEditDelete, ownerUserId })
+      buildCatchCardEl(c, nameById, { activeSession, allowEditDelete, ownerUserId, avatarById })
     );
   }
   return sorted.length;
