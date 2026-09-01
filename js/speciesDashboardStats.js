@@ -60,9 +60,9 @@ export function defaultSelectedSpecies(targetSpeciesKeys, speciesList) {
 }
 
 /**
- * Five longest measured catches (length required). Lengths only for session dashboard.
- * @param {{ length?: number | null, weight_kg?: number | null }[]} catches
- * @returns {{ length: number, weightKg: number | null }[]}
+ * Five longest measured catches (length required). Length ranks; weight is display-only.
+ * @param {{ length?: number | null, weight_kg?: number | null, anglerId?: string | null }[]} catches
+ * @returns {{ length: number, weightKg: number | null, anglerId: string | null }[]}
  */
 export function top5MeasuredCatches(catches) {
   return [...catches]
@@ -73,7 +73,39 @@ export function top5MeasuredCatches(catches) {
       length: /** @type {number} */ (c.length),
       weightKg:
         typeof c.weight_kg === "number" && Number.isFinite(c.weight_kg) ? c.weight_kg : null,
+      anglerId: typeof c.anglerId === "string" && c.anglerId ? c.anglerId : null,
     }));
+}
+
+/**
+ * @param {{ length: number, weightKg: number | null }} fish
+ * @returns {string}
+ */
+export function formatMeasuredCatchLine(fish) {
+  const length = `${fish.length} cm`;
+  if (fish.weightKg != null && Number.isFinite(fish.weightKg)) {
+    const kg = fish.weightKg.toLocaleString("en-GB", { maximumFractionDigits: 2 });
+    return `${length} · ${kg} kg`;
+  }
+  return length;
+}
+
+/**
+ * Combined session Top 5 for one species: five largest fish from every angler.
+ *
+ * @param {{ anglerId: string, species: string, length?: number | null, weight_kg?: number | null }[]} catches
+ * @param {string} species
+ * @returns {{
+ *   fish: { length: number, weightKg: number | null, anglerId: string | null }[],
+ *   total: number,
+ * }}
+ */
+export function sessionTop5ForSpecies(catches, species) {
+  const fish = top5MeasuredCatches(catches.filter((c) => c.species === species));
+  return {
+    fish,
+    total: fish.reduce((sum, row) => sum + row.length, 0),
+  };
 }
 
 /**

@@ -8,19 +8,38 @@ export const CATCH_VV_SYNC_CLASS = "is-vv-synced";
 export const CATCH_KEYBOARD_OPEN_CLASS = "is-keyboard-open";
 export const CATCH_KEYBOARD_HEIGHT_PX = 80;
 
-/** Autocomplete value that is not a login, payment, or address token. */
-export const CATCH_ENTRY_AUTOFILL_VALUE = "off";
+/** Unrecognized autocomplete token — not a login, payment, or address hint. */
+export const CATCH_ENTRY_AUTOFILL_VALUE = "al-no-fill";
+
+const PERSONAL_NAME_HINTS = [
+  "email",
+  "username",
+  "password",
+  "address",
+  "location",
+  "street",
+  "postal",
+  "country",
+  "city",
+  "phone",
+  "tel",
+  "card",
+  "cc-",
+  "payment",
+  "account",
+  "contact",
+  "organization",
+];
 
 /**
- * Catch measurement / notes fields. Names are prefixed so Chrome does not
- * treat them as password, card, or address fields.
+ * Catch measurement / notes fields. Names avoid personal-data heuristics.
  */
 export const CATCH_ENTRY_FIELD_SPECS = [
-  { id: "fish-input-length", name: "al_catch_length_cm", measurement: true },
-  { id: "fish-input-weight", name: "al_catch_weight_kg", measurement: true },
-  { id: "fish-input-depth", name: "al_catch_depth_m", measurement: true },
-  { id: "fish-input-water-temp", name: "al_catch_water_temp_c", measurement: true },
-  { id: "fish-notes", name: "al_catch_notes", measurement: false },
+  { id: "fish-input-length", name: "al_meas_cm", measurement: true, inputMode: "numeric" },
+  { id: "fish-input-weight", name: "al_meas_mass", measurement: true, inputMode: "decimal" },
+  { id: "fish-input-depth", name: "al_meas_m", measurement: true, inputMode: "decimal" },
+  { id: "fish-input-water-temp", name: "al_meas_c", measurement: true, inputMode: "decimal" },
+  { id: "fish-notes", name: "al_field_memo", measurement: false, inputMode: null },
 ];
 
 const PERSONAL_AUTOFILL_TOKENS = new Set([
@@ -46,18 +65,26 @@ const PERSONAL_AUTOFILL_TOKENS = new Set([
  * @returns {boolean}
  */
 export function isPersonalAutofillToken(token) {
-  return PERSONAL_AUTOFILL_TOKENS.has(String(token || "").trim().toLowerCase());
+  const value = String(token || "").trim().toLowerCase();
+  if (!value) return false;
+  if (PERSONAL_AUTOFILL_TOKENS.has(value)) return true;
+  return PERSONAL_NAME_HINTS.some((hint) => value.includes(hint));
 }
 
 /**
- * @param {{ height?: number } | null | undefined} visualViewport
+ * Shared keyboard state: visual viewport vs layout height, not a single input blur.
+ *
+ * @param {{ height?: number, offsetTop?: number } | null | undefined} visualViewport
  * @param {number} layoutHeight
  * @returns {boolean}
  */
 export function isMobileKeyboardOpen(visualViewport, layoutHeight) {
   if (!visualViewport || !Number.isFinite(visualViewport.height)) return false;
   if (!Number.isFinite(layoutHeight)) return false;
-  return layoutHeight - visualViewport.height > CATCH_KEYBOARD_HEIGHT_PX;
+  const shrink = layoutHeight - visualViewport.height;
+  if (shrink > CATCH_KEYBOARD_HEIGHT_PX) return true;
+  const offsetTop = Number.isFinite(visualViewport.offsetTop) ? visualViewport.offsetTop : 0;
+  return offsetTop > CATCH_KEYBOARD_HEIGHT_PX && shrink > 24;
 }
 
 /**
@@ -86,12 +113,15 @@ export function applyCatchEntryAutofillGuards(root) {
     el.setAttribute("data-lpignore", "true");
     el.setAttribute("data-1p-ignore", "true");
     el.setAttribute("data-form-type", "other");
+    el.setAttribute("readonly", "true");
     el.removeAttribute("pattern");
     if (!spec.measurement) continue;
+    el.setAttribute("inputmode", spec.inputMode);
     el.setAttribute("autocapitalize", "none");
     el.setAttribute("autocorrect", "off");
     el.setAttribute("spellcheck", "false");
     el.setAttribute("enterkeyhint", "done");
+    el.setAttribute("maxlength", spec.inputMode === "numeric" ? "6" : "12");
   }
 }
 
@@ -131,6 +161,11 @@ export function syncCatchOverlayToVisualViewport(
   overlay.classList.add(CATCH_VV_SYNC_CLASS);
   const keyboardOpen = isMobileKeyboardOpen(viewport, layoutHeight);
   overlay.classList.toggle(CATCH_KEYBOARD_OPEN_CLASS, keyboardOpen);
+  const active = typeof document !== "undefined" ? document.activeElement : null;
+  const typingFocused = Boolean(
+    isCatchTypingField(active) && overlay.contains(/** @type {Node} */ (active))
+  );
+  overlay.classList.toggle(CATCH_NAV_FOCUS_CLASS, typingFocused && keyboardOpen);
   return keyboardOpen;
 }
 
@@ -157,6 +192,7 @@ function scrollFieldIntoStepBody(field) {
  * @param {HTMLElement} overlay
  */
 export function onCatchFormOverlayShown(overlay) {
+  applyCatchEntryAutofillGuards(overlay);
   syncCatchOverlayToVisualViewport(overlay);
 }
 
@@ -184,13 +220,32 @@ export function wireCatchFormUi(overlay) {
   let blurTimer = 0;
   /** @type {ReturnType<typeof setTimeout> | number} */
   let scrollTimer = 0;
+  /** @type {ReturnType<typeof setTimeout> | number} */
+  let keyboardPoll = 0;
+
+  const sync = () => syncCatchOverlayToVisualViewport(overlay);
+
+  const armKeyboardPoll = () => {
+    window.clearTimeout(keyboardPoll);
+    const tick = () => {
+      if (overlay.classList.contains("hidden")) return;
+      const open = syncCatchOverlayToVisualViewport(overlay);
+      const active = document.activeElement;
+      const typing = isCatchTypingField(active) && overlay.contains(active);
+      if (open || typing) {
+        keyboardPoll = window.setTimeout(tick, 200);
+      }
+    };
+    keyboardPoll = window.setTimeout(tick, 180);
+  };
 
   overlay.addEventListener("focusin", (e) => {
     const target = /** @type {HTMLElement} */ (e.target);
     if (!isCatchTypingField(target)) return;
     window.clearTimeout(blurTimer);
-    overlay.classList.add(CATCH_NAV_FOCUS_CLASS);
-    syncCatchOverlayToVisualViewport(overlay);
+    target.removeAttribute("readonly");
+    sync();
+    armKeyboardPoll();
     const align = () => {
       scrollFieldIntoStepBody(target);
       syncCatchOverlayToVisualViewport(overlay);
@@ -200,18 +255,26 @@ export function wireCatchFormUi(overlay) {
     scrollTimer = window.setTimeout(align, 280);
   });
 
-  overlay.addEventListener("focusout", () => {
+  overlay.addEventListener("focusout", (e) => {
+    const leaving = /** @type {HTMLElement} */ (e.target);
     window.clearTimeout(blurTimer);
     blurTimer = window.setTimeout(() => {
       const active = document.activeElement;
-      if (isCatchTypingField(active) && overlay.contains(active)) return;
-      overlay.classList.remove(CATCH_NAV_FOCUS_CLASS);
+      if (isCatchTypingField(leaving) && active !== leaving) {
+        leaving.setAttribute("readonly", "true");
+      }
       syncCatchOverlayToVisualViewport(overlay);
+      armKeyboardPoll();
     }, 60);
   });
 
-  const sync = () => syncCatchOverlayToVisualViewport(overlay);
-  window.visualViewport?.addEventListener("resize", sync);
+  window.visualViewport?.addEventListener("resize", () => {
+    sync();
+    armKeyboardPoll();
+  });
   window.visualViewport?.addEventListener("scroll", sync);
-  window.addEventListener("resize", sync);
+  window.addEventListener("resize", () => {
+    sync();
+    armKeyboardPoll();
+  });
 }

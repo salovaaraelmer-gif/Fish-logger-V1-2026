@@ -181,6 +181,7 @@
             <div id="block-active-session" class="stack hidden">
               <p class="session-timer" id="session-timer" aria-live="polite"></p>
               <button type="button" class="btn btn-primary" id="btn-log-catch">Log catch</button>
+              <button type="button" class="btn" id="btn-session-map">Map</button>
               <div id="session-live-dashboard" class="species-dash-host"></div>
               <section id="session-home-catches" class="session-home-catches stack" aria-labelledby="session-home-catches-heading">
                 <h2 id="session-home-catches-heading" class="session-home-catches-heading">Catches</h2>
@@ -395,13 +396,15 @@
               <input
                 type="text"
                 id="fish-input-length"
-                name="al_catch_length_cm"
+                name="al_meas_cm"
                 inputmode="numeric"
-                autocomplete="off"
+                autocomplete="al-no-fill"
                 autocapitalize="none"
                 autocorrect="off"
                 spellcheck="false"
                 enterkeyhint="done"
+                maxlength="6"
+                readonly
                 data-lpignore="true"
                 data-1p-ignore
                 data-form-type="other"
@@ -413,13 +416,15 @@
               <input
                 type="text"
                 id="fish-input-weight"
-                name="al_catch_weight_kg"
+                name="al_meas_mass"
                 inputmode="decimal"
-                autocomplete="off"
+                autocomplete="al-no-fill"
                 autocapitalize="none"
                 autocorrect="off"
                 spellcheck="false"
                 enterkeyhint="done"
+                maxlength="12"
+                readonly
                 data-lpignore="true"
                 data-1p-ignore
                 data-form-type="other"
@@ -432,13 +437,15 @@
               <input
                 type="text"
                 id="fish-input-depth"
-                name="al_catch_depth_m"
+                name="al_meas_m"
                 inputmode="decimal"
-                autocomplete="off"
+                autocomplete="al-no-fill"
                 autocapitalize="none"
                 autocorrect="off"
                 spellcheck="false"
                 enterkeyhint="done"
+                maxlength="12"
+                readonly
                 data-lpignore="true"
                 data-1p-ignore
                 data-form-type="other"
@@ -451,13 +458,15 @@
               <input
                 type="text"
                 id="fish-input-water-temp"
-                name="al_catch_water_temp_c"
+                name="al_meas_c"
                 inputmode="decimal"
-                autocomplete="off"
+                autocomplete="al-no-fill"
                 autocapitalize="none"
                 autocorrect="off"
                 spellcheck="false"
                 enterkeyhint="done"
+                maxlength="12"
+                readonly
                 data-lpignore="true"
                 data-1p-ignore
                 data-form-type="other"
@@ -486,10 +495,11 @@
             <div class="field-label" id="fish-notes-label">Notes</div>
             <textarea
               id="fish-notes"
-              name="al_catch_notes"
+              name="al_field_memo"
               rows="2"
               placeholder="Optional"
-              autocomplete="off"
+              autocomplete="al-no-fill"
+              readonly
               data-lpignore="true"
               data-1p-ignore
               data-form-type="other"
@@ -640,6 +650,23 @@
       </div>
     </div>
 
+
+    <!-- Active session map (same catch markers as ended-session map) -->
+    <div id="session-map-overlay" class="hidden" role="dialog" aria-label="Session map">
+      <div class="session-map-inner">
+        <div class="catches-page-top">
+          <button type="button" class="btn btn-ghost session-settings-back" id="session-map-back" aria-label="Back">
+            ←
+          </button>
+          <h2>Map</h2>
+        </div>
+        <p class="meta" id="session-map-no-loc" hidden>
+          None of the catches have location data. The map only shows logged coordinates.
+        </p>
+        <div id="session-map-legend" class="catches-map-legend" aria-label="Species"></div>
+        <div id="session-map-container" class="catches-map-container"></div>
+      </div>
+    </div>
 
     <!-- Active session settings -->
     <div id="session-settings-overlay" class="hidden">

@@ -118,6 +118,7 @@ import {
   startAppRouter,
 } from "./appRouter.js";
 import { hideAppSpinner, resetAppSpinner, showAppSpinner, withAppSpinner } from "./appSpinner.js";
+import { isTypingTarget, wirePullToRefresh } from "./pullToRefresh.js";
 import {
   catchRecordToSupabasePayload,
   insertSupabaseCatch,
@@ -152,6 +153,8 @@ import {
 let pendingCatchesOverlayMap = null;
 /** @type {Parameters<typeof mountCatchesMap>[1] | null} */
 let pendingSessionEndMap = null;
+/** @type {Parameters<typeof mountCatchesMap>[1] | null} */
+let pendingActiveSessionMap = null;
 
 /**
  * App species key → value stored in `public.catches.species`.
@@ -1315,6 +1318,7 @@ async function maybeStartParticipantSessionPoll(localSessionId) {
       await rehydrateSupabaseSessionContext();
       await renderSessionHomeCatches(s.id);
       await renderSessionSpeciesDashboard(s.id, document.getElementById("session-live-dashboard"));
+      await syncActiveSessionMapIfOpen(s.id);
       await refreshCatchesTableIfOpen();
     } catch (e) {
       console.warn("[participantSync] poll:", e);
@@ -1718,6 +1722,90 @@ async function syncSessionEndMap(session) {
   }
 }
 
+function isSessionMapOverlayOpen() {
+  const overlay = document.getElementById("session-map-overlay");
+  return Boolean(overlay && !overlay.classList.contains("hidden"));
+}
+
+function closeSessionMapOverlay() {
+  document.getElementById("session-map-overlay")?.classList.add("hidden");
+  destroyCatchesMap(document.getElementById("session-map-container"));
+  pendingActiveSessionMap = null;
+}
+
+/**
+ * Active-session map uses the same catch coordinates and marker component as ended sessions.
+ * @param {string} sessionId
+ */
+async function syncActiveSessionMap(sessionId) {
+  const container = document.getElementById("session-map-container");
+  const noLoc = /** @type {HTMLParagraphElement | null} */ (document.getElementById("session-map-no-loc"));
+  const legend = document.getElementById("session-map-legend");
+  const overlay = document.getElementById("session-map-overlay");
+  if (!container) return;
+  destroyCatchesMap(container);
+  pendingActiveSessionMap = null;
+  const session = await getSessionById(sessionId);
+  if (!session) {
+    if (noLoc) {
+      noLoc.textContent = "No active session.";
+      noLoc.hidden = false;
+    }
+    return;
+  }
+  if (noLoc) {
+    noLoc.textContent =
+      "None of the catches have location data. The map only shows logged coordinates.";
+  }
+  const catches = await getCatchesForSession(sessionId);
+  const sessionAnglers = await getSessionAnglersForSession(sessionId);
+  const anglerIds = [
+    ...new Set([...sessionAnglers.map((sa) => sa.anglerId), ...catches.map((c) => c.anglerId)]),
+  ];
+  const nameById = await fetchProfileDisplayNames(anglerIds);
+  const ownerUserId = await getSessionOwnerUserId(session);
+  renderSpeciesLegend(legend);
+  const payload = {
+    catches,
+    nameById,
+    ownerUserId,
+    activeSession: true,
+  };
+  pendingActiveSessionMap = payload;
+  const hasLoc = catches.some(
+    (c) =>
+      typeof c.location_lat === "number" &&
+      typeof c.location_lng === "number" &&
+      Number.isFinite(c.location_lat) &&
+      Number.isFinite(c.location_lng)
+  );
+  if (noLoc) {
+    noLoc.hidden = hasLoc;
+  }
+  if (hasLoc && overlay && !overlay.classList.contains("hidden")) {
+    mountCatchesMap(container, payload);
+    invalidateActiveCatchesMapSize();
+  }
+}
+
+/**
+ * @param {string} sessionId
+ */
+async function syncActiveSessionMapIfOpen(sessionId) {
+  if (!isSessionMapOverlayOpen()) return;
+  await syncActiveSessionMap(sessionId);
+}
+
+async function openSessionMapOverlay() {
+  const session = await getActiveSessionForParticipantUi();
+  if (!session) {
+    showError("No active session.");
+    return;
+  }
+  document.getElementById("session-map-overlay")?.classList.remove("hidden");
+  await syncActiveSessionMap(session.id);
+}
+
 /**
  * Leaves session detail (catches overlay) and related UI; use after deleting a session so the user is on home / history list, not a stale detail view.
  */
@@ -1734,6 +1822,7 @@ function navigateHomeFromSessionDetail() {
 function dismissCoveringOverlaysForTabChange() {
   closeStatsPage();
   closeCatchesOverlay();
+  closeSessionMapOverlay();
   closeMenuSheet();
 }
 
@@ -2960,17 +3049,62 @@ async function pullEndedSessionCatchesFromCloud(opts = {}) {
   }
 }
 
+async function pullPastSessionsAndStatsData() {
+  clearEndedCatchPullCache();
+  await rehydrateSupabaseParticipantSessions();
+  await renderHistorySection();
+  await reloadOpenStatsFromLocal();
+}
+
+async function refreshActiveSessionData() {
+  await rehydrateSupabaseParticipantSessions();
+  await syncParticipantSessionFromCloudIfNeeded();
+  await rehydrateSupabaseSessionContext();
+  const session = await getActiveSessionForParticipantUi();
+  if (!session) {
+    await renderHome();
+    return;
+  }
+  await renderSessionSpeciesDashboard(session.id, document.getElementById("session-live-dashboard"));
+  await renderSessionHomeCatches(session.id);
+  await syncActiveSessionMapIfOpen(session.id);
+  await refreshCatchesTableIfOpen();
+}
+
+/**
+ * Shared data refresh for pull-to-refresh and the existing Refresh buttons.
+ * Reloads the active route from Supabase into local state — never a full page reload.
+ */
+async function refreshCurrentView() {
+  const route = routeFromLocation();
+  if (route.name === "map") return;
+  if (!navigator.onLine) {
+    showError("You're offline. Connect to refresh.");
+    return;
+  }
+  if (route.name === "feed") {
+    await rehydrateSupabaseParticipantSessions();
+    return;
+  }
+  if (route.name === "profile" || route.name === "stats") {
+    await pullPastSessionsAndStatsData();
+    return;
+  }
+  if (route.name === "sessionDetail") {
+    await pullPastSessionsAndStatsData();
+    const sid = document.getElementById("catches-overlay")?.dataset.viewSessionId;
+    if (sid) await populateCatchesTable(sid);
+    return;
+  }
+  await refreshActiveSessionData();
+}
+
 async function refreshPastSessionsAndStats() {
   if (!navigator.onLine) {
     showError("You're offline. Connect to refresh sessions.");
     return;
   }
-  await withAppSpinner(async () => {
-    clearEndedCatchPullCache();
-    await rehydrateSupabaseParticipantSessions();
-    await renderHistorySection();
-    await reloadOpenStatsFromLocal();
-  }, 0);
+  await withAppSpinner(() => pullPastSessionsAndStatsData(), 0);
 }
 
 async function rehydrateSupabaseParticipantSessions() {
@@ -3042,6 +3176,7 @@ async function renderHome() {
       liveDash.innerHTML = "";
       liveDash.classList.add("hidden");
     }
+    closeSessionMapOverlay();
     sessionTitleEditing = false;
     const titleInp = /** @type {HTMLInputElement | null} */ (document.getElementById("session-title-input"));
     const titleDisp = document.getElementById("session-title-display");
@@ -3063,6 +3198,7 @@ async function renderHome() {
     await maybeStartParticipantSessionPoll(session.id);
     await renderSessionSpeciesDashboard(session.id, document.getElementById("session-live-dashboard"));
     await renderSessionHomeCatches(session.id);
+    await syncActiveSessionMapIfOpen(session.id);
   }
 
   await renderHistorySection();
@@ -4565,6 +4701,29 @@ async function handleAuthStateChange(event, session) {
   }
 }
 
+function pullToRefreshAllowed() {
+  const route = routeFromLocation();
+  if (route.name === "map") return false;
+  const fish = document.getElementById("fish-overlay");
+  if (fish && !fish.classList.contains("hidden")) return false;
+  if (isSessionMapOverlayOpen()) return false;
+  const settings = document.getElementById("session-settings-overlay");
+  if (settings && !settings.classList.contains("hidden")) return false;
+  if (isTypingTarget(document.activeElement)) return false;
+  return true;
+}
+
+function wireAppPullToRefresh() {
+  const onRefresh = () => refreshCurrentView();
+  const isEnabled = () => pullToRefreshAllowed();
+  for (const id of ["tab-session", "tab-feed", "tab-profile"]) {
+    const panel = document.getElementById(id);
+    if (panel) wirePullToRefresh(panel, { onRefresh, isEnabled });
+  }
+  const stats = document.getElementById("stats-overlay");
+  if (stats) wirePullToRefresh(stats, { onRefresh, isEnabled });
+}
+
 function mainAppInit() {
   wireAppTabs({
     onTabClick: (tab) => {
@@ -4587,6 +4746,13 @@ function mainAppInit() {
   document.getElementById("stats-refresh")?.addEventListener("click", () => {
     void refreshPastSessionsAndStats();
   });
+  document.getElementById("btn-session-map")?.addEventListener("click", () => {
+    void openSessionMapOverlay();
+  });
+  document.getElementById("session-map-back")?.addEventListener("click", () => {
+    closeSessionMapOverlay();
+  });
+  wireAppPullToRefresh();
   wireFishMeasurementInputs();
   wireCatchFormUi(document.getElementById("fish-overlay"));
   wireSessionTitleEditor();

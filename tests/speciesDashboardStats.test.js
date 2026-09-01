@@ -8,8 +8,10 @@ import {
   catalogNameToSpeciesKey,
   colorForAnglerIndex,
   defaultSelectedSpecies,
+  formatMeasuredCatchLine,
   listDashboardSpecies,
   rankAnglersForDashboard,
+  sessionTop5ForSpecies,
   statsForAnglerSpecies,
 } from "../js/speciesDashboardStats.js";
 
@@ -83,6 +85,45 @@ describe("statsForAnglerSpecies", () => {
     const s = statsForAnglerSpecies(catches, "b", "pike");
     assert.deepEqual(s.top5Lengths, [70]);
     assert.equal(s.top5Total, 70);
+  });
+});
+
+describe("formatMeasuredCatchLine", () => {
+  it("keeps length as the primary value and appends weight when present", () => {
+    assert.equal(formatMeasuredCatchLine({ length: 114, weightKg: null }), "114 cm");
+    assert.equal(formatMeasuredCatchLine({ length: 114, weightKg: 10.7 }), "114 cm · 10.7 kg");
+  });
+});
+
+describe("sessionTop5ForSpecies", () => {
+  const group = [
+    { anglerId: "a", species: "pike", length: 114, weight_kg: 10.1 },
+    { anglerId: "b", species: "pike", length: 116 },
+    { anglerId: "a", species: "pike", length: 121 },
+    { anglerId: "c", species: "pike", length: 111 },
+    { anglerId: "a", species: "pike", length: 108 },
+    { anglerId: "b", species: "pike", length: 90 },
+    { anglerId: "a", species: "perch", length: 40 },
+  ];
+
+  it("takes the five longest fish of that species from the whole session", () => {
+    const s = sessionTop5ForSpecies(group, "pike");
+    assert.deepEqual(
+      s.fish.map((f) => [f.length, f.anglerId]),
+      [
+        [121, "a"],
+        [116, "b"],
+        [114, "a"],
+        [111, "c"],
+        [108, "a"],
+      ]
+    );
+    assert.equal(s.total, 570);
+  });
+
+  it("allows one angler to occupy multiple positions", () => {
+    const s = sessionTop5ForSpecies(group, "pike");
+    assert.equal(s.fish.filter((f) => f.anglerId === "a").length, 3);
   });
 });
 

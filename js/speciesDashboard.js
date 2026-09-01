@@ -7,8 +7,10 @@ import { SPECIES_LABELS, colorForSpecies } from "./catchSpecies.js";
 import {
   colorForAnglerIndex,
   defaultSelectedSpecies,
+  formatMeasuredCatchLine,
   listDashboardSpecies,
   rankAnglersForDashboard,
+  sessionTop5ForSpecies,
   statsForAnglerSpecies,
 } from "./speciesDashboardStats.js";
 
@@ -23,7 +25,7 @@ const AVATAR_SVG = `<svg viewBox="0 0 24 24" class="species-dash-avatar-icon" ar
  * @typedef {{ id: string, name?: string | null, avatarUrl?: string | null }} DashAngler
  * @typedef {{
  *   anglers: DashAngler[],
- *   catches: { anglerId: string, species: string, length?: number | null }[],
+ *   catches: { anglerId: string, species: string, length?: number | null, weight_kg?: number | null }[],
  *   targetSpeciesKeys: string[],
  * }} DashModel
  */
@@ -64,6 +66,13 @@ export function mountSpeciesDashboard(container, model) {
       mode = next;
       paint();
     }));
+    if (mode === "top5") {
+      container.appendChild(buildSessionTop5Section(model, selected));
+      const personalHead = document.createElement("h3");
+      personalHead.className = "species-dash-section-title";
+      personalHead.textContent = "By angler";
+      container.appendChild(personalHead);
+    }
     container.appendChild(buildGrid(model, selected, mode));
     container.appendChild(buildSpeciesRow(speciesList, selected, (key) => {
       selected = key;
@@ -132,11 +141,52 @@ function modeBtn(label, active, onClick) {
 /**
  * @param {DashModel} model
  * @param {string} selected
+ */
+function buildSessionTop5Section(model, selected) {
+  const section = document.createElement("section");
+  section.className = "species-dash-session-top5";
+  const label = SPECIES_LABELS[selected] || selected;
+  section.setAttribute("aria-label", `Session Top 5 ${label}`);
+  const title = document.createElement("h3");
+  title.className = "species-dash-section-title";
+  title.textContent = `Session Top 5 — ${label}`;
+  section.appendChild(title);
+
+  const { fish, total } = sessionTop5ForSpecies(model.catches, selected);
+  if (fish.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "meta";
+    empty.textContent = "No measured catches yet.";
+    section.appendChild(empty);
+    return section;
+  }
+
+  const list = document.createElement("ol");
+  list.className = "species-dash-session-top5-list";
+  const names = new Map(model.anglers.map((a) => [a.id, (a.name && a.name.trim()) || "Angler"]));
+  for (const row of fish) {
+    const item = document.createElement("li");
+    const anglerName = (row.anglerId && names.get(row.anglerId)) || "Angler";
+    item.textContent = `${formatMeasuredCatchLine(row)} — ${anglerName}`;
+    list.appendChild(item);
+  }
+  section.appendChild(list);
+  const totalEl = document.createElement("p");
+  totalEl.className = "species-dash-session-top5-total";
+  totalEl.textContent = `Total: ${total} cm`;
+  section.appendChild(totalEl);
+  return section;
+}
+
+/**
+ * @param {DashModel} model
+ * @param {string} selected
  * @param {"catches" | "top5"} mode
  */
 function buildGrid(model, selected, mode) {
   const wrap = document.createElement("div");
   wrap.className = "species-dash-grid";
+  if (mode === "top5") wrap.classList.add("is-top5-mode");
   wrap.style.setProperty("--dash-cols", String(model.anglers.length));
   wrap.setAttribute(
     "aria-label",
@@ -241,7 +291,7 @@ function buildBarCell(count, maxCount, color, index) {
 }
 
 /**
- * @param {{ top5Lengths: number[], top5Total: number }} stats
+ * @param {{ top5Fish: { length: number, weightKg: number | null }[], top5Total: number }} stats
  * @param {string} color
  * @param {number} index
  */
@@ -250,18 +300,20 @@ function buildTop5Cell(stats, color, index) {
   cell.className = "species-dash-body species-dash-top5";
   cell.style.setProperty("--dash-color", color);
   cell.style.gridColumn = String(index + 1);
-  for (let i = 0; i < 5; i += 1) {
+  const stack = document.createElement("div");
+  stack.className = "species-dash-top5-stack";
+  for (const fish of stats.top5Fish) {
     const line = document.createElement("div");
     line.className = "species-dash-len";
-    const v = stats.top5Lengths[i];
-    line.textContent = typeof v === "number" ? `${v} cm` : "";
-    cell.appendChild(line);
+    line.textContent = formatMeasuredCatchLine(fish);
+    stack.appendChild(line);
   }
   const rule = document.createElement("div");
   rule.className = "species-dash-total-rule";
   const total = document.createElement("div");
   total.className = "species-dash-total";
   total.textContent = `${stats.top5Total} cm`;
-  cell.append(rule, total);
+  stack.append(rule, total);
+  cell.appendChild(stack);
   return cell;
 }

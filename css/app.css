@@ -1570,10 +1570,9 @@ textarea {
   padding-bottom: 0.5rem;
 }
 
-#fish-overlay.is-catch-input-focused #fish-step-2 > .row-actions,
-#fish-overlay.is-catch-input-focused #fish-step-3 > .row-actions,
-#fish-step-2:has(input:focus) > .row-actions,
-#fish-step-3:has(input:focus, textarea:focus) > .row-actions {
+/* Hide Save / Back only while the keyboard actually covers the form. */
+#fish-overlay.is-keyboard-open #fish-step-2 > .row-actions,
+#fish-overlay.is-keyboard-open #fish-step-3 > .row-actions {
   display: none;
 }
 
@@ -1958,6 +1957,12 @@ textarea {
   -webkit-overflow-scrolling: touch;
 }
 
+.species-dash-grid.is-top5-mode .species-dash-bar-track,
+.species-dash-grid.is-top5-mode .species-dash-bar,
+.species-dash-grid.is-top5-mode .species-dash-count {
+  display: none;
+}
+
 .species-dash-avatar-cell {
   grid-row: 1;
   position: relative;
@@ -2061,15 +2066,25 @@ textarea {
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
+  min-height: 8.5rem;
+}
+
+.species-dash-top5-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
   gap: 0.12rem;
 }
 
 .species-dash-len {
-  min-height: 1.2rem;
+  min-height: 0;
   font-size: 0.88rem;
   font-variant-numeric: tabular-nums;
   text-align: center;
   color: var(--text);
+  line-height: 1.25;
 }
 
 .species-dash-total-rule {
@@ -2084,6 +2099,33 @@ textarea {
   font-weight: 750;
   font-variant-numeric: tabular-nums;
   text-align: center;
+}
+
+.species-dash-section-title {
+  margin: 0.15rem 0 0.4rem;
+  font-size: 0.95rem;
+  font-weight: 650;
+  color: var(--muted);
+}
+
+.species-dash-session-top5 {
+  padding: 0.55rem 0.6rem 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+}
+
+.species-dash-session-top5-list {
+  margin: 0;
+  padding-left: 1.2rem;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.45;
+}
+
+.species-dash-session-top5-total {
+  margin: 0.45rem 0 0;
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
 }
 
 .dash-panel {
@@ -2584,6 +2626,52 @@ textarea {
   to {
     transform: rotate(360deg);
   }
+}
+
+.ptr-indicator {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  height: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.ptr-indicator.is-refreshing {
+  height: 2.5rem;
+}
+
+.ptr-spinner {
+  width: 1.2rem;
+  height: 1.2rem;
+  margin-bottom: 0.45rem;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: app-spin 0.7s linear infinite;
+}
+
+#session-map-overlay {
+  position: fixed;
+  inset: 0;
+  left: 0;
+  right: 0;
+  width: 100%;
+  max-width: var(--app-max-width);
+  margin: 0 auto;
+  background: var(--bg);
+  z-index: 47;
+  overflow: auto;
+  padding: 1rem;
+  padding-bottom: calc(0.5rem + var(--bottom-nav-space));
+}
+
+#session-map-overlay.hidden {
+  display: none !important;
+}
+
+#session-map-overlay .catches-map-container {
+  height: min(70vh, 560px);
 }
 
 @media (prefers-reduced-motion: reduce) {

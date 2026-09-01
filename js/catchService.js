@@ -22,6 +22,11 @@ import {
   normalizeDeviceId,
   normalizePhotoUrls,
 } from "./catchRecordMap.js";
+import {
+  GEO_WATCH_OPTIONS,
+  isBetterGpsFix,
+  isFreshGpsFix,
+} from "./gpsFreshness.js";
 
 export { SPECIES_OPTIONS };
 
@@ -117,6 +122,7 @@ export function parseOptionalWeightKg(raw) {
  * @param {DeviceLocation} loc
  */
 function applyLocationFields(partial, loc) {
+  if (!loc) return;
   partial.location_lat = loc.lat;
   partial.location_lng = loc.lng;
   partial.location_accuracy_m = loc.accuracyM;
@@ -382,9 +388,6 @@ export async function updateCatch(input, deviceLoc, existing) {
   return { ok: true, record };
 }
 
-/** How long a fix from the fish-logging watch remains usable as a seed on save. */
-const FISH_LOGGING_BEST_MAX_AGE_MS = 90_000;
-
 /** Max time to hunt for a fix (fish overlay + save / session start). */
 const CONVERGENCE_MAX_MS = 30_000;
 
@@ -397,6 +400,8 @@ let fishLoggingWatchId = null;
 let fishLoggingWatchTimeoutId = null;
 /** @type {DeviceLocation | null} */
 let fishLoggingBest = null;
+/** @type {number | null} */
+let fishLoggingStartedAt = null;
 
 /**
  * @returns {DeviceLocation}
@@ -410,46 +415,63 @@ function emptyDeviceLocation() {
  * @returns {DeviceLocation | null}
  */
 function positionToDeviceLocation(pos) {
+  if (!pos || !pos.coords) return null;
   const lat = pos.coords.latitude;
   const lng = pos.coords.longitude;
   if (typeof lat !== "number" || typeof lng !== "number") return null;
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  if (pos.timestamp == null || !Number.isFinite(pos.timestamp)) return null;
   const acc = pos.coords.accuracy;
   const accuracyM = typeof acc === "number" && Number.isFinite(acc) ? acc : null;
   return {
     lat,
     lng,
     accuracyM,
-    timestamp: pos.timestamp != null ? pos.timestamp : Date.now(),
+    timestamp: pos.timestamp,
     source: "device",
   };
 }
 
 /**
+ * @param {DeviceLocation | null} loc
+ * @param {number} requestStartedAt
+ * @returns {boolean}
+ */
+function acceptGpsFix(loc, requestStartedAt) {
+  return isFreshGpsFix(loc, requestStartedAt);
+}
+
+/**
  * While the add-fish overlay is open, track the best GNSS fix (high accuracy, up to CONVERGENCE_MAX_MS).
- * Idempotent: safe to call when opening the fish flow.
+ * Starts a new acquisition window each time catch logging begins.
  */
 export function startFishLoggingLocationWatch() {
-  if (fishLoggingWatchId != null) return;
+  stopFishLoggingLocationWatch();
+  fishLoggingBest = null;
+  fishLoggingStartedAt = Date.now();
   if (typeof navigator === "undefined" || !navigator.geolocation) {
     console.log("[GPS] geolocation unavailable — fish watch skipped");
     return;
   }
-  fishLoggingBest = null;
-  console.log("[GPS] starting fish-logging location watch");
+  const requestStartedAt = fishLoggingStartedAt;
+  console.log("[GPS] starting fish-logging location watch", { requestStartedAt });
   fishLoggingWatchId = navigator.geolocation.watchPosition(
     (pos) => {
       const loc = positionToDeviceLocation(pos);
-      if (!loc) return;
+      if (!loc || !acceptGpsFix(loc, requestStartedAt)) {
+        console.log("[GPS] watch ignored stale or invalid fix", {
+          timestamp: pos?.timestamp,
+          accuracy: pos?.coords?.accuracy,
+        });
+        return;
+      }
       console.log("[GPS] watch fix", {
         lat: loc.lat,
         lng: loc.lng,
         accuracyM: loc.accuracyM,
+        timestamp: loc.timestamp,
       });
-      if (
-        !fishLoggingBest ||
-        (loc.accuracyM != null &&
-          (fishLoggingBest.accuracyM == null || loc.accuracyM < fishLoggingBest.accuracyM))
-      ) {
+      if (isBetterGpsFix(fishLoggingBest, loc)) {
         fishLoggingBest = loc;
       }
       if (loc.accuracyM != null && loc.accuracyM <= CONVERGENCE_GOOD_ENOUGH_M) {
@@ -459,7 +481,7 @@ export function startFishLoggingLocationWatch() {
     (err) => {
       console.warn("[GPS] fish watch error:", err?.code, err?.message || err);
     },
-    { enableHighAccuracy: true, maximumAge: 0 }
+    GEO_WATCH_OPTIONS
   );
   if (fishLoggingWatchTimeoutId != null) {
     clearTimeout(fishLoggingWatchTimeoutId);
@@ -494,27 +516,22 @@ export function stopFishLoggingLocationWatch() {
 export function clearFishLoggingLocationCache() {
   stopFishLoggingLocationWatch();
   fishLoggingBest = null;
+  fishLoggingStartedAt = null;
 }
 
 /**
  * @param {DeviceLocation | null} seedBest
+ * @param {number} requestStartedAt
  * @returns {Promise<DeviceLocation>}
  */
-function runConvergenceWatch(seedBest) {
+function runConvergenceWatch(seedBest, requestStartedAt) {
   return new Promise((resolve) => {
     if (typeof navigator === "undefined" || !navigator.geolocation) {
-      resolve(seedBest || emptyDeviceLocation());
+      resolve(emptyDeviceLocation());
       return;
     }
 
-    let best = seedBest;
-    if (
-      best &&
-      best.timestamp != null &&
-      Date.now() - best.timestamp > FISH_LOGGING_BEST_MAX_AGE_MS
-    ) {
-      best = null;
-    }
+    let best = acceptGpsFix(seedBest, requestStartedAt) ? seedBest : null;
 
     let finished = false;
     /** @type {number | null} */
@@ -531,7 +548,7 @@ function runConvergenceWatch(seedBest) {
         }
         watchId = null;
       }
-      if (best) {
+      if (acceptGpsFix(best, requestStartedAt)) {
         resolve({
           lat: best.lat,
           lng: best.lng,
@@ -547,17 +564,20 @@ function runConvergenceWatch(seedBest) {
     watchId = navigator.geolocation.watchPosition(
       (pos) => {
         const loc = positionToDeviceLocation(pos);
-        if (!loc) return;
+        if (!loc || !acceptGpsFix(loc, requestStartedAt)) {
+          console.log("[GPS] convergence ignored stale or invalid fix", {
+            timestamp: pos?.timestamp,
+            accuracy: pos?.coords?.accuracy,
+          });
+          return;
+        }
         console.log("[GPS] convergence fix", {
           lat: loc.lat,
           lng: loc.lng,
           accuracyM: loc.accuracyM,
+          timestamp: loc.timestamp,
         });
-        if (
-          !best ||
-          (loc.accuracyM != null &&
-            (best.accuracyM == null || loc.accuracyM < best.accuracyM))
-        ) {
+        if (isBetterGpsFix(best, loc)) {
           best = loc;
         }
         if (loc.accuracyM != null && loc.accuracyM <= CONVERGENCE_GOOD_ENOUGH_M) {
@@ -571,7 +591,7 @@ function runConvergenceWatch(seedBest) {
           done();
         }
       },
-      { enableHighAccuracy: true, maximumAge: 0 }
+      GEO_WATCH_OPTIONS
     );
 
     setTimeout(done, CONVERGENCE_MAX_MS);
@@ -586,6 +606,7 @@ function runConvergenceWatch(seedBest) {
  * @returns {Promise<DeviceLocation>}
  */
 export async function fetchDeviceLocationBestEffort() {
+  const requestStartedAt = fishLoggingStartedAt ?? Date.now();
   if (typeof navigator === "undefined" || !navigator.geolocation) {
     console.log("[GPS] geolocation unavailable — saving without location");
     return emptyDeviceLocation();
@@ -600,12 +621,7 @@ export async function fetchDeviceLocationBestEffort() {
     }
   }
 
-  const seed =
-    fishLoggingBest &&
-    fishLoggingBest.timestamp != null &&
-    Date.now() - fishLoggingBest.timestamp <= FISH_LOGGING_BEST_MAX_AGE_MS
-      ? { ...fishLoggingBest }
-      : null;
+  const seed = acceptGpsFix(fishLoggingBest, requestStartedAt) ? { ...fishLoggingBest } : null;
 
   stopFishLoggingLocationWatch();
 
@@ -614,13 +630,13 @@ export async function fetchDeviceLocationBestEffort() {
     seed.accuracyM != null &&
     seed.accuracyM <= CONVERGENCE_GOOD_ENOUGH_M
   ) {
-    console.log("[GPS] using cached seed fix", seed);
+    console.log("[GPS] using fresh seed fix", seed);
     return seed;
   }
 
   showAppSpinner();
   try {
-    const result = await runConvergenceWatch(seed);
+    const result = await runConvergenceWatch(seed, requestStartedAt);
     console.log("[GPS] fetch result", result);
     return result;
   } catch (err) {
