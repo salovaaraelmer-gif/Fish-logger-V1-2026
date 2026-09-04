@@ -47,6 +47,37 @@ export function isTypingTarget(el) {
 }
 
 /**
+ * @param {{
+ *   target?: EventTarget | null,
+ *   composedPath?: () => EventTarget[],
+ * } | null | undefined} event
+ * @returns {boolean}
+ */
+export function touchEventStartsOnTypingField(event) {
+  if (!event) return false;
+  if (isTypingTarget(event.target)) return true;
+  if (typeof event.composedPath !== "function") return false;
+  try {
+    return event.composedPath().some((node) => isTypingTarget(node));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * @param {{
+ *   target?: EventTarget | null,
+ *   composedPath?: () => EventTarget[],
+ * } | null | undefined} event
+ * @param {Parameters<typeof canBeginPull>[0]} state
+ * @returns {boolean}
+ */
+export function canArmPullFromEvent(event, state) {
+  if (touchEventStartsOnTypingField(event)) return false;
+  return canBeginPull(state);
+}
+
+/**
  * @param {HTMLElement} scroller
  * @param {{
  *   onRefresh: () => unknown | Promise<unknown>,
@@ -91,7 +122,7 @@ export function wirePullToRefresh(scroller, options) {
         armed = false;
         return;
       }
-      if (!canBeginPull({ scrollTop: scroller.scrollTop, enabled: true, formFocused: false })) {
+      if (!canArmPullFromEvent(event, { scrollTop: scroller.scrollTop, enabled: true })) {
         armed = false;
         return;
       }
@@ -107,7 +138,7 @@ export function wirePullToRefresh(scroller, options) {
     "touchmove",
     (event) => {
       if (!armed || refreshing || event.touches.length !== 1) return;
-      if (!enabled() || formBlocking()) {
+      if (!enabled() || formBlocking() || touchEventStartsOnTypingField(event)) {
         armed = false;
         pulling = false;
         resetIndicator();

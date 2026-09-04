@@ -15,7 +15,11 @@ import {
   isCatchTypingField,
   isMobileKeyboardOpen,
   isPersonalAutofillToken,
+  lockCatchTypingField,
   syncCatchOverlayToVisualViewport,
+  unlockCatchTypingField,
+  unlockCatchTypingFieldFromEvent,
+  wireCatchFormUi,
 } from "../js/catchFormUi.js";
 
 describe("catch entry autofill", () => {
@@ -44,6 +48,8 @@ describe("catch entry autofill", () => {
     for (const spec of CATCH_ENTRY_FIELD_SPECS) {
       const attrs = new Map([["pattern", "[0-9]*"]]);
       nodes[spec.id] = {
+        tagName: spec.id === "fish-notes" ? "TEXTAREA" : "INPUT",
+        type: "text",
         setAttribute(name, value) {
           attrs.set(name, String(value));
         },
@@ -71,6 +77,72 @@ describe("catch entry autofill", () => {
     assert.equal(nodes["fish-input-weight"].getAttribute("inputmode"), "decimal");
     assert.equal(nodes["fish-notes"].getAttribute("name"), "al_field_memo");
     assert.equal(nodes["fish-notes"].getAttribute("enterkeyhint"), null);
+  });
+});
+
+describe("catch field keyboard unlock", () => {
+  function mockField(tagName = "INPUT") {
+    const attrs = new Map([["readonly", "true"]]);
+    return {
+      tagName,
+      type: "text",
+      get readOnly() {
+        return attrs.has("readonly");
+      },
+      set readOnly(value) {
+        if (value) attrs.set("readonly", "true");
+        else attrs.delete("readonly");
+      },
+      setAttribute(name, value) {
+        attrs.set(name, String(value));
+      },
+      removeAttribute(name) {
+        attrs.delete(name);
+      },
+      getAttribute(name) {
+        return attrs.has(name) ? attrs.get(name) : null;
+      },
+    };
+  }
+
+  it("clears readonly on pointer/touch before focus", () => {
+    const field = mockField();
+    assert.equal(unlockCatchTypingFieldFromEvent({ target: field }), true);
+    assert.equal(field.getAttribute("readonly"), null);
+    assert.equal(field.readOnly, false);
+  });
+
+  it("ignores buttons and other non-typing controls", () => {
+    const button = { tagName: "BUTTON", type: "button", removeAttribute() {}, setAttribute() {} };
+    assert.equal(unlockCatchTypingField(button), false);
+  });
+
+  it("re-locks a field after editing", () => {
+    const field = mockField();
+    unlockCatchTypingField(field);
+    assert.equal(lockCatchTypingField(field), true);
+    assert.equal(field.getAttribute("readonly"), "true");
+    assert.equal(field.readOnly, true);
+  });
+
+  it("unlocks on capturing pointerdown and touchstart before focusin", () => {
+    const field = mockField();
+    /** @type {{ type: string, handler: Function, opts: object }[]} */
+    const listeners = [];
+    wireCatchFormUi({
+      dataset: {},
+      querySelector: () => null,
+      querySelectorAll: () => [],
+      addEventListener(type, handler, opts) {
+        listeners.push({ type, handler, opts });
+      },
+    });
+    const pointer = listeners.find((item) => item.type === "pointerdown");
+    const touch = listeners.find((item) => item.type === "touchstart");
+    assert.equal(Boolean(pointer?.opts?.capture), true);
+    assert.equal(Boolean(touch?.opts?.capture), true);
+    pointer.handler({ target: field });
+    assert.equal(field.getAttribute("readonly"), null);
   });
 });
 

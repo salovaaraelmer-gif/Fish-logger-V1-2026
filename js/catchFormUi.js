@@ -101,10 +101,47 @@ export function isCatchTypingField(el) {
 }
 
 /**
+ * iOS/Android open the keyboard from the field's editable state at
+ * pointer/touch start. Removing readonly only on focus shows a caret
+ * and no keyboard.
+ *
+ * @param {EventTarget | HTMLElement | null | undefined} el
+ * @returns {boolean}
+ */
+export function unlockCatchTypingField(el) {
+  if (!isCatchTypingField(el)) return false;
+  const field = /** @type {HTMLElement & { readOnly?: boolean }} */ (el);
+  field.removeAttribute("readonly");
+  if ("readOnly" in field) field.readOnly = false;
+  return true;
+}
+
+/**
+ * @param {EventTarget | HTMLElement | null | undefined} el
+ * @returns {boolean}
+ */
+export function lockCatchTypingField(el) {
+  if (!isCatchTypingField(el)) return false;
+  const field = /** @type {HTMLElement & { readOnly?: boolean }} */ (el);
+  field.setAttribute("readonly", "true");
+  if ("readOnly" in field) field.readOnly = true;
+  return true;
+}
+
+/**
+ * @param {{ target?: EventTarget | null } | null | undefined} event
+ * @returns {boolean}
+ */
+export function unlockCatchTypingFieldFromEvent(event) {
+  return unlockCatchTypingField(event?.target);
+}
+
+/**
  * @param {ParentNode | null | undefined} root
  */
 export function applyCatchEntryAutofillGuards(root) {
   if (!root || typeof root.querySelector !== "function") return;
+  const active = typeof document !== "undefined" ? document.activeElement : null;
   for (const spec of CATCH_ENTRY_FIELD_SPECS) {
     const el = root.querySelector(`#${spec.id}`);
     if (!el) continue;
@@ -113,8 +150,8 @@ export function applyCatchEntryAutofillGuards(root) {
     el.setAttribute("data-lpignore", "true");
     el.setAttribute("data-1p-ignore", "true");
     el.setAttribute("data-form-type", "other");
-    el.setAttribute("readonly", "true");
     el.removeAttribute("pattern");
+    if (el !== active) lockCatchTypingField(el);
     if (!spec.measurement) continue;
     el.setAttribute("inputmode", spec.inputMode);
     el.setAttribute("autocapitalize", "none");
@@ -239,11 +276,20 @@ export function wireCatchFormUi(overlay) {
     keyboardPoll = window.setTimeout(tick, 180);
   };
 
+  overlay.addEventListener("pointerdown", unlockCatchTypingFieldFromEvent, {
+    capture: true,
+    passive: true,
+  });
+  overlay.addEventListener("touchstart", unlockCatchTypingFieldFromEvent, {
+    capture: true,
+    passive: true,
+  });
+
   overlay.addEventListener("focusin", (e) => {
     const target = /** @type {HTMLElement} */ (e.target);
     if (!isCatchTypingField(target)) return;
     window.clearTimeout(blurTimer);
-    target.removeAttribute("readonly");
+    unlockCatchTypingField(target);
     sync();
     armKeyboardPoll();
     const align = () => {
@@ -261,12 +307,14 @@ export function wireCatchFormUi(overlay) {
     blurTimer = window.setTimeout(() => {
       const active = document.activeElement;
       if (isCatchTypingField(leaving) && active !== leaving) {
-        leaving.setAttribute("readonly", "true");
+        lockCatchTypingField(leaving);
       }
       syncCatchOverlayToVisualViewport(overlay);
       armKeyboardPoll();
     }, 60);
   });
+
+  if (typeof window === "undefined") return;
 
   window.visualViewport?.addEventListener("resize", () => {
     sync();

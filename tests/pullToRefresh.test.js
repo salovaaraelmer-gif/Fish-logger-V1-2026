@@ -6,9 +6,11 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   PTR_THRESHOLD_PX,
+  canArmPullFromEvent,
   canBeginPull,
   isTypingTarget,
   pullPassesThreshold,
+  touchEventStartsOnTypingField,
 } from "../js/pullToRefresh.js";
 
 describe("canBeginPull", () => {
@@ -41,5 +43,21 @@ describe("isTypingTarget", () => {
     assert.equal(isTypingTarget({ tagName: "TEXTAREA" }), true);
     assert.equal(isTypingTarget({ tagName: "BUTTON" }), false);
     assert.equal(isTypingTarget({ tagName: "INPUT", type: "button" }), false);
+  });
+});
+
+describe("canArmPullFromEvent", () => {
+  it("does not arm when the touch starts on a text field", () => {
+    const field = { tagName: "INPUT", type: "text" };
+    assert.equal(touchEventStartsOnTypingField({ target: field }), true);
+    assert.equal(canArmPullFromEvent({ target: field }, { scrollTop: 0 }), false);
+    assert.equal(
+      canArmPullFromEvent(
+        { target: { tagName: "SPAN" }, composedPath: () => [field] },
+        { scrollTop: 0 }
+      ),
+      false
+    );
+    assert.equal(canArmPullFromEvent({ target: { tagName: "DIV" } }, { scrollTop: 0 }), true);
   });
 });
