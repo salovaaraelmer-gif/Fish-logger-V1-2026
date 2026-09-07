@@ -4,6 +4,8 @@
  */
 
 import { getDisplayNameFromUser, signOut } from "./auth.js";
+import { loadPrivacySettingsUi } from "./privacySettingsUi.js";
+import { refreshFriendsCount } from "./friendshipUi.js";
 import { supabase } from "./supabase.js";
 import { fetchProfileForUser, uploadProfileAvatar, bustAvatarUrl } from "./supabaseProfile.js";
 import { withAppSpinner } from "./appSpinner.js";
@@ -99,6 +101,7 @@ export async function fillProfileFields() {
   nameEl.textContent = displayName;
   userEl.textContent = profile ? orFallback(profile.username, "—") : "—";
   showProfileAvatar(profile?.avatar_url);
+  void refreshFriendsCount();
 }
 
 export function closeProfileOverlay() {
@@ -111,6 +114,7 @@ export function closeSettingsPage() {
 
 function openSettingsPage() {
   document.getElementById("settings-overlay")?.classList.remove("hidden");
+  void loadPrivacySettingsUi();
 }
 
 /** Collapse nested profile UI so the tab shows the main profile screen. */

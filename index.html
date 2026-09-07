@@ -114,8 +114,8 @@
           hidden
         >
           <h1 class="app-tab-title">Feed</h1>
-          <p class="meta">Friends’ active and past sessions will show up here.</p>
-          <p class="pill">Coming soon</p>
+          <p class="meta" id="feed-empty">Sessions from friends will show up here. Add friends from your profile.</p>
+          <div id="feed-list" class="stack feed-list"></div>
         </section>
 
         <section
@@ -125,9 +125,31 @@
           aria-labelledby="nav-map"
           hidden
         >
-          <h1 class="app-tab-title">Map</h1>
-          <p class="meta">All catches will show here later, with filters such as species, time, and location.</p>
-          <p class="pill">Coming soon</p>
+          <div class="personal-map-wrap">
+            <div id="personal-map-container" class="personal-map-container" role="application" aria-label="Your catch map"></div>
+            <p class="personal-map-empty" id="personal-map-empty" hidden>No catches with GPS yet.</p>
+            <button type="button" class="map-fab" id="map-filters-open" aria-label="Map filters">
+              <svg class="profile-settings-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path
+                  d="M4 6h16M7 12h10M10 18h4"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.75"
+                  stroke-linecap="round"
+                />
+              </svg>
+            </button>
+            <div id="map-catch-preview" class="map-catch-preview hidden" hidden>
+              <button type="button" class="map-preview-close" id="map-preview-close" aria-label="Close preview">
+                ×
+              </button>
+              <p id="map-preview-species" class="map-preview-species"></p>
+              <p id="map-preview-measures" class="map-preview-measures"></p>
+              <p id="map-preview-when" class="map-preview-when"></p>
+              <p id="map-preview-session-name" class="map-preview-session-name"></p>
+              <button type="button" class="map-preview-session-link" id="map-preview-session" hidden>Open session</button>
+            </div>
+          </div>
         </section>
 
         <section
@@ -219,6 +241,7 @@
           aria-labelledby="nav-profile"
           hidden
         >
+          <div id="profile-self-view">
           <div class="profile-heading-row">
             <h1 class="app-tab-title">Profile</h1>
             <button type="button" class="profile-settings-btn" id="profile-settings-open" aria-label="Settings">
@@ -264,6 +287,10 @@
               aria-label="Choose profile picture"
             />
           </div>
+          <button type="button" class="profile-friends-count" id="profile-friends-open" aria-label="0 Friends">
+            <span id="profile-friends-count-value">0</span>
+            <span id="profile-friends-count-word">Friends</span>
+          </button>
           <details class="profile-info">
             <summary class="profile-info-toggle">Profile info</summary>
             <div class="stack profile-fields">
@@ -308,6 +335,39 @@
             <p class="meta" id="history-empty" hidden>No ended sessions.</p>
             <div id="history-session-list" class="stack history-session-list"></div>
           </section>
+          </div>
+
+          <div id="profile-other-view" class="hidden">
+            <div class="profile-heading-row">
+              <button type="button" class="btn btn-ghost session-settings-back" id="profile-other-back" aria-label="Back">
+                ←
+              </button>
+              <h1 class="app-tab-title">Profile</h1>
+            </div>
+            <div class="profile-hero" id="profile-other-avatar"></div>
+            <p id="profile-other-display-name" class="profile-other-name">—</p>
+            <p id="profile-other-username" class="profile-value">—</p>
+            <div id="profile-other-actions" class="stack profile-other-actions"></div>
+            <div id="profile-other-live" class="stack"></div>
+            <button type="button" class="profile-stats-box hidden" id="profile-other-stats-open" aria-label="Open stats">
+              <h2>Stats</h2>
+              <div class="stats-overview-cards">
+                <div class="stats-card">
+                  <span class="stats-card-value" id="profile-other-stat-sessions-value">0</span>
+                  <span class="stats-card-label">Sessions</span>
+                </div>
+                <div class="stats-card">
+                  <span class="stats-card-value" id="profile-other-stat-fish-value">0</span>
+                  <span class="stats-card-label">Logged fish</span>
+                </div>
+              </div>
+            </button>
+            <section id="profile-other-history" class="stack history-section hidden" aria-labelledby="profile-other-history-heading">
+              <h2 id="profile-other-history-heading">History</h2>
+              <p class="meta" id="profile-other-history-empty" hidden>No ended sessions.</p>
+              <div id="profile-other-history-list" class="stack history-session-list"></div>
+            </section>
+          </div>
         </section>
       </div>
 
@@ -751,6 +811,23 @@
           </button>
           <h1 id="settings-title" class="app-tab-title">Settings</h1>
         </div>
+        <section class="stack privacy-settings" aria-labelledby="privacy-heading">
+          <h2 id="privacy-heading" class="menu-coming-title">Privacy</h2>
+          <h3 class="stats-section-title" id="privacy-catch-heading">Catch locations</h3>
+          <p class="meta">
+            Friends can still see your sessions, catches, and stats. Exact GPS is hidden unless you choose Friends.
+          </p>
+          <div id="privacy-catch-locations" class="privacy-choice-list">
+            <label class="privacy-choice">
+              <input type="radio" name="privacy-catch-locations" value="only_me" checked />
+              <span>Only me</span>
+            </label>
+            <label class="privacy-choice">
+              <input type="radio" name="privacy-catch-locations" value="friends" />
+              <span>Friends</span>
+            </label>
+          </div>
+        </section>
         <section class="menu-coming" aria-labelledby="menu-coming-title">
           <h2 id="menu-coming-title" class="menu-coming-title">Coming to the app</h2>
           <div class="menu-coming-item">
@@ -759,6 +836,118 @@
           </div>
         </section>
         <button type="button" class="btn btn-danger menu-logout-btn" id="menu-logout">Log out</button>
+      </div>
+    </div>
+
+    <div id="friends-overlay" class="hidden" role="dialog" aria-labelledby="friends-title">
+      <div class="settings-inner stack">
+        <div class="catches-page-top">
+          <button type="button" class="btn btn-ghost session-settings-back" id="friends-back" aria-label="Back">
+            ←
+          </button>
+          <h1 id="friends-title" class="app-tab-title">Friends</h1>
+        </div>
+        <div class="field-block start-search-block">
+          <div class="field-label">Find people</div>
+          <input
+            type="search"
+            id="friends-search-input"
+            placeholder="Username or name"
+            autocomplete="off"
+            autocapitalize="none"
+            spellcheck="false"
+          />
+          <div id="friends-search-results" class="start-search-results hidden"></div>
+        </div>
+        <section class="stack" aria-labelledby="friends-incoming-heading">
+          <h2 id="friends-incoming-heading" class="stats-section-title">Requests</h2>
+          <p class="meta" id="friends-incoming-empty">No pending requests.</p>
+          <div id="friends-incoming-list" class="stack"></div>
+        </section>
+        <section class="stack" aria-labelledby="friends-outgoing-heading">
+          <h2 id="friends-outgoing-heading" class="stats-section-title">Sent</h2>
+          <p class="meta" id="friends-outgoing-empty">No sent requests.</p>
+          <div id="friends-outgoing-list" class="stack"></div>
+        </section>
+        <section class="stack" aria-labelledby="friends-list-heading">
+          <h2 id="friends-list-heading" class="stats-section-title">Friends</h2>
+          <p class="meta" id="friends-empty">No friends yet.</p>
+          <div id="friends-list" class="stack"></div>
+        </section>
+      </div>
+    </div>
+
+    <div id="map-filters-overlay" class="hidden" role="dialog" aria-labelledby="map-filters-title">
+      <div class="settings-inner stack">
+        <div class="catches-page-top">
+          <button type="button" class="btn btn-ghost session-settings-back" id="map-filters-back" aria-label="Back">
+            ←
+          </button>
+          <h1 id="map-filters-title" class="app-tab-title">Map filters</h1>
+        </div>
+        <section class="stack" aria-labelledby="map-filter-species-heading">
+          <h2 id="map-filter-species-heading" class="stats-section-title">Species</h2>
+          <div id="map-filter-species" class="map-filter-species-list" role="group" aria-label="Species filter"></div>
+          <button type="button" class="map-filter-species-clear" id="map-filter-species-clear">
+            Clear selection
+          </button>
+        </section>
+        <section class="stack" aria-labelledby="map-filter-when-heading">
+          <h2 id="map-filter-when-heading" class="stats-section-title">When</h2>
+          <select id="map-filter-date-mode" class="stats-year-select" aria-label="Date filter">
+            <option value="all">All time</option>
+            <option value="year">Year</option>
+            <option value="custom">Date range</option>
+          </select>
+          <div id="map-filter-year-wrap" class="hidden">
+            <select id="map-filter-year" class="stats-year-select" aria-label="Year"></select>
+          </div>
+          <div id="map-filter-range-wrap" class="stack hidden">
+            <label class="field-block">
+              <span class="field-label">From</span>
+              <input type="date" id="map-filter-from" />
+            </label>
+            <label class="field-block">
+              <span class="field-label">To</span>
+              <input type="date" id="map-filter-to" />
+            </label>
+          </div>
+        </section>
+        <section class="stack" aria-labelledby="map-filter-length-heading">
+          <div class="map-length-head">
+            <h2 id="map-filter-length-heading" class="stats-section-title">Length</h2>
+            <p id="map-filter-length-value" class="map-length-value">0–130 cm</p>
+          </div>
+          <div class="map-length-slider" id="map-filter-length-slider">
+            <div class="map-length-rail" data-rail>
+              <div class="map-length-fill" data-fill></div>
+              <button
+                type="button"
+                class="map-length-thumb"
+                data-thumb="min"
+                role="slider"
+                aria-label="Minimum length"
+                aria-valuemin="0"
+                aria-valuemax="130"
+                aria-valuenow="0"
+              ></button>
+              <button
+                type="button"
+                class="map-length-thumb"
+                data-thumb="max"
+                role="slider"
+                aria-label="Maximum length"
+                aria-valuemin="0"
+                aria-valuemax="130"
+                aria-valuenow="130"
+              ></button>
+            </div>
+            <div class="map-length-ends">
+              <span>0 cm</span>
+              <span>130 cm</span>
+            </div>
+          </div>
+        </section>
       </div>
     </div>
 

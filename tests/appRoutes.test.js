@@ -27,6 +27,13 @@ describe("parseAppPath", () => {
     assert.deepEqual(parseAppPath("/stats"), { name: "stats" });
   });
 
+  it("parses friends and another user's profile", () => {
+    const id = "8f0c1a2b-3c4d-5e6f-8a9b-0c1d2e3f4a5b";
+    assert.deepEqual(parseAppPath("/friends"), { name: "friends" });
+    assert.deepEqual(parseAppPath(`/profile/${id}`), { name: "userProfile", userId: id });
+    assert.deepEqual(parseAppPath(`/profile/${id}/stats`), { name: "userStats", userId: id });
+  });
+
   it("parses a session detail id", () => {
     const id = "8f0c1a2b-3c4d-5e6f-8a9b-0c1d2e3f4a5b";
     assert.deepEqual(parseAppPath(`/session/${id}`), {
@@ -48,7 +55,7 @@ describe("serializeAppRoute", () => {
   });
 
   it("round-trips tab and stats routes", () => {
-    for (const path of ["/feed", "/map", "/profile", "/stats"]) {
+    for (const path of ["/feed", "/map", "/profile", "/stats", "/friends"]) {
       assert.equal(serializeAppRoute(parseAppPath(path)), path);
     }
   });
@@ -82,6 +89,8 @@ describe("tab helpers", () => {
 
   it("picks the bottom-nav tab from the route", () => {
     assert.equal(tabIdForRoute({ name: "stats" }), "profile");
+    assert.equal(tabIdForRoute({ name: "friends" }), "profile");
+    assert.equal(tabIdForRoute({ name: "userProfile", userId: "x" }), "profile");
     assert.equal(tabIdForRoute({ name: "sessionDetail", sessionId: "x" }), "session");
     assert.equal(tabIdForRoute({ name: "feed" }), "feed");
   });

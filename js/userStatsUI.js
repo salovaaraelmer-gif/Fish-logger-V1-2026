@@ -98,6 +98,15 @@ export function closeStatsPage() {
   document.getElementById("stats-overlay")?.classList.add("hidden");
 }
 
+export function openStatsPageWithBundle(nextBundle) {
+  selectedYear = new Date().getFullYear();
+  monthSpecies = STATS_ALL_TIME;
+  selectedSpecies = SPECIES_OPTIONS[0];
+  bundle = nextBundle;
+  document.getElementById("stats-overlay")?.classList.remove("hidden");
+  paintStatsPage();
+}
+
 /**
  * @returns {Promise<void>}
  */

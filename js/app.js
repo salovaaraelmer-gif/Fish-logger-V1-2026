@@ -103,12 +103,30 @@ import { closeProfileOverlay, fillProfileFields, resetProfileMainView, wireProfi
 import {
   closeStatsPage,
   openStatsPage,
+  openStatsPageWithBundle,
   refreshProfileStatsPreview,
   reloadOpenStatsFromLocal,
   wireUserStatsUi,
 } from "./userStatsUI.js";
 import { closeMenuSheet, setActiveAppTab, wireAppTabs, wireOverlayScrollbars } from "./appTabs.js";
-import { pathForAppTab, pathForSessionDetail, tabIdForRoute } from "./appRoutes.js";
+import { pathForAppTab, pathForSessionDetail } from "./appRoutes.js";
+import { closeFriendsOverlay, openFriendsOverlay, refreshFriendsCount, wireFriendsUi } from "./friendshipUi.js";
+import { hideOtherProfileView, showOtherProfileView, wireFriendProfileUi } from "./friendProfileUi.js";
+import { refreshFeed, startFeedPoll, stopFeedPoll, wireFeedUi } from "./feedUi.js";
+import {
+  clearRemoteSessionView,
+  mountRemoteSessionMapIfAny,
+  openRemoteSessionDetail,
+} from "./friendSessionView.js";
+import {
+  closeMapFilters,
+  destroyPersonalCatchMap,
+  invalidatePersonalCatchMap,
+  showPersonalCatchMap,
+  wirePersonalCatchMap,
+} from "./personalCatchMap.js";
+import { wirePrivacySettingsUi } from "./privacySettingsUi.js";
+import { loadFriendStatsBundle } from "./friendSessionService.js";
 import {
   backAppOr,
   isAppRouterStarted,
@@ -1583,6 +1601,8 @@ function closeCatchesOverlay() {
   catchesSessionMenuSessionId = null;
   catchesSessionMenuOpen = false;
   syncCatchesSessionMenuUi();
+  clearRemoteSessionView();
+  document.getElementById("catches-open-options")?.classList.remove("hidden");
 }
 
 /**
@@ -1594,8 +1614,10 @@ function setCatchesOverlayPage(page) {
   document.getElementById("catches-map-panel")?.classList.toggle("hidden", page !== "map");
   document.getElementById("catches-options-panel")?.classList.toggle("hidden", page !== "options");
   const container = document.getElementById("catches-map-container");
-  if (page === "map" && pendingCatchesOverlayMap && container) {
-    mountCatchesMap(container, pendingCatchesOverlayMap);
+  if (page === "map" && container) {
+    if (!mountRemoteSessionMapIfAny() && pendingCatchesOverlayMap) {
+      mountCatchesMap(container, pendingCatchesOverlayMap);
+    }
     invalidateActiveCatchesMapSize();
   }
 }
@@ -1824,6 +1846,8 @@ function dismissCoveringOverlaysForTabChange() {
   closeCatchesOverlay();
   closeSessionMapOverlay();
   closeMenuSheet();
+  closeFriendsOverlay();
+  closeMapFilters();
 }
 
 /** @type {number} */
@@ -1837,27 +1861,91 @@ async function applyAppRoute(route) {
   const gen = ++routeApplyGen;
   const canonical = route.name === "unknown" ? { name: /** @type {const} */ ("session") } : route;
 
-  if (canonical.name === "feed" || canonical.name === "map" || canonical.name === "session") {
+  if (canonical.name === "feed") {
     dismissCoveringOverlaysForTabChange();
-    setActiveAppTab(tabIdForRoute(canonical));
+    hideOtherProfileView();
+    setActiveAppTab("feed");
+    void refreshFeed();
+    startFeedPoll();
+    return;
+  }
+
+  if (canonical.name === "map") {
+    dismissCoveringOverlaysForTabChange();
+    hideOtherProfileView();
+    stopFeedPoll();
+    setActiveAppTab("map");
+    void showPersonalCatchMap();
+    invalidatePersonalCatchMap();
+    return;
+  }
+
+  if (canonical.name === "session") {
+    dismissCoveringOverlaysForTabChange();
+    hideOtherProfileView();
+    stopFeedPoll();
+    setActiveAppTab("session");
     return;
   }
 
   if (canonical.name === "profile") {
     dismissCoveringOverlaysForTabChange();
+    hideOtherProfileView();
+    stopFeedPoll();
     setActiveAppTab("profile");
     resetProfileMainView();
     void fillProfileFields();
+    void refreshFriendsCount();
     void renderHistorySection();
     void refreshProfileStatsPreview();
+    return;
+  }
+
+  if (canonical.name === "friends") {
+    closeCatchesOverlay();
+    closeStatsPage();
+    closeMenuSheet();
+    hideOtherProfileView();
+    stopFeedPoll();
+    setActiveAppTab("profile");
+    openFriendsOverlay();
+    return;
+  }
+
+  if (canonical.name === "userProfile") {
+    closeCatchesOverlay();
+    closeStatsPage();
+    closeMenuSheet();
+    closeFriendsOverlay();
+    stopFeedPoll();
+    setActiveAppTab("profile");
+    await showOtherProfileView(canonical.userId);
     return;
   }
 
   if (canonical.name === "stats") {
     closeCatchesOverlay();
     closeMenuSheet();
+    closeFriendsOverlay();
+    hideOtherProfileView();
     setActiveAppTab("profile");
     await openStatsPage();
+    if (gen !== routeApplyGen) closeStatsPage();
+    return;
+  }
+
+  if (canonical.name === "userStats") {
+    closeCatchesOverlay();
+    closeMenuSheet();
+    closeFriendsOverlay();
+    setActiveAppTab("profile");
+    await showOtherProfileView(canonical.userId);
+    const bundle = await loadFriendStatsBundle(canonical.userId);
+    if (!bundle) {
+      showError("Could not load stats.");
+      return;
+    }
+    openStatsPageWithBundle(bundle);
     if (gen !== routeApplyGen) closeStatsPage();
     return;
   }
@@ -1865,6 +1953,8 @@ async function applyAppRoute(route) {
   if (canonical.name === "sessionDetail") {
     closeStatsPage();
     closeMenuSheet();
+    closeFriendsOverlay();
+    stopFeedPoll();
     setActiveAppTab("session");
     await openHistorySessionCatches(canonical.sessionId);
     if (gen !== routeApplyGen) closeCatchesOverlay();
@@ -3077,13 +3167,29 @@ async function refreshActiveSessionData() {
  */
 async function refreshCurrentView() {
   const route = routeFromLocation();
-  if (route.name === "map") return;
+  if (route.name === "map") {
+    await showPersonalCatchMap();
+    return;
+  }
   if (!navigator.onLine) {
     showError("You're offline. Connect to refresh.");
     return;
   }
   if (route.name === "feed") {
-    await rehydrateSupabaseParticipantSessions();
+    await refreshFeed();
+    return;
+  }
+  if (route.name === "friends") {
+    openFriendsOverlay();
+    return;
+  }
+  if (route.name === "userProfile") {
+    await showOtherProfileView(route.userId);
+    return;
+  }
+  if (route.name === "userStats") {
+    const bundle = await loadFriendStatsBundle(route.userId);
+    if (bundle) openStatsPageWithBundle(bundle);
     return;
   }
   if (route.name === "profile" || route.name === "stats") {
@@ -3091,8 +3197,14 @@ async function refreshCurrentView() {
     return;
   }
   if (route.name === "sessionDetail") {
+    const ov = document.getElementById("catches-overlay");
+    if (ov?.dataset.remoteSession === "1") {
+      const sid = ov.dataset.viewSessionId;
+      if (sid) await openRemoteSessionDetail(sid);
+      return;
+    }
     await pullPastSessionsAndStatsData();
-    const sid = document.getElementById("catches-overlay")?.dataset.viewSessionId;
+    const sid = ov?.dataset.viewSessionId;
     if (sid) await populateCatchesTable(sid);
     return;
   }
@@ -3215,8 +3327,17 @@ async function openHistorySessionCatches(sessionId) {
   closeSessionEndOverlay();
   closeSessionSummaryOverlay();
   closeStatsPage();
+  const local =
+    (await getSessionById(sessionId)) || (await getSessionBySupabaseCloudId(sessionId));
+  if (!local) {
+    const opened = await withAppSpinner(() => openRemoteSessionDetail(sessionId));
+    if (!opened) showError("Session not found.");
+    return;
+  }
+  clearRemoteSessionView();
+  document.getElementById("catches-open-options")?.classList.remove("hidden");
   await withAppSpinner(async () => {
-    await populateCatchesTable(sessionId);
+    await populateCatchesTable(local.id);
   });
   document.getElementById("catches-overlay")?.classList.remove("hidden");
 }
@@ -4183,6 +4304,12 @@ async function onAuthSignedOut() {
   closeSessionSettingsOverlay();
   lastIndexedDbUserId = null;
   lastActivatedUserId = null;
+  stopFeedPoll();
+  clearRemoteSessionView();
+  destroyPersonalCatchMap();
+  hideOtherProfileView();
+  closeFriendsOverlay();
+  closeMapFilters();
 }
 
 /** Remove old shared localStorage keys once. */
@@ -4709,6 +4836,10 @@ function pullToRefreshAllowed() {
   if (isSessionMapOverlayOpen()) return false;
   const settings = document.getElementById("session-settings-overlay");
   if (settings && !settings.classList.contains("hidden")) return false;
+  const friends = document.getElementById("friends-overlay");
+  if (friends && !friends.classList.contains("hidden")) return false;
+  const mapFilters = document.getElementById("map-filters-overlay");
+  if (mapFilters && !mapFilters.classList.contains("hidden")) return false;
   if (isTypingTarget(document.activeElement)) return false;
   return true;
 }
@@ -4738,12 +4869,29 @@ function mainAppInit() {
   });
   wireUserStatsUi({
     onOpen: () => navigateApp("/stats"),
-    onClose: () => backAppOr("/profile"),
+    onClose: () => {
+      const current = routeFromLocation();
+      if (current.name === "userStats") {
+        backAppOr(`/profile/${encodeURIComponent(current.userId)}`);
+        return;
+      }
+      backAppOr("/profile");
+    },
   });
+  wireFriendsUi({ onError: showError });
+  wireFriendProfileUi({ onError: showError });
+  wireFeedUi({ onError: showError });
+  wirePersonalCatchMap({ onError: showError });
+  wirePrivacySettingsUi({ onError: showError });
   document.getElementById("history-refresh")?.addEventListener("click", () => {
     void refreshPastSessionsAndStats();
   });
   document.getElementById("stats-refresh")?.addEventListener("click", () => {
+    const current = routeFromLocation();
+    if (current.name === "userStats") {
+      void refreshCurrentView();
+      return;
+    }
     void refreshPastSessionsAndStats();
   });
   document.getElementById("btn-session-map")?.addEventListener("click", () => {

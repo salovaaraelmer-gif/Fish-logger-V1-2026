@@ -13,10 +13,24 @@
  *   | { name: "session" }
  *   | { name: "profile" }
  *   | { name: "stats" }
+ *   | { name: "friends" }
+ *   | { name: "userProfile", userId: string }
+ *   | { name: "userStats", userId: string }
  *   | { name: "sessionDetail", sessionId: string }
  *   | { name: "unknown" }
  * } AppRoute
  */
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+/**
+ * @param {string} value
+ * @returns {boolean}
+ */
+function isRouteUuid(value) {
+  return UUID_RE.test(value);
+}
 
 /**
  * @param {string} pathname
@@ -49,10 +63,22 @@ export function parseAppPath(pathname) {
     if (a === "session") return { name: "session" };
     if (a === "profile") return { name: "profile" };
     if (a === "stats") return { name: "stats" };
+    if (a === "friends") return { name: "friends" };
     return { name: "unknown" };
   }
   if (parts[0] === "session" && parts.length === 2 && parts[1]) {
     return { name: "sessionDetail", sessionId: parts[1] };
+  }
+  if (parts[0] === "profile" && parts.length === 2 && isRouteUuid(parts[1])) {
+    return { name: "userProfile", userId: parts[1] };
+  }
+  if (
+    parts[0] === "profile" &&
+    parts.length === 3 &&
+    isRouteUuid(parts[1]) &&
+    parts[2] === "stats"
+  ) {
+    return { name: "userStats", userId: parts[1] };
   }
   return { name: "unknown" };
 }
@@ -72,6 +98,12 @@ export function serializeAppRoute(route) {
       return "/profile";
     case "stats":
       return "/stats";
+    case "friends":
+      return "/friends";
+    case "userProfile":
+      return `/profile/${encodeURIComponent(route.userId)}`;
+    case "userStats":
+      return `/profile/${encodeURIComponent(route.userId)}/stats`;
     case "sessionDetail":
       return `/session/${encodeURIComponent(route.sessionId)}`;
     case "session":
@@ -112,6 +144,27 @@ export function pathForSessionDetail(sessionId) {
 }
 
 /**
+ * @param {string} userId
+ * @returns {string}
+ */
+export function pathForUserProfile(userId) {
+  return serializeAppRoute({ name: "userProfile", userId });
+}
+
+/**
+ * @param {string} userId
+ * @returns {string}
+ */
+export function pathForUserStats(userId) {
+  return serializeAppRoute({ name: "userStats", userId });
+}
+
+/** @returns {string} */
+export function pathForFriends() {
+  return "/friends";
+}
+
+/**
  * Bottom-nav tab that should appear active for this route.
  * @param {AppRoute} route
  * @returns {AppTabId}
@@ -119,6 +172,14 @@ export function pathForSessionDetail(sessionId) {
 export function tabIdForRoute(route) {
   if (route.name === "feed") return "feed";
   if (route.name === "map") return "map";
-  if (route.name === "profile" || route.name === "stats") return "profile";
+  if (
+    route.name === "profile" ||
+    route.name === "stats" ||
+    route.name === "friends" ||
+    route.name === "userProfile" ||
+    route.name === "userStats"
+  ) {
+    return "profile";
+  }
   return "session";
 }

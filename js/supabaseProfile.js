@@ -66,8 +66,8 @@ export async function searchProfiles(rawQuery, limit = 15) {
   const cap = Math.max(1, Math.min(limit, 30));
   try {
     const [byUser, byName] = await Promise.all([
-      supabase.from("profiles").select("id, username, display_name").ilike("username", q).limit(cap),
-      supabase.from("profiles").select("id, username, display_name").ilike("display_name", q).limit(cap),
+      supabase.from("profiles").select("id, username, display_name, avatar_url").ilike("username", q).limit(cap),
+      supabase.from("profiles").select("id, username, display_name, avatar_url").ilike("display_name", q).limit(cap),
     ]);
     const err = byUser.error || byName.error;
     if (err) {
