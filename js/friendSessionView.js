@@ -46,7 +46,11 @@ export function clearRemoteSessionView() {
   const ov = document.getElementById("catches-overlay");
   if (ov) delete ov.dataset.remoteSession;
   document.getElementById("catches-open-options")?.classList.remove("hidden");
-  document.getElementById("catches-ended-title-input")?.classList.remove("hidden");
+  document.getElementById("catches-ended-title-input")?.classList.add("hidden");
+  document.getElementById("catches-ended-title-display")?.classList.remove("hidden");
+  document.getElementById("catches-ended-title-edit")?.classList.add("hidden");
+  document.getElementById("catches-ended-title-save")?.classList.add("hidden");
+  document.getElementById("catches-ended-title-cancel")?.classList.add("hidden");
 }
 
 /**
@@ -126,6 +130,9 @@ async function paintRemoteSession(sessionRow) {
   document.getElementById("catches-session-menu-btn")?.classList.add("hidden");
   document.getElementById("catches-open-options")?.classList.add("hidden");
   document.getElementById("catches-ended-title-input")?.classList.add("hidden");
+  document.getElementById("catches-ended-title-edit")?.classList.add("hidden");
+  document.getElementById("catches-ended-title-save")?.classList.add("hidden");
+  document.getElementById("catches-ended-title-cancel")?.classList.add("hidden");
 
   const titleWrap = document.getElementById("catches-ended-title-wrap");
   const titleDisp = document.getElementById("catches-ended-title-display");
@@ -134,7 +141,9 @@ async function paintRemoteSession(sessionRow) {
     titleWrap.classList.remove("hidden");
     titleWrap.setAttribute("aria-hidden", "false");
     titleDisp.textContent = getSessionDisplayTitle(localSession);
+    titleDisp.classList.remove("hidden");
     titleDisp.removeAttribute("tabindex");
+    titleDisp.removeAttribute("role");
   }
 
   const live = isLiveFeedSession(/** @type {import('./feedSessionModel.js').FriendSessionRow} */ (sessionRow));

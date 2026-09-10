@@ -981,47 +981,82 @@ async function syncPendingSessionTitleToCloud() {
 }
 
 /**
- * Saves current input to IndexedDB and Supabase; keeps edit mode open.
- * @returns {Promise<string | null>} Resolved title, or null if no session.
+ * @param {"active" | "ended"} kind
  */
-async function flushSessionTitleSave() {
-  const input = /** @type {HTMLInputElement | null} */ (document.getElementById("session-title-input"));
-  if (!input || input.classList.contains("hidden")) return null;
-  const r = await saveActiveSessionTitle(input.value);
-  if (!r.ok) return null;
-  input.value = r.title;
+function titleEditorEls(kind) {
+  if (kind === "active") {
+    return {
+      display: document.getElementById("session-title-display"),
+      input: /** @type {HTMLInputElement | null} */ (document.getElementById("session-title-input")),
+      editBtn: document.getElementById("session-title-edit"),
+      saveBtn: document.getElementById("session-title-save"),
+      cancelBtn: document.getElementById("session-title-cancel"),
+    };
+  }
+  return {
+    display: document.getElementById("catches-ended-title-display"),
+    input: /** @type {HTMLInputElement | null} */ (document.getElementById("catches-ended-title-input")),
+    editBtn: document.getElementById("catches-ended-title-edit"),
+    saveBtn: document.getElementById("catches-ended-title-save"),
+    cancelBtn: document.getElementById("catches-ended-title-cancel"),
+  };
+}
+
+/**
+ * @param {"active" | "ended"} kind
+ * @param {boolean} editing
+ * @param {boolean} [canEdit]
+ */
+function setTitleEditorMode(kind, editing, canEdit = true) {
+  const els = titleEditorEls(kind);
+  if (!els.display || !els.input) return;
+  els.display.classList.toggle("hidden", editing);
+  els.input.classList.toggle("hidden", !editing);
+  els.editBtn?.classList.toggle("hidden", editing || !canEdit);
+  els.saveBtn?.classList.toggle("hidden", !editing);
+  els.cancelBtn?.classList.toggle("hidden", !editing);
+}
+
+async function commitActiveSessionTitle() {
+  const session = await getActiveSessionForParticipantUi();
+  const els = titleEditorEls("active");
+  if (!els.display || !els.input) return;
+  if (!session || session.id !== sessionTitleBoundId) {
+    await cancelActiveSessionTitle();
+    return;
+  }
+  const r = await saveActiveSessionTitle(els.input.value);
+  if (!r.ok) return;
   const cloud = await pushSessionTitleToSupabase(r.title);
   if (cloud && "ok" in cloud && cloud.ok === false && "error" in cloud) {
     showError(`Failed to sync title: ${cloud.error}`);
   }
-  return r.title;
+  sessionTitleEditing = false;
+  els.display.textContent = r.title;
+  setTitleEditorMode("active", false, true);
 }
 
-async function exitSessionTitleEdit() {
-  const title = await flushSessionTitleSave();
+async function cancelActiveSessionTitle() {
   sessionTitleEditing = false;
-  const display = document.getElementById("session-title-display");
-  const input = /** @type {HTMLInputElement | null} */ (document.getElementById("session-title-input"));
-  if (!display || !input) return;
-  const s = await getActiveSessionForParticipantUi();
-  display.textContent = title != null ? title : s ? getSessionDisplayTitle(s) : "";
-  input.classList.add("hidden");
-  display.classList.remove("hidden");
+  const session = await getActiveSessionForParticipantUi();
+  const els = titleEditorEls("active");
+  if (els.display) {
+    els.display.textContent = session ? getSessionDisplayTitle(session) : "";
+  }
+  setTitleEditorMode("active", false, true);
 }
 
 async function beginSessionTitleEdit() {
   const session = await getActiveSessionForParticipantUi();
   if (!session) return;
-  const display = document.getElementById("session-title-display");
-  const input = /** @type {HTMLInputElement | null} */ (document.getElementById("session-title-input"));
-  if (!display || !input) return;
+  const els = titleEditorEls("active");
+  if (!els.display || !els.input) return;
+  sessionTitleBoundId = session.id;
   sessionTitleEditing = true;
-  display.classList.add("hidden");
-  input.classList.remove("hidden");
-  input.value = getSessionDisplayTitle(session);
+  els.input.value = getSessionDisplayTitle(session);
+  setTitleEditorMode("active", true, true);
   requestAnimationFrame(() => {
-    input.focus();
-    input.select();
+    els.input?.focus();
   });
 }
 
@@ -1034,8 +1069,15 @@ function syncSessionTitleHeader(session) {
   if (!block || !display) return;
   block.classList.remove("hidden");
   renderSyncStatusIndicator();
+  if (sessionTitleBoundId !== session.id) {
+    sessionTitleEditing = false;
+    sessionTitleBoundId = session.id;
+    const input = /** @type {HTMLInputElement | null} */ (document.getElementById("session-title-input"));
+    if (input) input.value = "";
+  }
   if (sessionTitleEditing) return;
   display.textContent = getSessionDisplayTitle(session);
+  setTitleEditorMode("active", false, true);
 }
 
 /**
@@ -1059,42 +1101,28 @@ function renderSyncStatusIndicator() {
 }
 
 function wireSessionTitleEditor() {
-  const display = document.getElementById("session-title-display");
-  const input = /** @type {HTMLInputElement | null} */ (document.getElementById("session-title-input"));
-  if (!display || !input) return;
+  const els = titleEditorEls("active");
+  if (!els.display || !els.input) return;
 
-  display.addEventListener("click", (e) => {
-    e.preventDefault();
+  els.editBtn?.addEventListener("click", () => {
     void beginSessionTitleEdit();
   });
-  display.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" || e.key === " ") {
-      e.preventDefault();
-      void beginSessionTitleEdit();
-    }
+  els.saveBtn?.addEventListener("click", () => {
+    void commitActiveSessionTitle();
+  });
+  els.cancelBtn?.addEventListener("click", () => {
+    void cancelActiveSessionTitle();
   });
 
-  input.addEventListener("input", () => {
-    if (sessionTitleDebounceTimer) clearTimeout(sessionTitleDebounceTimer);
-    sessionTitleDebounceTimer = setTimeout(() => {
-      sessionTitleDebounceTimer = null;
-      void flushSessionTitleSave();
-    }, 400);
-  });
-
-  input.addEventListener("keydown", (e) => {
+  els.input.addEventListener("keydown", (e) => {
     if (e.key === "Enter") {
       e.preventDefault();
-      input.blur();
+      void commitActiveSessionTitle();
     }
-  });
-
-  input.addEventListener("blur", () => {
-    if (sessionTitleDebounceTimer) {
-      clearTimeout(sessionTitleDebounceTimer);
-      sessionTitleDebounceTimer = null;
+    if (e.key === "Escape") {
+      e.preventDefault();
+      void cancelActiveSessionTitle();
     }
-    void exitSessionTitleEdit();
   });
 }
 
@@ -1111,37 +1139,41 @@ function syncEndedSessionTitleRowInCatchesOverlay(sessionIdOverride, sessionForO
   if (!sessionIdOverride || !sessionForOwner || sessionForOwner.endTime == null) {
     wrap.classList.add("hidden");
     wrap.setAttribute("aria-hidden", "true");
+    endedSessionTitleEditing = false;
+    endedTitleBoundId = null;
+    input.value = "";
+    setTitleEditorMode("ended", false, false);
     return;
   }
   wrap.classList.remove("hidden");
   wrap.setAttribute("aria-hidden", "false");
-  if (!endedSessionTitleEditing) {
-    display.textContent = getSessionDisplayTitle(sessionForOwner);
+  if (endedTitleBoundId !== sessionIdOverride) {
+    endedSessionTitleEditing = false;
+    endedTitleBoundId = sessionIdOverride;
+    input.value = "";
   }
-  if (allowEditDelete) {
-    display.setAttribute("tabindex", "0");
-    display.setAttribute("role", "button");
-    display.setAttribute("aria-label", "Session title, tap to edit");
-    display.classList.remove("session-title-display--readonly");
-  } else {
-    display.setAttribute("tabindex", "-1");
-    display.removeAttribute("role");
-    display.setAttribute("aria-label", "");
-    display.classList.add("session-title-display--readonly");
+  if (endedSessionTitleEditing && endedTitleBoundId === sessionIdOverride) {
+    setTitleEditorMode("ended", true, allowEditDelete);
+    return;
   }
+  endedSessionTitleEditing = false;
+  display.textContent = getSessionDisplayTitle(sessionForOwner);
+  setTitleEditorMode("ended", false, allowEditDelete);
 }
 
-async function flushEndedSessionTitleSave() {
+async function commitEndedSessionTitle() {
   const ov = document.getElementById("catches-overlay");
   const sid = ov?.dataset.viewSessionId;
-  const input = /** @type {HTMLInputElement | null} */ (document.getElementById("catches-ended-title-input"));
-  if (!sid || !input || input.classList.contains("hidden")) return null;
-  const r = await saveSessionTitleIfParticipant(sid, input.value);
+  const els = titleEditorEls("ended");
+  if (!sid || !els.display || !els.input || sid !== endedTitleBoundId) {
+    await cancelEndedSessionTitle();
+    return;
+  }
+  const r = await saveSessionTitleIfParticipant(sid, els.input.value);
   if (!r.ok) {
     showError(r.reason);
-    return null;
+    return;
   }
-  input.value = r.title;
   const s = await getSessionById(sid);
   const cloudSid =
     s && typeof s.supabaseSessionId === "string" && s.supabaseSessionId ? s.supabaseSessionId : null;
@@ -1149,24 +1181,21 @@ async function flushEndedSessionTitleSave() {
   if (cloud && "ok" in cloud && cloud.ok === false && "error" in cloud) {
     showError(`Failed to sync title: ${cloud.error}`);
   }
+  endedSessionTitleEditing = false;
+  els.display.textContent = r.title;
+  setTitleEditorMode("ended", false, true);
   void renderHistorySection();
-  return r.title;
 }
 
-async function exitEndedSessionTitleEdit() {
-  const title = await flushEndedSessionTitleSave();
+async function cancelEndedSessionTitle() {
   endedSessionTitleEditing = false;
-  const display = document.getElementById("catches-ended-title-display");
-  const input = /** @type {HTMLInputElement | null} */ (document.getElementById("catches-ended-title-input"));
-  if (!display || !input) return;
-  const ov = document.getElementById("catches-overlay");
-  const sid = ov?.dataset.viewSessionId;
-  if (sid) {
+  const els = titleEditorEls("ended");
+  const sid = endedTitleBoundId || document.getElementById("catches-overlay")?.dataset.viewSessionId;
+  if (els.display && sid) {
     const s = await getSessionById(sid);
-    display.textContent = title != null ? title : (s ? getSessionDisplayTitle(s) : "");
+    els.display.textContent = s ? getSessionDisplayTitle(s) : "";
   }
-  input.classList.add("hidden");
-  display.classList.remove("hidden");
+  setTitleEditorMode("ended", false, true);
 }
 
 async function beginEndedSessionTitleEdit() {
@@ -1179,58 +1208,40 @@ async function beginEndedSessionTitleEdit() {
   if (!uid) return;
   const sa = await findSessionAngler(sid, uid);
   if (!sa) return;
-  const display = document.getElementById("catches-ended-title-display");
-  const input = /** @type {HTMLInputElement | null} */ (document.getElementById("catches-ended-title-input"));
-  if (!display || !input) return;
+  const els = titleEditorEls("ended");
+  if (!els.display || !els.input) return;
+  endedTitleBoundId = sid;
   endedSessionTitleEditing = true;
-  display.classList.add("hidden");
-  input.classList.remove("hidden");
-  input.value = getSessionDisplayTitle(session);
+  els.input.value = getSessionDisplayTitle(session);
+  setTitleEditorMode("ended", true, true);
   requestAnimationFrame(() => {
-    input.focus();
-    input.select();
+    els.input?.focus();
   });
 }
 
 function wireEndedSessionTitleEditor() {
-  const display = document.getElementById("catches-ended-title-display");
-  const input = /** @type {HTMLInputElement | null} */ (document.getElementById("catches-ended-title-input"));
-  if (!display || !input) return;
+  const els = titleEditorEls("ended");
+  if (!els.display || !els.input) return;
 
-  display.addEventListener("click", (e) => {
-    e.preventDefault();
-    if (display.classList.contains("session-title-display--readonly")) return;
+  els.editBtn?.addEventListener("click", () => {
     void beginEndedSessionTitleEdit();
   });
-  display.addEventListener("keydown", (e) => {
-    if (display.classList.contains("session-title-display--readonly")) return;
-    if (e.key === "Enter" || e.key === " ") {
-      e.preventDefault();
-      void beginEndedSessionTitleEdit();
-    }
+  els.saveBtn?.addEventListener("click", () => {
+    void commitEndedSessionTitle();
+  });
+  els.cancelBtn?.addEventListener("click", () => {
+    void cancelEndedSessionTitle();
   });
 
-  input.addEventListener("input", () => {
-    if (endedSessionTitleDebounceTimer) clearTimeout(endedSessionTitleDebounceTimer);
-    endedSessionTitleDebounceTimer = setTimeout(() => {
-      endedSessionTitleDebounceTimer = null;
-      void flushEndedSessionTitleSave();
-    }, 400);
-  });
-
-  input.addEventListener("keydown", (e) => {
+  els.input.addEventListener("keydown", (e) => {
     if (e.key === "Enter") {
       e.preventDefault();
-      input.blur();
+      void commitEndedSessionTitle();
     }
-  });
-
-  input.addEventListener("blur", () => {
-    if (endedSessionTitleDebounceTimer) {
-      clearTimeout(endedSessionTitleDebounceTimer);
-      endedSessionTitleDebounceTimer = null;
+    if (e.key === "Escape") {
+      e.preventDefault();
+      void cancelEndedSessionTitle();
     }
-    void exitEndedSessionTitleEdit();
   });
 }
 
@@ -1266,14 +1277,14 @@ let activeSupabaseSessionId = null;
 /** True while session title is shown as an input (inline edit). */
 let sessionTitleEditing = false;
 
-/** @type {ReturnType<typeof setTimeout> | null} */
-let sessionTitleDebounceTimer = null;
+/** Local session id the active-title draft belongs to. */
+let sessionTitleBoundId = /** @type {string | null} */ (null);
 
 /** True while ended-session title overlay is in edit mode. */
 let endedSessionTitleEditing = false;
 
-/** @type {ReturnType<typeof setTimeout> | null} */
-let endedSessionTitleDebounceTimer = null;
+/** Local session id the ended-title draft belongs to. */
+let endedTitleBoundId = /** @type {string | null} */ (null);
 
 /** True if local title may not be synced to Supabase yet (offline or failed push). */
 let sessionTitleNeedsCloudSync = false;
@@ -2633,6 +2644,9 @@ async function populateCatchesTable(sessionIdOverride) {
   const prevViewSid = catchesOv?.dataset.viewSessionId;
   if (String(prevViewSid || "") !== String(sessionIdOverride || "")) {
     endedSessionTitleEditing = false;
+    endedTitleBoundId = null;
+    const endedInput = /** @type {HTMLInputElement | null} */ (document.getElementById("catches-ended-title-input"));
+    if (endedInput) endedInput.value = "";
     setCatchesOverlayPage(sessionIdOverride ? "home" : "list");
   }
   if (catchesOv) {
@@ -3290,10 +3304,12 @@ async function renderHome() {
     }
     closeSessionMapOverlay();
     sessionTitleEditing = false;
+    sessionTitleBoundId = null;
     const titleInp = /** @type {HTMLInputElement | null} */ (document.getElementById("session-title-input"));
     const titleDisp = document.getElementById("session-title-display");
-    titleInp?.classList.add("hidden");
+    if (titleInp) titleInp.value = "";
     titleDisp?.classList.remove("hidden");
+    setTitleEditorMode("active", false, true);
     renderSyncStatusIndicator();
     meta.textContent = "";
     meta.hidden = true;

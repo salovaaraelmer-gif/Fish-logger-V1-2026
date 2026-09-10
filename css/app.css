@@ -336,7 +336,7 @@ h1 {
 
 .session-title-row {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 0.65rem;
 }
@@ -350,11 +350,54 @@ h1 {
   line-height: 1.25;
   letter-spacing: -0.02em;
   color: var(--text);
-  cursor: text;
+  cursor: default;
   min-height: 2.5rem;
   padding: 0.25rem 0;
   border-radius: var(--radius);
   outline: none;
+}
+
+.session-title-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex: 0 0 auto;
+}
+
+.session-title-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.4rem;
+  height: 2.4rem;
+  min-width: 2.4rem;
+  min-height: 2.4rem;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.session-title-icon-btn svg {
+  width: 1.2rem;
+  height: 1.2rem;
+}
+
+.session-title-icon-btn:focus-visible {
+  box-shadow: 0 0 0 2px var(--accent-dim);
+}
+
+.btn.session-title-commit-btn {
+  width: auto;
+  min-width: 3.6rem;
+  max-width: 5.5rem;
+  flex: 0 0 auto;
+  min-height: 2.4rem;
+  padding: 0.25rem 0.7rem;
+  font-size: 0.85rem;
 }
 
 /* Catches: list / satellite map tabs */
@@ -541,7 +584,7 @@ h1 {
   height: 8px;
   min-width: 8px;
   min-height: 8px;
-  margin-top: 0.35rem;
+  margin: 0;
   border: none;
   border-radius: 999px;
   padding: 0;
@@ -583,7 +626,9 @@ h1 {
 
 .session-title-input {
   display: block;
-  width: 100%;
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
   font-size: 1.5rem;
   font-weight: 650;
   line-height: 1.25;
@@ -595,7 +640,6 @@ h1 {
   padding: 0.35rem 0.5rem;
   margin: 0;
   min-height: 2.5rem;
-  margin-top: 0.35rem;
 }
 
 .session-title-input:focus {
@@ -1936,10 +1980,12 @@ textarea {
 
 .btn.species-dash-chip {
   border-color: color-mix(in srgb, var(--species-color, var(--border)) 70%, var(--border));
+  font-weight: 500;
 }
 
 .btn.species-dash-chip[aria-selected="true"] {
   border-color: var(--species-color, var(--accent));
+  font-weight: 700;
 }
 
 .btn.species-dash-mode-btn[aria-selected="true"] {
@@ -3071,11 +3117,17 @@ textarea {
 
 .user-result-name {
   font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .user-result-username {
   color: var(--muted);
   font-size: 0.88rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .friends-row-actions {
@@ -3083,12 +3135,19 @@ textarea {
   flex-direction: column;
   gap: 0.3rem;
   flex: 0 0 auto;
+  width: auto;
 }
 
-.friends-row-btn {
+.btn.friends-row-btn {
+  width: auto;
+  min-width: 3.6rem;
+  max-width: 5.5rem;
+  flex: 0 0 auto;
+  align-self: center;
   min-height: 2.2rem;
-  padding: 0.2rem 0.55rem;
+  padding: 0.2rem 0.7rem;
   font-size: 0.85rem;
+  white-space: nowrap;
 }
 
 .feed-list {

@@ -169,28 +169,38 @@
             </div>
             <div id="session-title-block" class="session-title-block hidden">
               <div class="session-title-row">
-                <span
-                  id="session-title-display"
-                  class="session-title-display"
-                  tabindex="0"
-                  role="button"
-                  aria-label="Session title, tap to edit"
-                ></span>
-                <button
-                  type="button"
-                  id="sync-status-indicator"
-                  class="sync-status-indicator"
-                  aria-label="Sync status"
-                  title="Synced"
-                ></button>
+                <span id="session-title-display" class="session-title-display"></span>
+                <input
+                  type="text"
+                  id="session-title-input"
+                  class="session-title-input hidden"
+                  autocomplete="off"
+                  aria-label="Session title"
+                />
+                <div class="session-title-actions">
+                  <button type="button" id="session-title-edit" class="session-title-icon-btn" aria-label="Edit session title">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"
+                      />
+                    </svg>
+                  </button>
+                  <button type="button" id="session-title-save" class="btn session-title-commit-btn hidden">Save</button>
+                  <button type="button" id="session-title-cancel" class="btn session-title-commit-btn hidden">Cancel</button>
+                  <button
+                    type="button"
+                    id="sync-status-indicator"
+                    class="sync-status-indicator"
+                    aria-label="Sync status"
+                    title="Synced"
+                  ></button>
+                </div>
               </div>
-              <input
-                type="text"
-                id="session-title-input"
-                class="session-title-input hidden"
-                autocomplete="off"
-                aria-label="Session title"
-              />
             </div>
             <p class="meta" id="session-meta" hidden></p>
           </header>
@@ -634,19 +644,31 @@
           </div>
           <div id="catches-ended-title-wrap" class="session-title-block catches-ended-title-wrap hidden" aria-hidden="true">
             <div class="session-title-row">
-              <span
-                id="catches-ended-title-display"
-                class="session-title-display"
-                tabindex="-1"
-              ></span>
+              <span id="catches-ended-title-display" class="session-title-display"></span>
+              <input
+                type="text"
+                id="catches-ended-title-input"
+                class="session-title-input hidden"
+                autocomplete="off"
+                aria-label="Ended session title"
+              />
+              <div class="session-title-actions">
+                <button type="button" id="catches-ended-title-edit" class="session-title-icon-btn hidden" aria-label="Edit session title">
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"
+                    />
+                  </svg>
+                </button>
+                <button type="button" id="catches-ended-title-save" class="btn session-title-commit-btn hidden">Save</button>
+                <button type="button" id="catches-ended-title-cancel" class="btn session-title-commit-btn hidden">Cancel</button>
+              </div>
             </div>
-            <input
-              type="text"
-              id="catches-ended-title-input"
-              class="session-title-input hidden"
-              autocomplete="off"
-              aria-label="Ended session title"
-            />
           </div>
           <p class="catch-session-strip meta" id="catches-session-strip" hidden></p>
           <div class="catches-nav-pages stack">

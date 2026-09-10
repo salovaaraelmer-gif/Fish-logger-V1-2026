@@ -14,6 +14,7 @@ import {
 } from "./friendshipState.js";
 import { supabase } from "./supabase.js";
 import { fetchProfilesByIds, searchProfiles } from "./supabaseProfile.js";
+import { uniqueProfilesById } from "./uniqueProfilesById.js";
 
 const FRIENDSHIP_SELECT = "id, requester_id, addressee_id, status, created_at, responded_at";
 
@@ -158,7 +159,7 @@ export async function searchUsersForFriends(rawQuery) {
   const { profiles, error } = await searchProfiles(rawQuery, 20);
   if (error) return { profiles: [], error };
   const mine = uid ? profiles.filter((p) => p.id !== uid) : profiles;
-  return { profiles: mine, error: null };
+  return { profiles: uniqueProfilesById(mine), error: null };
 }
 
 export { otherUserId, relationFromRow, rowForPair };

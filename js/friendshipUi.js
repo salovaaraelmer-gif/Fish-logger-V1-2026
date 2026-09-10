@@ -19,12 +19,14 @@ import {
   searchUsersForFriends,
   sendFriendRequest,
 } from "./friendshipService.js";
+import { uniqueProfilesById } from "./uniqueProfilesById.js";
 import { buildUserResultRow } from "./userResultRow.js";
 
 /** @param {string} msg */
 let onError = (msg) => console.error(msg);
 
 let searchTimer = /** @type {ReturnType<typeof setTimeout> | null} */ (null);
+let searchGen = 0;
 let wired = false;
 
 export function openFriendsOverlay() {
@@ -82,18 +84,21 @@ async function runFriendSearch() {
   const box = document.getElementById("friends-search-results");
   if (!input || !box) return;
   const q = input.value.trim();
+  const gen = ++searchGen;
   if (q.length < 1) {
     box.innerHTML = "";
     box.classList.add("hidden");
     return;
   }
   const { profiles, error } = await searchUsersForFriends(q);
+  if (gen !== searchGen) return;
   if (error) {
     onError(error);
     return;
   }
   box.innerHTML = "";
-  if (profiles.length === 0) {
+  const unique = uniqueProfilesById(profiles);
+  if (unique.length === 0) {
     const empty = document.createElement("p");
     empty.className = "meta";
     empty.textContent = "No users found.";
@@ -102,8 +107,10 @@ async function runFriendSearch() {
     return;
   }
   const mine = await fetchMyFriendshipRows();
+  if (gen !== searchGen) return;
   const uid = await getAuthUserId();
-  for (const profile of profiles) {
+  if (gen !== searchGen) return;
+  for (const profile of unique) {
     const row = mine.ok && uid ? rowForPair(mine.rows, uid, profile.id) : null;
     const relation = relationFromRow(row, uid || "");
     box.appendChild(
@@ -136,7 +143,10 @@ function searchTrailing(profile, relation, row) {
     await runFriendSearch();
     await refreshFriendsOverlay();
   });
-  return add;
+  const wrap = document.createElement("div");
+  wrap.className = "friends-row-actions";
+  wrap.appendChild(add);
+  return wrap;
 }
 
 /** @param {string} text */

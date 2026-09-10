@@ -5,6 +5,7 @@
 
 import { getDisplayNameFromUser } from "./auth.js";
 import { supabase } from "./supabase.js";
+import { uniqueProfilesById } from "./uniqueProfilesById.js";
 
 /**
  * Reads the signed-in user's row from `public.profiles` (RLS: own row only).
@@ -74,13 +75,9 @@ export async function searchProfiles(rawQuery, limit = 15) {
       console.warn("[searchProfiles] Supabase error:", err.message, err);
       return { profiles: [], error: err.message };
     }
-    const merged = new Map();
-    for (const row of [...(byUser.data || []), ...(byName.data || [])]) {
-      if (!row || row.id == null) continue;
-      const id = String(row.id);
-      merged.set(id, { ...row, id });
-    }
-    const profiles = /** @type {ProfileRow[]} */ ([...merged.values()].slice(0, cap));
+    const profiles = /** @type {ProfileRow[]} */ (
+      uniqueProfilesById([...(byUser.data || []), ...(byName.data || [])]).slice(0, cap)
+    );
     return { profiles, error: null };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
