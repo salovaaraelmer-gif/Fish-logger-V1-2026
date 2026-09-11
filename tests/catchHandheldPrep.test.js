@@ -182,6 +182,20 @@ describe("phone catch mapping", () => {
     );
     assert.equal(payload.device_id, null);
   });
+
+  it("sends null session_id and angler_id for a standalone catch", () => {
+    const payload = catchRecordToSupabasePayload(
+      phoneRecord({ sessionId: null }),
+      null,
+      null,
+      "pike",
+      AUTH_USER_ID
+    );
+    assert.equal(payload.session_id, null);
+    assert.equal(payload.angler_id, null);
+    assert.equal(payload.user_id, AUTH_USER_ID);
+    assert.equal(payload.caught_at, CAUGHT_AT);
+  });
 });
 
 describe("handheld catch mapping", () => {
@@ -315,6 +329,31 @@ describe("participant pull mapping", () => {
     assert.equal(rec.timestamp, CAUGHT_MS);
     assert.equal(rec.depth_source, "sonar");
     assert.deepEqual(rec.photo_urls, []);
+  });
+
+  it("keeps sessionId null for a standalone cloud row", () => {
+    const rec = cloudCatchRowToLocal(
+      {
+        id: "77777777-7777-4777-8777-777777777777",
+        session_id: null,
+        user_id: AUTH_USER_ID,
+        species: "perch",
+        length_cm: 22,
+        caught_at: CAUGHT_AT,
+        source: "phone",
+        client_event_id: EVENT_ID,
+        location_lat: null,
+        location_lng: null,
+      },
+      null,
+      AUTH_USER_ID,
+      LOCAL_CATCH_ID
+    );
+    assert.equal(rec.sessionId, null);
+    assert.equal(rec.anglerId, AUTH_USER_ID);
+    assert.equal(rec.timestamp, CAUGHT_MS);
+    assert.equal(rec.location_lat, null);
+    assert.equal(rec.location_lng, null);
   });
 
   it("keeps up to two photo URLs from the cloud row", () => {

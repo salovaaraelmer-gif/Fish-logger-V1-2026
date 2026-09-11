@@ -15,6 +15,7 @@ import {
   speciesStatsLabel,
   statsForUserSpecies,
   sessionsForPersonalStats,
+  catchesForPersonalStats,
   yearlyCatchCounts,
   yearsFromTimestamps,
 } from "../js/userStatsCalc.js";
@@ -149,5 +150,20 @@ describe("fishingTimeFromSessions", () => {
     ]);
     assert.equal(t.endedCount, 1);
     assert.equal(t.totalLabel, "2 h 0 min");
+  });
+});
+
+describe("catchesForPersonalStats", () => {
+  it("includes standalone fish and session fish for that user", () => {
+    const rows = [
+      { anglerId: "me", sessionId: "s1", species: "pike" },
+      { anglerId: "me", sessionId: null, species: "perch" },
+      { anglerId: "other", sessionId: null, species: "pike" },
+      { anglerId: "me", sessionId: "other-session", species: "trout" },
+    ];
+    assert.deepEqual(
+      catchesForPersonalStats(rows, "me", new Set(["s1"])).map((c) => c.species),
+      ["pike", "perch"]
+    );
   });
 });

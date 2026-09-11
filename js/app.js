@@ -52,6 +52,12 @@ import { formatSessionDuration } from "./sessionHistoryFormat.js";
 import { buildHistorySessionCard } from "./historySessionCard.js";
 import { defaultSessionTitleFromDate, getSessionDisplayTitle } from "./sessionTitle.js";
 import {
+  formatLocalDateInput,
+  formatLocalTimeInput,
+  isCatchTimeEffectivelyNow,
+  parseLocalDateTimeMs,
+} from "./catchDateTime.js";
+import {
   buildSessionCatchesCsv,
   defaultFishLogFilename,
   triggerCsvDownload,
@@ -59,6 +65,7 @@ import {
 import {
   SPECIES_OPTIONS,
   saveCatch,
+  saveStandaloneCatch,
   updateCatch,
   fetchDeviceLocationBestEffort,
   startFishLoggingLocationWatch,
@@ -154,7 +161,7 @@ import {
   getLastParticipantRehydrateOk,
   getParticipantEndedCloudRows,
 } from "./participantSessionCache.js";
-import { pullRosterAndCatchesForSessions, pullSessionRosterAndCatchesFromCloud } from "./supabaseParticipantSync.js";
+import { pullRosterAndCatchesForSessions, pullSessionRosterAndCatchesFromCloud, pullStandaloneCatchesFromCloud } from "./supabaseParticipantSync.js";
 import {
   destroyCatchesMap,
   mountCatchesMap,
@@ -560,15 +567,7 @@ async function rehydrateSupabaseSessionContext() {
  */
 async function syncCatchCreateToSupabase(record) {
   const speciesForDb = mapSpeciesKeyToSupabaseSpecies(record.species);
-  if (!activeSupabaseSessionId || !speciesForDb) return null;
-  const sbAnglerId = await resolveLegacyAnglerIdForCloudCatch(record.anglerId);
-  if (!sbAnglerId) {
-    return {
-      ok: false,
-      error:
-        "No anglers row found for this participant in this session (session_id + user_id). Restart the session or check the cloud.",
-    };
-  }
+  if (!speciesForDb) return null;
   const authUserId = await getAuthUserId();
   if (!authUserId) {
     return { ok: false, error: "Not signed in." };
@@ -576,6 +575,23 @@ async function syncCatchCreateToSupabase(record) {
   if (!navigator.onLine) {
     setSyncStatus("offline");
     return { ok: false, error: "Offline." };
+  }
+  if (!record.sessionId) {
+    setSyncStatus("syncing");
+    const payload = catchRecordToSupabasePayload(record, null, null, speciesForDb, authUserId);
+    const ins = await insertSupabaseCatch(payload);
+    if (!ins.ok) return { ok: false, error: ins.error };
+    await putCatch({ ...record, supabase_id: ins.id });
+    return { ok: true };
+  }
+  if (!activeSupabaseSessionId) return null;
+  const sbAnglerId = await resolveLegacyAnglerIdForCloudCatch(record.anglerId);
+  if (!sbAnglerId) {
+    return {
+      ok: false,
+      error:
+        "No anglers row found for this participant in this session (session_id + user_id). Restart the session or check the cloud.",
+    };
   }
   setSyncStatus("syncing");
   const payload = catchRecordToSupabasePayload(
@@ -1259,6 +1275,7 @@ function wireEndedSessionTitleEditor() {
  *   editMapTouched: boolean,
  *   editMapLat: number | null,
  *   editMapLng: number | null,
+ *   standalone: boolean,
  * }}
  */
 let fishState = freshFishState();
@@ -1434,6 +1451,7 @@ function freshFishState() {
     editMapLat: null,
     /** @type {number | null} */
     editMapLng: null,
+    standalone: false,
     /** @type {[import('./catchPhotoUi.js').FishPhotoSlot, import('./catchPhotoUi.js').FishPhotoSlot]} */
     photoSlots: [null, null],
   };
@@ -1977,6 +1995,8 @@ function closeFishOverlay() {
   stopFishLoggingLocationWatch();
   closeCatchPhotoViewer();
   fishState.photoSlots.forEach(revokeFishPhotoSlot);
+  fishState.standalone = false;
+  setStandaloneCatchUi(false);
   const overlay = document.getElementById("fish-overlay");
   overlay?.classList.add("hidden");
   onCatchFormOverlayHidden(overlay);
@@ -3156,6 +3176,8 @@ async function pullEndedSessionCatchesFromCloud(opts = {}) {
 async function pullPastSessionsAndStatsData() {
   clearEndedCatchPullCache();
   await rehydrateSupabaseParticipantSessions();
+  const standalone = await pullStandaloneCatchesFromCloud();
+  if (!standalone.ok) console.warn("[standalone catch] pull:", standalone.error);
   await renderHistorySection();
   await reloadOpenStatsFromLocal();
 }
@@ -3276,6 +3298,10 @@ async function renderHome() {
     await rehydrateSupabaseParticipantSessions();
     await syncParticipantSessionFromCloudIfNeeded();
     await rehydrateSupabaseSessionContext();
+    if (navigator.onLine) {
+      const standalone = await pullStandaloneCatchesFromCloud();
+      if (!standalone.ok) console.warn("[standalone catch] pull:", standalone.error);
+    }
   } catch (err) {
     console.error("[Session] recovery cloud sync failed (continuing with local):", err);
   }
@@ -3895,11 +3921,57 @@ function showFishStep(n) {
     destroyFishEditMapUi();
     if (hintEl && n === 3) {
       hintEl.classList.remove("hidden");
-      hintEl.textContent =
-        "Location and weather are fetched automatically on save if location is available.";
+      hintEl.textContent = standaloneLocationHint();
     }
   }
   if (n === 3) renderOpenFishPhotoSlots();
+}
+
+function standaloneLocationHint() {
+  if (!fishState.standalone) {
+    return "Location and weather are fetched automatically on save if location is available.";
+  }
+  const ms = readStandaloneCaughtAtMs();
+  if (ms != null && isCatchTimeEffectivelyNow(ms)) {
+    return "Location and weather are added on save if GPS is available.";
+  }
+  return "Earlier catches are saved without the device's current location or weather.";
+}
+
+/** @returns {number | null} */
+function readStandaloneCaughtAtMs() {
+  const dateEl = /** @type {HTMLInputElement | null} */ (document.getElementById("fish-input-date"));
+  const timeEl = /** @type {HTMLInputElement | null} */ (document.getElementById("fish-input-time"));
+  return parseLocalDateTimeMs(dateEl?.value || "", timeEl?.value || "");
+}
+
+function fillStandaloneWhenInputs(ms = Date.now()) {
+  const dateEl = /** @type {HTMLInputElement | null} */ (document.getElementById("fish-input-date"));
+  const timeEl = /** @type {HTMLInputElement | null} */ (document.getElementById("fish-input-time"));
+  if (dateEl) dateEl.value = formatLocalDateInput(ms);
+  if (timeEl) timeEl.value = formatLocalTimeInput(ms);
+}
+
+function setStandaloneCatchUi(on) {
+  document.getElementById("fish-standalone-when")?.classList.toggle("hidden", !on);
+  const title = document.getElementById("fish-step-2-title");
+  if (title) title.textContent = on ? "Catch" : "2. Catch";
+  const back2 = document.getElementById("fish-back-2");
+  if (back2) back2.textContent = on ? "Cancel" : "Back";
+}
+
+function syncStandaloneGpsWatchToCatchTime() {
+  if (!fishState.standalone) return;
+  const ms = readStandaloneCaughtAtMs();
+  if (ms != null && isCatchTimeEffectivelyNow(ms)) {
+    startFishLoggingLocationWatch();
+  } else {
+    clearFishLoggingLocationCache();
+  }
+  const hintEl = document.getElementById("fish-location-hint");
+  if (hintEl && fishState.step === 3) {
+    hintEl.textContent = standaloneLocationHint();
+  }
 }
 
 /**
@@ -4007,6 +4079,7 @@ async function openFishOverlay() {
   fishEditReturnView = null;
   fishState.photoSlots.forEach(revokeFishPhotoSlot);
   fishState = freshFishState();
+  setStandaloneCatchUi(false);
   const next2 = document.getElementById("fish-next-2");
   if (next2) next2.disabled = true;
   const box = document.getElementById("species-buttons");
@@ -4028,6 +4101,40 @@ async function openFishOverlay() {
   showFishStep(1);
   showFishOverlay();
   startFishLoggingLocationWatch();
+}
+
+async function openStandaloneFishOverlay() {
+  const uid = await getAuthUserId();
+  if (!uid) {
+    showError("Not signed in.");
+    return;
+  }
+  fishEditReturnView = null;
+  fishState.photoSlots.forEach(revokeFishPhotoSlot);
+  fishState = freshFishState();
+  fishState.standalone = true;
+  fishState.anglerId = uid;
+  setStandaloneCatchUi(true);
+  fillStandaloneWhenInputs();
+  const next2 = document.getElementById("fish-next-2");
+  if (next2) next2.disabled = true;
+  const box = document.getElementById("species-buttons");
+  box?.querySelectorAll("button").forEach((el) => el.classList.remove("btn-selected"));
+  const notes = /** @type {HTMLTextAreaElement | null} */ (document.getElementById("fish-notes"));
+  if (notes) notes.value = "";
+  setFishPhotoSlotsFromUrls([]);
+  renderOpenFishPhotoSlots();
+  clearFishMeasurementInputs();
+  fishState.lengthStr = "";
+  fishState.weightStr = "";
+  fishState.depthStr = "";
+  fishState.waterTempStr = "";
+  const sumEl = document.getElementById("fish-save-summary");
+  if (sumEl) sumEl.textContent = "";
+  wireSpeciesButtons();
+  showFishStep(2);
+  showFishOverlay();
+  syncStandaloneGpsWatchToCatchTime();
 }
 
 async function populateFishAnglers() {
@@ -4957,6 +5064,13 @@ function mainAppInit() {
     setSyncStatus("offline");
   });
 
+  document.getElementById("btn-add-single-fish")?.addEventListener("click", () => {
+    closeCatchesOverlay();
+    closeSessionEndOverlay();
+    closeSessionSummaryOverlay();
+    void openStandaloneFishOverlay();
+  });
+
   document.getElementById("btn-open-start")?.addEventListener("click", async () => {
     closeCatchesOverlay();
     closeSessionEndOverlay();
@@ -5111,9 +5225,31 @@ function mainAppInit() {
     void dismissFishOverlay();
   });
 
-  document.getElementById("fish-back-2")?.addEventListener("click", () => showFishStep(1));
+  document.getElementById("fish-back-2")?.addEventListener("click", () => {
+    if (fishState.standalone) {
+      void dismissFishOverlay();
+      return;
+    }
+    showFishStep(1);
+  });
+  document.getElementById("fish-input-date")?.addEventListener("change", () => {
+    syncStandaloneGpsWatchToCatchTime();
+  });
+  document.getElementById("fish-input-date")?.addEventListener("input", () => {
+    syncStandaloneGpsWatchToCatchTime();
+  });
+  document.getElementById("fish-input-time")?.addEventListener("change", () => {
+    syncStandaloneGpsWatchToCatchTime();
+  });
+  document.getElementById("fish-input-time")?.addEventListener("input", () => {
+    syncStandaloneGpsWatchToCatchTime();
+  });
   document.getElementById("fish-next-2")?.addEventListener("click", () => {
     if (!fishState.species) return;
+    if (fishState.standalone && readStandaloneCaughtAtMs() == null) {
+      alert("Enter the catch date and time.");
+      return;
+    }
     syncFishStateFromMeasurementInputs();
     showFishStep(3);
   });
@@ -5126,6 +5262,15 @@ function mainAppInit() {
     if (!fishState.anglerId) {
       alert("Choose an angler.");
       return;
+    }
+    let caughtAtMs = Date.now();
+    if (fishState.standalone) {
+      const parsed = readStandaloneCaughtAtMs();
+      if (parsed == null) {
+        alert("Enter the catch date and time.");
+        return;
+      }
+      caughtAtMs = parsed;
     }
     const lenP = parseOptionalLengthCm(fishState.lengthStr);
     if (!lenP.ok) {
@@ -5188,13 +5333,15 @@ function mainAppInit() {
           };
         }
       }
-    } else {
+    } else if (!fishState.standalone || isCatchTimeEffectivelyNow(caughtAtMs)) {
       try {
         loc = await fetchDeviceLocationBestEffort();
       } catch (err) {
         console.error("[GPS] location fetch threw during save (non-blocking):", err);
         /* save without location */
       }
+    } else {
+      clearFishLoggingLocationCache();
     }
 
     const catchId = fishState.editingCatchId || newId();
@@ -5256,7 +5403,9 @@ function mainAppInit() {
 
     let result;
     try {
-      result = await saveCatch({ ...inputPayload, id: catchId }, loc);
+      result = fishState.standalone
+        ? await saveStandaloneCatch({ ...inputPayload, id: catchId, caughtAtMs }, loc)
+        : await saveCatch({ ...inputPayload, id: catchId }, loc);
     } catch (err) {
       console.error("[catch] saveCatch threw:", err);
       if (btn) {
@@ -5292,6 +5441,16 @@ function mainAppInit() {
       showError(`Supabase save failed: ${syncCreate.error}`);
     } else if (photoResult.error) {
       showError(photoResult.error);
+    }
+
+    if (fishState.standalone) {
+      fishState.standalone = false;
+      closeFishOverlay();
+      setStandaloneCatchUi(false);
+      await reloadOpenStatsFromLocal();
+      await renderHome();
+      if (!syncCreate || syncCreate.ok) showSuccess("Catch saved");
+      return;
     }
 
     showFishStep(4);

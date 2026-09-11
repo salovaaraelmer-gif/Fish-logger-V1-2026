@@ -174,8 +174,8 @@ export function catchRecordToSupabasePayload(
 
   return {
     user_id: authUserId,
-    session_id: supabaseSessionId,
-    angler_id: supabaseAnglerId,
+    session_id: supabaseSessionId || null,
+    angler_id: supabaseAnglerId || null,
     species: speciesForDb,
     length_cm: len,
     weight_kg: w,
@@ -294,7 +294,7 @@ export function handheldPayloadToCatchRecord(payload, ids) {
  * Cloud catch row → local CatchRecord. Keeps salmon and origin fields as stored.
  *
  * @param {Record<string, unknown>} row
- * @param {string} localSessionId
+ * @param {string | null} localSessionId
  * @param {string} anglerProfileId
  * @param {string} localCatchId
  * @returns {import('./db.js').CatchRecord}
@@ -339,6 +339,8 @@ export function cloudCatchRowToLocal(row, localSessionId, anglerProfileId, local
 
 export const CATCH_CLOUD_SELECT_COLUMNS = [
   "id",
+  "session_id",
+  "user_id",
   "angler_id",
   "species",
   "length_cm",

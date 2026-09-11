@@ -169,6 +169,21 @@ export function sessionsForPersonalStats(allSessions, rosterSessionIds, userId) 
 }
 
 /**
+ * Own session catches plus standalone catches (`sessionId` is null).
+ *
+ * @param {import('./db.js').CatchRecord[]} catches
+ * @param {string} userId
+ * @param {Set<string>} sessionIds
+ */
+export function catchesForPersonalStats(catches, userId, sessionIds) {
+  return catches.filter((c) => {
+    if (c.anglerId !== userId) return false;
+    if (c.sessionId == null || c.sessionId === "") return true;
+    return sessionIds.has(c.sessionId);
+  });
+}
+
+/**
  * @param {import('./db.js').Session[]} sessions
  * @param {import('./db.js').CatchRecord[]} catches
  * @param {number | typeof STATS_ALL_TIME} year

@@ -36,7 +36,7 @@ function isoToMs(iso) {
  */
 export function viewerCatchToRecord(row) {
   const id = typeof row.id === "string" ? row.id : "";
-  const sessionId = typeof row.session_id === "string" ? row.session_id : "";
+  const sessionId = typeof row.session_id === "string" && row.session_id ? row.session_id : null;
   const userId = typeof row.user_id === "string" ? row.user_id : "";
   const species = mapSpeciesFromDb(row.species) || "other";
   return {

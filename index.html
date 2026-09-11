@@ -208,6 +208,7 @@
           <section id="screen-home" class="screen is-visible">
             <div id="block-no-session" class="stack hidden">
               <button type="button" class="btn btn-primary" id="btn-open-start">Start fishing session</button>
+              <button type="button" class="btn btn-ghost" id="btn-add-single-fish">Add single fish</button>
             </div>
 
             <div id="block-active-session" class="stack hidden">
@@ -458,7 +459,13 @@
 
         <form id="fish-step-2" class="fish-step hidden" autocomplete="off" novalidate>
           <div class="fish-step-body">
-            <h2>2. Catch</h2>
+            <h2 id="fish-step-2-title">2. Catch</h2>
+            <div id="fish-standalone-when" class="fish-standalone-when hidden">
+              <div class="field-label">Date</div>
+              <input type="date" id="fish-input-date" aria-label="Catch date" />
+              <div class="field-label" style="margin-top: 0.75rem">Time</div>
+              <input type="time" id="fish-input-time" step="60" aria-label="Catch time" />
+            </div>
             <div class="field-label">Species (required)</div>
             <div class="grid-2" id="species-buttons"></div>
             <div style="margin-top: 1rem">

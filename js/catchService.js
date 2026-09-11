@@ -14,6 +14,7 @@ import { newId } from "./sessionService.js";
 import { fetchOpenMeteoCurrent } from "./weatherService.js";
 import { hideAppSpinner, showAppSpinner } from "./appSpinner.js";
 import { SPECIES_OPTIONS } from "./catchSpecies.js";
+import { isCatchTimeEffectivelyNow } from "./catchDateTime.js";
 import {
   CATCH_SOURCE_PHONE,
   ensureClientEventId,
@@ -257,6 +258,116 @@ export async function saveCatch(input, deviceLoc) {
     return { ok: true, record };
   } catch (err) {
     console.error("[catch] insert failed (local):", err);
+    return { ok: false, reason: "Local save failed." };
+  }
+}
+
+/**
+ * Saves a catch with no session. `caughtAtMs` is stored as `timestamp` / `caught_at`.
+ *
+ * @param {{
+ *   anglerId: string,
+ *   species: string,
+ *   length: number | null,
+ *   weight_kg: number | null,
+ *   notes: string,
+ *   depth_m: number | null,
+ *   water_temp_c: number | null,
+ *   photo_urls?: string[],
+ *   id?: string,
+ *   caughtAtMs: number,
+ * }} input
+ * @param {DeviceLocation} deviceLoc
+ * @returns {Promise<{ ok: true, record: import('./db.js').CatchRecord } | { ok: false, reason: string }>}
+ */
+export async function saveStandaloneCatch(input, deviceLoc) {
+  const authId = await getAuthUserId();
+  if (!authId) {
+    return { ok: false, reason: "Not signed in." };
+  }
+  if (input.anglerId !== authId) {
+    return { ok: false, reason: "You can only log a standalone catch as yourself." };
+  }
+  const species = (input.species || "").trim();
+  if (!species) {
+    return { ok: false, reason: "Species is required." };
+  }
+  if (!SPECIES_OPTIONS.includes(species)) {
+    return { ok: false, reason: "Invalid species." };
+  }
+  const length = input.length;
+  const weightKg = input.weight_kg;
+  if (length !== null && (typeof length !== "number" || length < 1)) {
+    return { ok: false, reason: "Length: empty or a positive whole number (not 0)." };
+  }
+  if (weightKg !== null && (typeof weightKg !== "number" || weightKg <= 0)) {
+    return { ok: false, reason: "Weight: empty or a positive number (kg)." };
+  }
+  const timestamp = input.caughtAtMs;
+  if (!Number.isFinite(timestamp) || timestamp <= 0) {
+    return { ok: false, reason: "Catch date and time are required." };
+  }
+
+  /** @type {import('./db.js').CatchRecord} */
+  const record = {
+    id: typeof input.id === "string" && input.id.trim() ? input.id.trim() : newId(),
+    sessionId: null,
+    anglerId: authId,
+    timestamp,
+    species,
+    length,
+    weight_kg: weightKg,
+    notes: (input.notes || "").trim(),
+    depth_m: input.depth_m,
+    water_temp_c: input.water_temp_c,
+    location_lat: null,
+    location_lng: null,
+    location_accuracy_m: null,
+    location_timestamp: null,
+    depth_source: input.depth_m != null ? "manual" : null,
+    water_temp_source: input.water_temp_c != null ? "manual" : null,
+    location_source: null,
+    weather_summary: null,
+    air_temp_c: null,
+    wind_speed_ms: null,
+    wind_direction_deg: null,
+    supabase_id: null,
+    source: CATCH_SOURCE_PHONE,
+    device_id: null,
+    client_event_id: newClientEventId(),
+    photo_urls: normalizePhotoUrls(input.photo_urls),
+  };
+
+  const useLiveContext = isCatchTimeEffectivelyNow(timestamp);
+  if (useLiveContext) {
+    applyLocationFields(record, deviceLoc);
+  }
+
+  if (
+    useLiveContext &&
+    record.location_lat != null &&
+    record.location_lng != null &&
+    typeof record.location_lat === "number" &&
+    typeof record.location_lng === "number"
+  ) {
+    try {
+      const weather = await fetchOpenMeteoCurrent(record.location_lat, record.location_lng);
+      if (weather) {
+        record.weather_summary = weather.weather_summary;
+        record.air_temp_c = weather.air_temp_c;
+        record.wind_speed_ms = weather.wind_speed_ms;
+        record.wind_direction_deg = weather.wind_direction_deg;
+      }
+    } catch (err) {
+      console.warn("[catch] standalone weather fetch failed (non-blocking):", err);
+    }
+  }
+
+  try {
+    await putCatch(record);
+    return { ok: true, record };
+  } catch (err) {
+    console.error("[catch] standalone insert failed (local):", err);
     return { ok: false, reason: "Local save failed." };
   }
 }

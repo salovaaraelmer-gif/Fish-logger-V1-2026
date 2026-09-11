@@ -10,7 +10,9 @@ import {
   putCatch,
   findSessionAngler,
   getCatchesForSession,
+  getAllCatches,
 } from "./db.js";
+import { getAuthUserId } from "./auth.js";
 import { fetchSessionAnglerIdBySessionAndUser } from "./legacyAnglers.js";
 import {
   CATCH_CLOUD_SELECT_COLUMNS,
@@ -181,4 +183,51 @@ export async function pullRosterAndCatchesForSessions(sessions, opts = {}) {
     else console.warn("[participantSync] session pull:", pr.error);
   });
   return { pulledCloudIds };
+}
+
+/**
+ * Own catches with no session, for Stats and Map on other devices.
+ * @returns {Promise<{ ok: true } | { ok: false, error: string }>}
+ */
+export async function pullStandaloneCatchesFromCloud() {
+  const uid = await getAuthUserId();
+  if (!uid) return { ok: false, error: "Not signed in." };
+  const catchesRes = await supabase
+    .from("catches")
+    .select(CATCH_CLOUD_SELECT_COLUMNS)
+    .is("session_id", null)
+    .eq("user_id", uid);
+  if (catchesRes.error) {
+    return { ok: false, error: catchesRes.error.message || "standalone catch pull failed" };
+  }
+  const catchRows = Array.isArray(catchesRes.data) ? catchesRes.data : [];
+  const existing = await getAllCatches();
+  /** @type {Map<string, import('./db.js').CatchRecord>} */
+  const bySupabaseId = new Map();
+  /** @type {Map<string, import('./db.js').CatchRecord>} */
+  const byClientEventId = new Map();
+  for (const c of existing) {
+    if (c.sessionId) continue;
+    if (typeof c.supabase_id === "string" && c.supabase_id) {
+      bySupabaseId.set(c.supabase_id, c);
+    }
+    if (isUuid(c.client_event_id)) {
+      byClientEventId.set(c.client_event_id, c);
+    }
+  }
+  for (const raw of catchRows) {
+    if (!raw || typeof raw !== "object") continue;
+    const row = /** @type {Record<string, unknown>} */ (raw);
+    const sbId = typeof row.id === "string" ? row.id : null;
+    if (!sbId) continue;
+    const eventId = isUuid(row.client_event_id) ? row.client_event_id : null;
+    const prev = bySupabaseId.get(sbId) || (eventId ? byClientEventId.get(eventId) : undefined);
+    const localId = prev?.id ?? newLocalId();
+    const rec = cloudCatchRowToLocal(row, null, uid, localId);
+    if (prev && isUuid(prev.client_event_id) && !isUuid(row.client_event_id)) {
+      rec.client_event_id = prev.client_event_id;
+    }
+    await putCatch(rec);
+  }
+  return { ok: true };
 }

@@ -18,8 +18,8 @@ The client sends **snake_case** fields aligned with local names. Ensure your tab
 |--------|------------------|--------|
 | `id` | `uuid` | Primary key, default `gen_random_uuid()` |
 | `user_id` | `uuid` | Owner; FK to `auth.users`, must equal `auth.uid()` (see `SUPABASE_AUTH_RLS.md`) |
-| `session_id` | `uuid` | FK to your sessions table |
-| `angler_id` | `uuid` | FK to **`public.anglers`** (`id`). Rows are **session-scoped**: same user gets a new `anglers` row per session (`session_id` + `user_id`). The app creates those rows when the cloud session starts and resolves by **`session_id` + `user_id`**, not by `user_id` alone. |
+| `session_id` | `uuid` | FK to `sessions`. **NULL** = standalone catch (not part of a session). CHECK `catches_session_or_standalone`. Session delete cascades only rows with a session. |
+| `angler_id` | `uuid` | FK to **`public.anglers`** (`id`). Required for session catches. **NULL** for standalone catches (`user_id` is the owner). Session-scoped: same user gets a new `anglers` row per session (`session_id` + `user_id`). |
 | `species` | `text` | App sends `pike`, `perch`, `zander`, `trout`, `salmon`, `other` (same as internal keys). CHECK `catches_species_allowed`. |
 | `length_cm` | `numeric` | Nullable |
 | `weight_kg` | `numeric` | Kilograms, nullable |

@@ -714,6 +714,12 @@ h2 {
   background: transparent;
 }
 
+#btn-add-single-fish {
+  margin-top: 0.35rem;
+  font-weight: 500;
+  color: var(--muted);
+}
+
 .btn-selected {
   outline: 3px solid var(--accent);
   border-color: var(--accent);
@@ -1763,6 +1769,15 @@ textarea {
 .start-search-result-btn {
   text-align: left;
   justify-content: flex-start;
+}
+
+.fish-standalone-when {
+  margin: 0 0 1rem;
+}
+
+.fish-standalone-when input[type="date"],
+.fish-standalone-when input[type="time"] {
+  width: 100%;
 }
 
 .fish-inner {
