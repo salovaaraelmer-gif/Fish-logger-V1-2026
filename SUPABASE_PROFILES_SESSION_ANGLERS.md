@@ -1,6 +1,13 @@
 # Profiles + `session_anglers` (user-based session roster)
 
-Run in the **Supabase SQL editor** (or a migration). This **does not** delete existing `sessions` / `anglers` / `catches` data. The legacy `public.anglers` table can stay until the app migrates.
+Run in the **Supabase SQL editor** (or a migration). This **does not** delete existing `sessions` / `anglers` / `catches` data.
+
+**Two participant tables (both required):**
+
+- **`session_anglers`** — who is in the session (history, feed membership checks via `is_session_participant`, roster UI).
+- **`anglers`** — session-scoped row used as `catches.angler_id`. One row per `(session_id, user_id)`.
+
+Keep them in sync. Session create uses `public.create_fishing_session` so both are written in one transaction.
 
 **Active session (for app logic later):** `sessions.ended_at IS NULL`. Add `ended_at` below if your `sessions` table does not have it yet.
 

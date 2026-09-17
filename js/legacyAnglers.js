@@ -2,10 +2,14 @@
  * Session-scoped `public.anglers` rows for `catches.angler_id` FK.
  * Each cloud session gets one `anglers` row per participant (`session_id`, `user_id`, `name`).
  * Lookups use `session_id` + `user_id` only (not global `user_id`).
+ * Session membership itself lives in `session_anglers`.
  * @module legacyAnglers
  */
 
 import { supabase } from "./supabase.js";
+import { missingAnglersRowUiMessage } from "./sessionCloudParse.js";
+
+export { missingAnglersRowUiMessage };
 
 /**
  * @param {string} cloudSessionId — `public.sessions.id`
@@ -28,6 +32,88 @@ export async function fetchSessionAnglerIdBySessionAndUser(cloudSessionId, userI
     return data.id;
   }
   return null;
+}
+
+/**
+ * @param {string} cloudSessionId
+ * @param {string} userId
+ * @returns {Promise<{ exists: boolean, error: string | null }>}
+ */
+export async function fetchSessionMembership(cloudSessionId, userId) {
+  if (!cloudSessionId || !userId) {
+    return { exists: false, error: null };
+  }
+  const { data, error } = await supabase
+    .from("session_anglers")
+    .select("id")
+    .eq("session_id", cloudSessionId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (error) {
+    console.warn("[session_anglers] membership lookup failed:", error.message);
+    return { exists: false, error: error.message };
+  }
+  return {
+    exists: Boolean(data && typeof data.id === "string" && data.id),
+    error: null,
+  };
+}
+
+/**
+ * Resolve `public.anglers.id` for a participant. If they are already on the
+ * `session_anglers` roster but the mapping row is missing, insert it once.
+ * Does not create session membership.
+ *
+ * @param {string} cloudSessionId
+ * @param {string} userId
+ * @returns {Promise<{
+ *   ok: true,
+ *   id: string,
+ *   repaired: boolean,
+ *   membershipExists: true,
+ * } | {
+ *   ok: false,
+ *   membershipExists: boolean,
+ * }>}
+ */
+export async function resolveSessionScopedAnglerId(cloudSessionId, userId) {
+  if (!cloudSessionId || !userId) {
+    return { ok: false, membershipExists: false };
+  }
+  const existing = await fetchSessionAnglerIdBySessionAndUser(cloudSessionId, userId);
+  if (existing) {
+    return { ok: true, id: existing, repaired: false, membershipExists: true };
+  }
+  const membership = await fetchSessionMembership(cloudSessionId, userId);
+  if (!membership.exists) {
+    return { ok: false, membershipExists: false };
+  }
+  const inserted = await supabase
+    .from("anglers")
+    .insert({
+      session_id: cloudSessionId,
+      user_id: userId,
+      name: "Angler",
+    })
+    .select("id")
+    .maybeSingle();
+  if (!inserted.error && inserted.data && typeof inserted.data.id === "string") {
+    return { ok: true, id: inserted.data.id, repaired: true, membershipExists: true };
+  }
+  const code =
+    inserted.error && typeof inserted.error === "object" && "code" in inserted.error
+      ? String(inserted.error.code)
+      : "";
+  if (code === "23505") {
+    const again = await fetchSessionAnglerIdBySessionAndUser(cloudSessionId, userId);
+    if (again) {
+      return { ok: true, id: again, repaired: false, membershipExists: true };
+    }
+  }
+  if (inserted.error) {
+    console.warn("[anglers] repair insert failed:", inserted.error.message);
+  }
+  return { ok: false, membershipExists: true };
 }
 
 /**
@@ -80,35 +166,3 @@ export async function fetchAnglerForHandheldCatch(cloudSessionId, anglerIdOrUser
   return null;
 }
 
-/**
- * Creates one `public.anglers` row per participant after the cloud session exists.
- * @param {string} cloudSessionId
- * @param {{ user_id: string, name: string }[]} entries
- * @returns {Promise<{ ok: true, idByUserId: Map<string, string> } | { ok: false, error: string }>}
- */
-export async function insertSessionScopedAnglers(cloudSessionId, entries) {
-  if (!cloudSessionId || !Array.isArray(entries) || entries.length === 0) {
-    return { ok: true, idByUserId: new Map() };
-  }
-  const rows = entries.map((e) => ({
-    session_id: cloudSessionId,
-    user_id: e.user_id,
-    name: (e.name || "").trim() || "Angler",
-  }));
-  const { data, error } = await supabase.from("anglers").insert(rows).select("id, user_id");
-  if (error) {
-    console.error("[anglers] session-scoped insert failed:", error.message);
-    return { ok: false, error: error.message };
-  }
-  /** @type {Map<string, string>} */
-  const idByUserId = new Map();
-  for (const row of data || []) {
-    if (row && typeof row.user_id === "string" && typeof row.id === "string") {
-      idByUserId.set(row.user_id, row.id);
-    }
-  }
-  if (idByUserId.size !== entries.length) {
-    return { ok: false, error: "Supabase returned fewer angler rows than expected." };
-  }
-  return { ok: true, idByUserId };
-}

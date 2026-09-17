@@ -130,14 +130,34 @@ create policy "sessions_select_participant"
 
 ### `anglers`
 
+`public.anglers` is the **session-scoped catch mapping** (`catches.angler_id`). **`session_anglers` is session membership** (history, `is_session_participant`). Both must be created together; the app uses `create_fishing_session`.
+
+Do **not** use `WITH CHECK (auth.uid() = user_id)` alone for INSERT — the session owner must be able to create rows for other participants. A leftover `"own data only anglers"` ALL policy with that check blocked multi-person session start.
+
 ```sql
+drop policy if exists "own data only anglers" on public.anglers;
+drop policy if exists "anglers_insert_own" on public.anglers;
+
 create policy "anglers_select_own"
   on public.anglers for select
   using (auth.uid() = user_id);
 
-create policy "anglers_insert_own"
+create policy "anglers_insert_session_owner"
   on public.anglers for insert
-  with check (auth.uid() = user_id);
+  to authenticated
+  with check (
+    public.is_session_owner(session_id)
+    and exists (select 1 from public.profiles p where p.id = anglers.user_id)
+  );
+
+create policy "anglers_insert_self_if_participant"
+  on public.anglers for insert
+  to authenticated
+  with check (
+    (select auth.uid()) = user_id
+    and public.is_session_participant(session_id)
+    and exists (select 1 from public.profiles p where p.id = anglers.user_id)
+  );
 
 create policy "anglers_update_own"
   on public.anglers for update
@@ -149,15 +169,21 @@ create policy "anglers_delete_own"
   using (auth.uid() = user_id);
 ```
 
-**Multi-device:** Other participants must **read** session-scoped `anglers` rows for the same session (names / FK for catches). Add a separate `SELECT` policy (uses **`is_session_participant`** from §1b; does not recurse):
+**Multi-device:** Other participants must **read** session-scoped `anglers` rows for the same session (names / FK for catches). Add a separate `SELECT` policy (uses **`is_session_participant`** from §1b; does not recurse). Session owners can read all mappings even if their own roster row is missing:
 
 ```sql
 drop policy if exists "anglers_select_session_participant" on public.anglers;
+drop policy if exists "anglers_select_session_owner" on public.anglers;
 
 create policy "anglers_select_session_participant"
   on public.anglers for select
   to authenticated
   using (public.is_session_participant(session_id));
+
+create policy "anglers_select_session_owner"
+  on public.anglers for select
+  to authenticated
+  using (public.is_session_owner(session_id));
 ```
 
 ### `catches`

@@ -39,3 +39,4 @@ The same expectation is encoded for Cursor in **`.cursor/rules/supabase-sql-summ
 | `supabase/migrations/20260822120000_catches_photo_urls.sql` | Catch `photo_urls` (max 2) + `catch-photos` Storage bucket |
 | `supabase/migrations/20260907120000_friends_privacy_feed_rls.sql` | Mutual `friendships`, catch-location privacy, friend read RPCs (GPS masked) |
 | `supabase/migrations/20260911120000_catches_standalone_session_id.sql` | Standalone catches: nullable `session_id` / `angler_id` |
+| `supabase/migrations/20260916120000_anglers_session_owner_participant_rls.sql` | Owner can insert session-scoped `anglers` rows; unique `(session_id, user_id)`; atomic `create_fishing_session` RPC; backfill missing owner mappings |

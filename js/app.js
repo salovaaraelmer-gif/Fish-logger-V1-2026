@@ -151,9 +151,10 @@ import {
   deleteSupabaseCatch,
 } from "./supabaseCatchSync.js";
 import {
-  fetchSessionAnglerIdBySessionAndUser,
-  insertSessionScopedAnglers,
+  missingAnglersRowUiMessage,
+  resolveSessionScopedAnglerId,
 } from "./legacyAnglers.js";
+import { createCloudSessionWithParticipants } from "./cloudSessionCreate.js";
 import { fetchParticipantSessionsForUser } from "./supabaseParticipantSessions.js";
 import {
   setParticipantSessionFetchResult,
@@ -242,47 +243,19 @@ async function getSessionOwnerUserId(session) {
 async function resolveLegacyAnglerIdForCloudCatch(profileUserId, cloudSessionId) {
   const sid = cloudSessionId || activeSupabaseSessionId;
   if (!sid) return null;
-  const id = await fetchSessionAnglerIdBySessionAndUser(sid, profileUserId);
-  if (id) {
-    supabaseAnglerRowByLocalId.set(profileUserId, { id });
+  const resolved = await resolveSessionScopedAnglerId(sid, profileUserId);
+  if (resolved.ok) {
+    supabaseAnglerRowByLocalId.set(profileUserId, { id: resolved.id });
+    return resolved.id;
   }
-  return id;
-}
-
-/**
- * Adds roster rows in `session_anglers` for selected anglers whose local id matches a `profiles.id`.
- * @param {string} cloudSessionId
- * @param {string[]} selectedLocalAnglerIds
- * @returns {Promise<{ ok: true, profileIds: string[] } | { ok: false, error: string }>}
- */
-async function insertSessionAnglersForSelectedProfiles(cloudSessionId, selectedLocalAnglerIds) {
-  const candidates = [...new Set(selectedLocalAnglerIds)];
-  const profileIds = [];
-  for (const user_id of candidates) {
-    const { data, error } = await supabase
-      .from("session_anglers")
-      .insert({ session_id: cloudSessionId, user_id })
-      .select("user_id")
-      .maybeSingle();
-    if (!error && data && typeof data.user_id === "string") {
-      profileIds.push(data.user_id);
-      continue;
-    }
-    const code = error && typeof error === "object" && "code" in error ? String(error.code) : "";
-    const msg = error && typeof error.message === "string" ? error.message.toLowerCase() : "";
-    if (code === "23505" || msg.includes("duplicate") || msg.includes("unique")) {
-      profileIds.push(user_id);
-      continue;
-    }
-    if (code === "23503" || msg.includes("foreign key")) {
-      continue;
-    }
-    if (error) {
-      console.error("[Supabase] session_anglers insert failed:", error);
-      return { ok: false, error: error.message || "session_anglers insert failed" };
-    }
-  }
-  return { ok: true, profileIds };
+  const authUserId = await getAuthUserId();
+  console.warn("[catch sync] missing anglers mapping", {
+    sessionId: sid,
+    currentUserId: authUserId,
+    selectedParticipantUserId: profileUserId,
+    sessionMembershipExists: resolved.membershipExists,
+  });
+  return null;
 }
 
 /**
@@ -548,11 +521,11 @@ async function rehydrateSupabaseSessionContext() {
   supabaseAnglerRowByLocalId.clear();
   const sas = await getSessionAnglersForSession(session.id);
   for (const sa of sas) {
-    const scoped = await fetchSessionAnglerIdBySessionAndUser(cloudSid, sa.anglerId);
-    if (scoped) {
-      supabaseAnglerRowByLocalId.set(sa.anglerId, { id: scoped });
-      if (typeof sa.supabaseAnglerId !== "string" || sa.supabaseAnglerId !== scoped) {
-        await putSessionAngler({ ...sa, supabaseAnglerId: scoped });
+    const resolved = await resolveSessionScopedAnglerId(cloudSid, sa.anglerId);
+    if (resolved.ok) {
+      supabaseAnglerRowByLocalId.set(sa.anglerId, { id: resolved.id });
+      if (typeof sa.supabaseAnglerId !== "string" || sa.supabaseAnglerId !== resolved.id) {
+        await putSessionAngler({ ...sa, supabaseAnglerId: resolved.id });
       }
     } else if (typeof sa.supabaseAnglerId === "string" && sa.supabaseAnglerId) {
       supabaseAnglerRowByLocalId.set(sa.anglerId, { id: sa.supabaseAnglerId });
@@ -589,8 +562,7 @@ async function syncCatchCreateToSupabase(record) {
   if (!sbAnglerId) {
     return {
       ok: false,
-      error:
-        "No anglers row found for this participant in this session (session_id + user_id). Restart the session or check the cloud.",
+      error: missingAnglersRowUiMessage(),
     };
   }
   setSyncStatus("syncing");
@@ -633,8 +605,7 @@ async function syncCatchUpdateToSupabase(record) {
   if (!sbAnglerId) {
     return {
       ok: false,
-      error:
-        "No anglers row found for this participant in this session (session_id + user_id).",
+      error: missingAnglersRowUiMessage(),
     };
   }
   const authUserId = await getAuthUserId();
@@ -3658,6 +3629,16 @@ function buildStartSessionParticipantPicker(selfAnglerId, selfDisplayName) {
     showAppSpinner();
     try {
     const btn = /** @type {HTMLButtonElement | null} */ (document.getElementById("start-confirm"));
+    const authUserId = await getAuthUserId();
+    if (!authUserId) {
+      showError("Not signed in. Please log in again.");
+      return;
+    }
+    if (!navigator.onLine) {
+      showError("Need a connection to start a session.");
+      setSyncStatus("offline");
+      return;
+    }
     if (btn) {
       btn.disabled = true;
       btn.textContent = "Getting location…";
@@ -3690,127 +3671,77 @@ function buildStartSessionParticipantPicker(selfAnglerId, selfDisplayName) {
       if (!sel.ok) showError(sel.error);
     }
 
-    const ownerUidEarly = await getAuthUserId();
-    if (ownerUidEarly) {
-      const justStarted = await getSessionById(r.sessionId);
-      if (justStarted) {
-        await putSession({ ...justStarted, ownerUserId: ownerUidEarly });
-      }
+    const justStarted = await getSessionById(r.sessionId);
+    if (justStarted) {
+      await putSession({ ...justStarted, ownerUserId: authUserId });
     }
 
-    if (!navigator.onLine) {
-      setSyncStatus("offline");
-    } else {
-      setSyncStatus("syncing");
-    }
-    const authUserId = await getAuthUserId();
-    if (!authUserId) {
-      showError("Not signed in. Please log in again.");
-      activeSupabaseSessionId = null;
-      setSyncStatus("error");
-    } else {
+    setSyncStatus("syncing");
+    activeSupabaseAnglerRows = null;
+    supabaseAnglerRowByLocalId.clear();
     const localForStart = await getSessionById(r.sessionId);
     const startedAtIso = localForStart
       ? new Date(localForStart.startTime).toISOString()
       : new Date().toISOString();
-    const { data, error } = await supabase
-      .from("sessions")
-      .insert([
-        {
-          title: r.title,
-          notes: null,
-          user_id: authUserId,
-          started_at: startedAtIso,
-        },
-      ])
-      .select()
-      .single();
-
-    if (error) {
-      console.error("[Supabase] sessions insert failed:", error.message, error);
-      showError("Could not save the session to Supabase. See the console.");
+    const cloud = await createCloudSessionWithParticipants({
+      title: r.title,
+      startedAtIso,
+      participantIds: [...selected],
+    });
+    if (!cloud.ok) {
+      console.error("[session create] cloud setup failed:", cloud.error);
+      await deleteSessionCascade(r.sessionId);
       activeSupabaseSessionId = null;
-      setSyncStatus(navigator.onLine ? "error" : "offline");
-    } else if (data?.id) {
-      activeSupabaseSessionId = data.id;
-      setSyncStatus("synced");
-      const localS = await getSessionById(r.sessionId);
-      if (localS) {
-        await putSession({
-          ...localS,
-          supabaseSessionId: data.id,
-          ownerUserId: localS.ownerUserId ?? authUserId,
-        });
-      }
-    } else {
-      console.error("[Supabase] sessions insert: no row id returned", data);
-      showError("Could not save the session to Supabase. See the console.");
-      activeSupabaseSessionId = null;
-      setSyncStatus(navigator.onLine ? "error" : "offline");
-    }
+      activeSupabaseAnglerRows = null;
+      supabaseAnglerRowByLocalId.clear();
+      setSyncStatus("error");
+      showError(cloud.error);
+      return;
     }
 
-    activeSupabaseAnglerRows = null;
-    supabaseAnglerRowByLocalId.clear();
-    if (activeSupabaseSessionId && authUserId) {
-      const selectedIds = [...selected];
-      const nameById = await fetchProfileDisplayNames(selectedIds);
-      const anglerEntries = selectedIds.map((uid) => {
-        const label = nameById[uid];
-        const name =
-          typeof label === "string" && label.trim() ? label.trim() : "Angler";
-        return { user_id: uid, name };
+    activeSupabaseSessionId = cloud.sessionId;
+    const localS = await getSessionById(r.sessionId);
+    if (localS) {
+      await putSession({
+        ...localS,
+        supabaseSessionId: cloud.sessionId,
+        ownerUserId: localS.ownerUserId ?? authUserId,
       });
+    }
 
-      const angIns = await insertSessionScopedAnglers(activeSupabaseSessionId, anglerEntries);
-      if (!angIns.ok) {
-        console.error("[Supabase] anglers (session-scoped):", angIns.error);
-        showError(`Failed to save anglers to the cloud: ${angIns.error}`);
-        setSyncStatus(navigator.onLine ? "error" : "offline");
-      } else {
-        const rosterRes = await insertSessionAnglersForSelectedProfiles(
-          activeSupabaseSessionId,
-          selectedIds
-        );
-        if (!rosterRes.ok) {
-          console.error("[Supabase] session_anglers:", rosterRes.error);
-          showError("Could not save the angler list to the Supabase session. See the console.");
-          setSyncStatus(navigator.onLine ? "error" : "offline");
-        } else {
-          const rosterSet = new Set(rosterRes.profileIds);
-          activeSupabaseAnglerRows = rosterRes.profileIds.map((user_id) => ({
-            session_id: activeSupabaseSessionId,
-            user_id,
-          }));
-          let rosterOk = true;
-          for (const localId of selectedIds) {
-            if (!rosterSet.has(localId)) continue;
-            const anglersRowId = angIns.idByUserId.get(localId);
-            if (!anglersRowId) {
-              rosterOk = false;
-              showError("Angler cloud id was missing. Try again.");
-              setSyncStatus("error");
-              break;
-            }
-            supabaseAnglerRowByLocalId.set(localId, { id: anglersRowId });
-            const sa = await findSessionAngler(r.sessionId, localId);
-            if (sa) {
-              await putSessionAngler({ ...sa, supabaseAnglerId: anglersRowId });
-            }
-          }
-          if (rosterOk) {
-            setSyncStatus("synced");
-            const cur = await getSessionSelectedCatalogIds(r.sessionId);
-            const sel = await setSessionCatalogSelections(
-              r.sessionId,
-              cur.locationIds,
-              startTargetIds.length ? startTargetIds : cur.targetSpeciesIds
-            );
-            if (!sel.ok) showError(sel.error);
-          }
-        }
+    const selectedIds = [...selected];
+    activeSupabaseAnglerRows = selectedIds.map((user_id) => ({
+      session_id: cloud.sessionId,
+      user_id,
+    }));
+    for (const localId of selectedIds) {
+      const anglersRowId = cloud.idByUserId.get(localId);
+      if (!anglersRowId) {
+        console.error("[session create] missing mapping after RPC for a selected participant");
+        await supabase.from("sessions").delete().eq("id", cloud.sessionId).eq("user_id", authUserId);
+        await deleteSessionCascade(r.sessionId);
+        activeSupabaseSessionId = null;
+        activeSupabaseAnglerRows = null;
+        supabaseAnglerRowByLocalId.clear();
+        setSyncStatus("error");
+        showError("The session was not started because participants could not be saved.");
+        return;
+      }
+      supabaseAnglerRowByLocalId.set(localId, { id: anglersRowId });
+      const sa = await findSessionAngler(r.sessionId, localId);
+      if (sa) {
+        await putSessionAngler({ ...sa, supabaseAnglerId: anglersRowId });
       }
     }
+
+    setSyncStatus("synced");
+    const cur = await getSessionSelectedCatalogIds(r.sessionId);
+    const sel = await setSessionCatalogSelections(
+      r.sessionId,
+      cur.locationIds,
+      startTargetIds.length ? startTargetIds : cur.targetSpeciesIds
+    );
+    if (!sel.ok) showError(sel.error);
 
     showSessionHomeScreen();
     selected.clear();
