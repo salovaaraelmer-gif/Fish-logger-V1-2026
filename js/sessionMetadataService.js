@@ -8,16 +8,19 @@ import {
   getAllUserTargetSpecies,
   putUserFishingLocation,
   putUserTargetSpecies,
+  deleteUserFishingLocation,
   getSessionFishingLocationLinks,
   getSessionTargetSpeciesLinks,
   putSessionFishingLocationLink,
   putSessionTargetSpeciesLink,
   deleteSessionFishingLocationLinksForSession,
+  deleteSessionFishingLocationLinksForLocationIds,
   deleteSessionTargetSpeciesLinksForSession,
   getSessionById,
 } from "./db.js";
 import { getAuthUserId } from "./auth.js";
 import { supabase } from "./supabase.js";
+import { localFishingLocationIdsToRemove } from "./fishingLocationSyncPolicy.js";
 
 /** @typedef {import('./db.js').UserFishingLocation} UserFishingLocation */
 /** @typedef {import('./db.js').UserTargetSpecies} UserTargetSpecies */
@@ -125,7 +128,9 @@ export async function ensureDefaultTargetSpeciesCatalog() {
 }
 
 /**
- * Merges cloud catalog rows into IndexedDB for the signed-in user.
+ * Syncs cloud catalogs into IndexedDB for the signed-in user.
+ * Fishing locations: cloud is authoritative (successful empty clears stale local rows).
+ * Target species: merge-only (unchanged seeding / offline create behavior).
  * @returns {Promise<{ ok: true } | { ok: false, error: string }>}
  */
 export async function syncUserCatalogsFromCloud() {
@@ -149,7 +154,8 @@ export async function syncUserCatalogsFromCloud() {
     localSp.filter((r) => r.supabaseId).map((r) => [/** @type {string} */ (r.supabaseId), r])
   );
 
-  for (const row of locRes.data || []) {
+  const cloudLocRows = locRes.data || [];
+  for (const row of cloudLocRows) {
     const sbId = String(row.id);
     const existing = locBySb.get(sbId);
     const item = {
@@ -160,6 +166,18 @@ export async function syncUserCatalogsFromCloud() {
       supabaseId: sbId,
     };
     await putUserFishingLocation(item);
+  }
+
+  const staleLocIds = localFishingLocationIdsToRemove(
+    localLocs,
+    cloudLocRows.map((r) => String(r.id)),
+    uid
+  );
+  for (const id of staleLocIds) {
+    await deleteUserFishingLocation(id);
+  }
+  if (staleLocIds.length) {
+    await deleteSessionFishingLocationLinksForLocationIds(staleLocIds);
   }
 
   for (const row of spRes.data || []) {
@@ -350,6 +368,9 @@ export async function syncSessionLinksToCloud(sessionId, cloudSessionId) {
 }
 
 /**
+ * Pulls session catalog links from cloud into IndexedDB.
+ * On a successful fetch, cloud is authoritative — including zero rows.
+ * Failed fetch / offline: leave local links untouched.
  * @param {string} localSessionId
  * @param {string} cloudSessionId
  * @returns {Promise<void>}
@@ -368,16 +389,15 @@ export async function loadSessionLinksFromCloud(localSessionId, cloudSessionId) 
       .eq("session_id", cloudSessionId),
   ]);
 
+  // Failed fetch: preserve local IndexedDB (do not clear, do not push).
   if (locRes.error || spRes.error) return;
-
-  const cloudEmpty = !(locRes.data?.length) && !(spRes.data?.length);
-  if (cloudEmpty) {
-    await syncSessionLinksToCloud(localSessionId, cloudSessionId);
-    return;
-  }
 
   const uid = await getAuthUserId();
   if (!uid) return;
+
+  // Successful empty cloud links are authoritative — do not push stale IndexedDB back.
+  const cloudLocRows = locRes.data || [];
+  const cloudSpRows = spRes.data || [];
 
   await deleteSessionFishingLocationLinksForSession(localSessionId);
   await deleteSessionTargetSpeciesLinksForSession(localSessionId);
@@ -385,7 +405,7 @@ export async function loadSessionLinksFromCloud(localSessionId, cloudSessionId) 
   const allLocs = await getAllUserFishingLocations();
   const allSp = await getAllUserTargetSpecies();
 
-  for (const row of locRes.data || []) {
+  for (const row of cloudLocRows) {
     const embed = row.user_fishing_locations;
     const cloud = Array.isArray(embed) ? embed[0] : embed;
     if (!cloud || typeof cloud !== "object") continue;
@@ -400,6 +420,7 @@ export async function loadSessionLinksFromCloud(localSessionId, cloudSessionId) 
         supabaseId: String(c.id),
       };
       await putUserFishingLocation(local);
+      allLocs.push(local);
     }
     await putSessionFishingLocationLink({
       id: newLocalId(),
@@ -408,7 +429,7 @@ export async function loadSessionLinksFromCloud(localSessionId, cloudSessionId) 
     });
   }
 
-  for (const row of spRes.data || []) {
+  for (const row of cloudSpRows) {
     const embed = row.user_target_species;
     const cloud = Array.isArray(embed) ? embed[0] : embed;
     if (!cloud || typeof cloud !== "object") continue;
@@ -423,6 +444,7 @@ export async function loadSessionLinksFromCloud(localSessionId, cloudSessionId) 
         supabaseId: String(c.id),
       };
       await putUserTargetSpecies(local);
+      allSp.push(local);
     }
     await putSessionTargetSpeciesLink({
       id: newLocalId(),

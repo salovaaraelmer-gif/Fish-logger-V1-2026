@@ -713,6 +713,19 @@ export async function putUserFishingLocation(row) {
   });
 }
 
+/**
+ * @param {string} id
+ * @returns {Promise<void>}
+ */
+export async function deleteUserFishingLocation(id) {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const r = db.transaction("userFishingLocations", "readwrite").objectStore("userFishingLocations").delete(id);
+    r.onerror = () => reject(r.error);
+    r.onsuccess = () => resolve();
+  });
+}
+
 export async function getAllUserTargetSpecies() {
   const db = await openDb();
   return new Promise((resolve, reject) => {
@@ -807,6 +820,33 @@ export async function deleteSessionFishingLocationLinksForSession(sessionId) {
     for (const link of links) {
       store.delete(link.id);
     }
+  });
+}
+
+/**
+ * Removes session↔location links that point at the given local catalog ids.
+ * @param {Iterable<string>} locationIds
+ * @returns {Promise<void>}
+ */
+export async function deleteSessionFishingLocationLinksForLocationIds(locationIds) {
+  const idSet = new Set([...locationIds].filter((id) => typeof id === "string" && id));
+  if (idSet.size === 0) return;
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("sessionFishingLocations", "readwrite");
+    tx.onerror = () => reject(tx.error);
+    tx.oncomplete = () => resolve();
+    const store = tx.objectStore("sessionFishingLocations");
+    const r = store.getAll();
+    r.onerror = () => reject(r.error);
+    r.onsuccess = () => {
+      const rows = /** @type {SessionFishingLocationLink[]} */ (r.result || []);
+      for (const row of rows) {
+        if (idSet.has(row.locationId)) {
+          store.delete(row.id);
+        }
+      }
+    };
   });
 }
 
