@@ -1,52 +1,60 @@
 /**
- * Cloud-authoritative fishing-location sync policy.
+ * Cloud-authoritative global fishing-location sync policy.
  */
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+  fishingLocationNamesMatch,
   localFishingLocationIdsToRemove,
+  normalizeFishingLocationName,
   shouldUploadLocalSessionLinksForEmptyCloud,
 } from "../js/fishingLocationSyncPolicy.js";
 
-describe("localFishingLocationIdsToRemove", () => {
-  const uid = "user-a";
+describe("normalizeFishingLocationName", () => {
+  it("trims leading and trailing whitespace", () => {
+    assert.equal(normalizeFishingLocationName("  Inkoo  "), "Inkoo");
+  });
+});
 
+describe("fishingLocationNamesMatch", () => {
+  it("treats trimmed case variants as the same location", () => {
+    assert.equal(fishingLocationNamesMatch("Inkoo", "inkoo"), true);
+    assert.equal(fishingLocationNamesMatch(" INKOO ", " Inkoo "), true);
+    assert.equal(fishingLocationNamesMatch("Inkoo", "Espoo"), false);
+  });
+});
+
+describe("localFishingLocationIdsToRemove", () => {
   it("keeps local rows that still exist in cloud", () => {
     const local = [
-      { id: "l1", userId: uid, supabaseId: "c1" },
-      { id: "l2", userId: uid, supabaseId: "c2" },
+      { id: "l1", supabaseId: "c1" },
+      { id: "l2", supabaseId: "c2" },
     ];
-    assert.deepEqual(localFishingLocationIdsToRemove(local, ["c1", "c2"], uid), []);
+    assert.deepEqual(localFishingLocationIdsToRemove(local, ["c1", "c2"]), []);
   });
 
   it("removes stale cloud-linked rows missing from a successful cloud fetch", () => {
     const local = [
-      { id: "l1", userId: uid, supabaseId: "c1" },
-      { id: "l-stale", userId: uid, supabaseId: "deleted-cloud-id" },
+      { id: "l1", supabaseId: "c1" },
+      { id: "l-stale", supabaseId: "deleted-cloud-id" },
     ];
-    assert.deepEqual(localFishingLocationIdsToRemove(local, ["c1"], uid), ["l-stale"]);
+    assert.deepEqual(localFishingLocationIdsToRemove(local, ["c1"]), ["l-stale"]);
   });
 
-  it("clears all local rows for the user when cloud catalog is empty", () => {
+  it("clears all local rows when the global cloud catalog is empty", () => {
     const local = [
-      { id: "l1", userId: uid, supabaseId: "c1" },
-      { id: "l2", userId: uid, supabaseId: null },
-      { id: "other", userId: "user-b", supabaseId: "c9" },
+      { id: "l1", supabaseId: "c1" },
+      { id: "l2", supabaseId: null },
     ];
-    assert.deepEqual(localFishingLocationIdsToRemove(local, [], uid), ["l1", "l2"]);
+    assert.deepEqual(localFishingLocationIdsToRemove(local, []), ["l1", "l2"]);
   });
 
   it("removes local-only rows after a successful cloud catalog load", () => {
     const local = [
-      { id: "local-only", userId: uid, supabaseId: null },
-      { id: "keep", userId: uid, supabaseId: "c1" },
+      { id: "local-only", supabaseId: null },
+      { id: "keep", supabaseId: "c1" },
     ];
-    assert.deepEqual(localFishingLocationIdsToRemove(local, ["c1"], uid), ["local-only"]);
-  });
-
-  it("does not remove rows belonging to another user", () => {
-    const local = [{ id: "other", userId: "user-b", supabaseId: "c1" }];
-    assert.deepEqual(localFishingLocationIdsToRemove(local, [], uid), []);
+    assert.deepEqual(localFishingLocationIdsToRemove(local, ["c1"]), ["local-only"]);
   });
 });
 

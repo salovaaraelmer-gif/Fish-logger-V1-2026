@@ -1,14 +1,15 @@
 /**
  * Session-level fishing locations and target species (local IndexedDB + Supabase).
+ * Fishing locations are a global shared catalog; target species remain per-user.
  * @module sessionMetadataService
  */
 
 import {
-  getAllUserFishingLocations,
+  getAllFishingLocations,
   getAllUserTargetSpecies,
-  putUserFishingLocation,
+  putFishingLocation,
   putUserTargetSpecies,
-  deleteUserFishingLocation,
+  deleteFishingLocation,
   getSessionFishingLocationLinks,
   getSessionTargetSpeciesLinks,
   putSessionFishingLocationLink,
@@ -20,12 +21,19 @@ import {
 } from "./db.js";
 import { getAuthUserId } from "./auth.js";
 import { supabase } from "./supabase.js";
-import { localFishingLocationIdsToRemove } from "./fishingLocationSyncPolicy.js";
+import {
+  fishingLocationNamesMatch,
+  localFishingLocationIdsToRemove,
+  normalizeFishingLocationName,
+} from "./fishingLocationSyncPolicy.js";
+import { formatCatalogItemLabel } from "./catalogLabels.js";
 
-/** @typedef {import('./db.js').UserFishingLocation} UserFishingLocation */
+export { formatCatalogItemLabel };
+
+/** @typedef {import('./db.js').FishingLocation} FishingLocation */
 /** @typedef {import('./db.js').UserTargetSpecies} UserTargetSpecies */
 
-/** @typedef {{ id: string, name: string, userNumber: number }} CatalogItemDisplay */
+/** @typedef {{ id: string, name: string, userNumber?: number }} CatalogItemDisplay */
 
 const DEFAULT_TARGET_SPECIES_NAMES = ["Pike", "Zander", "Perch", "Trout", "Salmon"];
 
@@ -34,50 +42,104 @@ function newLocalId() {
 }
 
 /**
- * @param {{ userNumber: number, name: string }} a
- * @param {{ userNumber: number, name: string }} b
+ * @param {{ userNumber?: number, name: string }} a
+ * @param {{ userNumber?: number, name: string }} b
  */
-function sortByUserNumber(a, b) {
-  return a.userNumber - b.userNumber || a.name.localeCompare(b.name, "en");
+function sortCatalogItems(a, b) {
+  const aNum = typeof a.userNumber === "number";
+  const bNum = typeof b.userNumber === "number";
+  if (aNum && bNum) {
+    return /** @type {number} */ (a.userNumber) - /** @type {number} */ (b.userNumber) ||
+      a.name.localeCompare(b.name, "en");
+  }
+  return a.name.localeCompare(b.name, "en");
 }
 
 /**
- * Attach a cloud catalog id to a local row, inserting if needed.
- * @param {"location" | "target"} kind
- * @param {UserFishingLocation | UserTargetSpecies} row
+ * Attach a cloud catalog id to a per-user target-species row, inserting if needed.
+ * @param {UserTargetSpecies} row
  * @returns {Promise<string | null>}
  */
-async function ensureCatalogSupabaseId(kind, row) {
+async function ensureTargetSpeciesSupabaseId(row) {
   if (row.supabaseId) return row.supabaseId;
   if (!navigator.onLine || !row.userId) return null;
-  const table = kind === "location" ? "user_fishing_locations" : "user_target_species";
-  const put = kind === "location" ? putUserFishingLocation : putUserTargetSpecies;
   const ins = await supabase
-    .from(table)
+    .from("user_target_species")
     .insert({ user_id: row.userId, name: row.name, user_number: row.userNumber })
     .select("id")
     .single();
   if (!ins.error && ins.data?.id) {
     const sbId = String(ins.data.id);
-    await put({ ...row, supabaseId: sbId });
+    await putUserTargetSpecies({ ...row, supabaseId: sbId });
     return sbId;
   }
   const existing = await supabase
-    .from(table)
+    .from("user_target_species")
     .select("id")
     .eq("user_id", row.userId)
     .eq("name", row.name)
     .maybeSingle();
   if (existing.data?.id) {
     const sbId = String(existing.data.id);
-    await put({ ...row, supabaseId: sbId });
+    await putUserTargetSpecies({ ...row, supabaseId: sbId });
     return sbId;
   }
   return null;
 }
 
 /**
- * @param {UserFishingLocation[] | UserTargetSpecies[]} rows
+ * Ensures a global fishing location exists in Supabase (find-or-create).
+ * Handles concurrent unique conflicts by resolving to the existing row.
+ * @param {string} cleanedName already trimmed
+ * @returns {Promise<{ id: string, name: string } | null>}
+ */
+async function ensureFishingLocationOnCloud(cleanedName) {
+  if (!navigator.onLine || !cleanedName) return null;
+
+  const rpc = await supabase.rpc("ensure_fishing_location", { p_name: cleanedName });
+  if (!rpc.error) {
+    const row = Array.isArray(rpc.data) ? rpc.data[0] : rpc.data;
+    if (row?.id) {
+      return { id: String(row.id), name: String(row.name ?? cleanedName) };
+    }
+  }
+
+  // Fallback if RPC is unavailable: insert, then resolve unique conflicts by normalized name.
+  const ins = await supabase
+    .from("fishing_locations")
+    .insert({ name: cleanedName })
+    .select("id, name")
+    .single();
+  if (!ins.error && ins.data?.id) {
+    return { id: String(ins.data.id), name: String(ins.data.name) };
+  }
+
+  const existing = await supabase.from("fishing_locations").select("id, name");
+  if (existing.error || !existing.data) return null;
+  const match = existing.data.find((r) => fishingLocationNamesMatch(String(r.name), cleanedName));
+  if (!match?.id) return null;
+  return { id: String(match.id), name: String(match.name) };
+}
+
+/**
+ * @param {FishingLocation} row
+ * @returns {Promise<string | null>}
+ */
+async function ensureFishingLocationSupabaseId(row) {
+  if (row.supabaseId) return row.supabaseId;
+  if (!navigator.onLine) return null;
+  const ensured = await ensureFishingLocationOnCloud(normalizeFishingLocationName(row.name));
+  if (!ensured) return null;
+  await putFishingLocation({
+    id: row.id,
+    name: ensured.name,
+    supabaseId: ensured.id,
+  });
+  return ensured.id;
+}
+
+/**
+ * @param {UserTargetSpecies[]} rows
  * @returns {number}
  */
 function nextUserNumber(rows) {
@@ -106,7 +168,7 @@ export async function ensureDefaultTargetSpeciesCatalog() {
   if (mine.length > 0) {
     if (navigator.onLine) {
       for (const row of mine) {
-        await ensureCatalogSupabaseId("target", row);
+        await ensureTargetSpeciesSupabaseId(row);
       }
     }
     return;
@@ -122,14 +184,14 @@ export async function ensureDefaultTargetSpeciesCatalog() {
     };
     await putUserTargetSpecies(row);
     if (navigator.onLine) {
-      await ensureCatalogSupabaseId("target", row);
+      await ensureTargetSpeciesSupabaseId(row);
     }
   }
 }
 
 /**
  * Syncs cloud catalogs into IndexedDB for the signed-in user.
- * Fishing locations: cloud is authoritative (successful empty clears stale local rows).
+ * Fishing locations: global cloud catalog is authoritative (successful empty clears stale local rows).
  * Target species: merge-only (unchanged seeding / offline create behavior).
  * @returns {Promise<{ ok: true } | { ok: false, error: string }>}
  */
@@ -138,14 +200,14 @@ export async function syncUserCatalogsFromCloud() {
   if (!uid || !navigator.onLine) return { ok: true };
 
   const [locRes, spRes] = await Promise.all([
-    supabase.from("user_fishing_locations").select("id, name, user_number").eq("user_id", uid),
+    supabase.from("fishing_locations").select("id, name"),
     supabase.from("user_target_species").select("id, name, user_number").eq("user_id", uid),
   ]);
 
   if (locRes.error) return { ok: false, error: locRes.error.message };
   if (spRes.error) return { ok: false, error: spRes.error.message };
 
-  const localLocs = await getAllUserFishingLocations();
+  const localLocs = await getAllFishingLocations();
   const localSp = await getAllUserTargetSpecies();
   const locBySb = new Map(
     localLocs.filter((r) => r.supabaseId).map((r) => [/** @type {string} */ (r.supabaseId), r])
@@ -159,22 +221,19 @@ export async function syncUserCatalogsFromCloud() {
     const sbId = String(row.id);
     const existing = locBySb.get(sbId);
     const item = {
-      id: existing?.id ?? newLocalId(),
-      userId: uid,
+      id: existing?.id ?? sbId,
       name: String(row.name),
-      userNumber: Number(row.user_number),
       supabaseId: sbId,
     };
-    await putUserFishingLocation(item);
+    await putFishingLocation(item);
   }
 
   const staleLocIds = localFishingLocationIdsToRemove(
     localLocs,
-    cloudLocRows.map((r) => String(r.id)),
-    uid
+    cloudLocRows.map((r) => String(r.id))
   );
   for (const id of staleLocIds) {
-    await deleteUserFishingLocation(id);
+    await deleteFishingLocation(id);
   }
   if (staleLocIds.length) {
     await deleteSessionFishingLocationLinksForLocationIds(staleLocIds);
@@ -208,38 +267,43 @@ export async function createCatalogItem(kind, rawName) {
   if (!name) return { ok: false, reason: "Enter a name." };
 
   if (kind === "location") {
-    const all = (await getAllUserFishingLocations()).filter((r) => r.userId === uid);
-    const dup = all.find((r) => r.name.toLowerCase() === name.toLowerCase());
+    const cleaned = normalizeFishingLocationName(name);
+    const all = await getAllFishingLocations();
+    const dup = all.find((r) => fishingLocationNamesMatch(r.name, cleaned));
     if (dup) {
-      await ensureCatalogSupabaseId("location", dup);
-      return { ok: true, item: { id: dup.id, name: dup.name, userNumber: dup.userNumber } };
+      if (navigator.onLine && !dup.supabaseId) {
+        await ensureFishingLocationSupabaseId(dup);
+      }
+      const fresh = (await getAllFishingLocations()).find((r) => r.id === dup.id) || dup;
+      return { ok: true, item: { id: fresh.id, name: fresh.name } };
     }
-    const userNumber = nextUserNumber(all);
-    const local = {
-      id: newLocalId(),
-      userId: uid,
-      name,
-      userNumber,
-      supabaseId: null,
-    };
-    await putUserFishingLocation(local);
+
     if (navigator.onLine) {
-      const ins = await supabase
-        .from("user_fishing_locations")
-        .insert({ user_id: uid, name, user_number: userNumber })
-        .select("id")
-        .single();
-      if (!ins.error && ins.data?.id) {
-        await putUserFishingLocation({ ...local, supabaseId: String(ins.data.id) });
+      const ensured = await ensureFishingLocationOnCloud(cleaned);
+      if (ensured) {
+        const local = {
+          id: ensured.id,
+          name: ensured.name,
+          supabaseId: ensured.id,
+        };
+        await putFishingLocation(local);
+        return { ok: true, item: { id: local.id, name: local.name } };
       }
     }
-    return { ok: true, item: { id: local.id, name: local.name, userNumber: local.userNumber } };
+
+    const local = {
+      id: newLocalId(),
+      name: cleaned,
+      supabaseId: null,
+    };
+    await putFishingLocation(local);
+    return { ok: true, item: { id: local.id, name: local.name } };
   }
 
   const all = (await getAllUserTargetSpecies()).filter((r) => r.userId === uid);
   const dup = all.find((r) => r.name.toLowerCase() === name.toLowerCase());
   if (dup) {
-    await ensureCatalogSupabaseId("target", dup);
+    await ensureTargetSpeciesSupabaseId(dup);
     return { ok: true, item: { id: dup.id, name: dup.name, userNumber: dup.userNumber } };
   }
   const userNumber = nextUserNumber(all);
@@ -270,16 +334,15 @@ export async function createCatalogItem(kind, rawName) {
 export async function getUserCatalogDisplayLists() {
   const uid = await getAuthUserId();
   if (!uid) return { locations: [], targets: [] };
-  const [locs, targets] = await Promise.all([getAllUserFishingLocations(), getAllUserTargetSpecies()]);
+  const [locs, targets] = await Promise.all([getAllFishingLocations(), getAllUserTargetSpecies()]);
   return {
     locations: locs
-      .filter((r) => r.userId === uid)
-      .map((r) => ({ id: r.id, name: r.name, userNumber: r.userNumber }))
-      .sort(sortByUserNumber),
+      .map((r) => ({ id: r.id, name: r.name }))
+      .sort(sortCatalogItems),
     targets: targets
       .filter((r) => r.userId === uid)
       .map((r) => ({ id: r.id, name: r.name, userNumber: r.userNumber }))
-      .sort(sortByUserNumber),
+      .sort(sortCatalogItems),
   };
 }
 
@@ -334,7 +397,7 @@ export async function syncSessionLinksToCloud(sessionId, cloudSessionId) {
     getSessionFishingLocationLinks(sessionId),
     getSessionTargetSpeciesLinks(sessionId),
   ]);
-  const allLocs = await getAllUserFishingLocations();
+  const allLocs = await getAllFishingLocations();
   const allSp = await getAllUserTargetSpecies();
   const locByLocal = new Map(allLocs.map((r) => [r.id, r]));
   const spByLocal = new Map(allSp.map((r) => [r.id, r]));
@@ -344,7 +407,7 @@ export async function syncSessionLinksToCloud(sessionId, cloudSessionId) {
 
   for (const link of locLinks) {
     const cat = locByLocal.get(link.locationId);
-    const sbLocId = cat ? await ensureCatalogSupabaseId("location", cat) : null;
+    const sbLocId = cat ? await ensureFishingLocationSupabaseId(cat) : null;
     if (sbLocId) {
       const ins = await supabase
         .from("session_fishing_locations")
@@ -355,7 +418,7 @@ export async function syncSessionLinksToCloud(sessionId, cloudSessionId) {
 
   for (const link of spLinks) {
     const cat = spByLocal.get(link.targetSpeciesId);
-    const sbSpId = cat ? await ensureCatalogSupabaseId("target", cat) : null;
+    const sbSpId = cat ? await ensureTargetSpeciesSupabaseId(cat) : null;
     if (sbSpId) {
       const ins = await supabase
         .from("session_target_species")
@@ -381,7 +444,7 @@ export async function loadSessionLinksFromCloud(localSessionId, cloudSessionId) 
   const [locRes, spRes] = await Promise.all([
     supabase
       .from("session_fishing_locations")
-      .select("location_id, user_fishing_locations ( id, name, user_number )")
+      .select("location_id, fishing_locations ( id, name )")
       .eq("session_id", cloudSessionId),
     supabase
       .from("session_target_species")
@@ -402,24 +465,22 @@ export async function loadSessionLinksFromCloud(localSessionId, cloudSessionId) 
   await deleteSessionFishingLocationLinksForSession(localSessionId);
   await deleteSessionTargetSpeciesLinksForSession(localSessionId);
 
-  const allLocs = await getAllUserFishingLocations();
+  const allLocs = await getAllFishingLocations();
   const allSp = await getAllUserTargetSpecies();
 
   for (const row of cloudLocRows) {
-    const embed = row.user_fishing_locations;
+    const embed = row.fishing_locations;
     const cloud = Array.isArray(embed) ? embed[0] : embed;
     if (!cloud || typeof cloud !== "object") continue;
-    const c = /** @type {{ id: string, name: string, user_number: number }} */ (cloud);
-    let local = allLocs.find((r) => r.supabaseId === c.id);
+    const c = /** @type {{ id: string, name: string }} */ (cloud);
+    let local = allLocs.find((r) => r.supabaseId === c.id || r.id === c.id);
     if (!local) {
       local = {
-        id: newLocalId(),
-        userId: uid,
+        id: String(c.id),
         name: String(c.name),
-        userNumber: Number(c.user_number),
         supabaseId: String(c.id),
       };
-      await putUserFishingLocation(local);
+      await putFishingLocation(local);
       allLocs.push(local);
     }
     await putSessionFishingLocationLink({
@@ -468,7 +529,7 @@ export async function getSessionMetadataDisplayBySessionIds(sessionIds) {
   const unique = [...new Set(sessionIds.filter(Boolean))];
   if (unique.length === 0) return out;
 
-  const [allLocs, allSp] = await Promise.all([getAllUserFishingLocations(), getAllUserTargetSpecies()]);
+  const [allLocs, allSp] = await Promise.all([getAllFishingLocations(), getAllUserTargetSpecies()]);
   const locById = new Map(allLocs.map((r) => [r.id, r]));
   const spById = new Map(allSp.map((r) => [r.id, r]));
 
@@ -481,7 +542,7 @@ export async function getSessionMetadataDisplayBySessionIds(sessionIds) {
       const locationNames = locLinks
         .map((l) => locById.get(l.locationId))
         .filter(Boolean)
-        .map((r) => /** @type {UserFishingLocation} */ (r).name)
+        .map((r) => /** @type {FishingLocation} */ (r).name)
         .sort((a, b) => a.localeCompare(b, "en"));
       const targetNames = spLinks
         .map((l) => spById.get(l.targetSpeciesId))
@@ -495,10 +556,3 @@ export async function getSessionMetadataDisplayBySessionIds(sessionIds) {
   return out;
 }
 
-/**
- * @param {CatalogItemDisplay} item
- * @returns {string}
- */
-export function formatCatalogItemLabel(item) {
-  return `${item.userNumber} — ${item.name}`;
-}

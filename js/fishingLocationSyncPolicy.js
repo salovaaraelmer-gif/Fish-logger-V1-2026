@@ -1,23 +1,42 @@
 /**
- * Pure policy helpers for cloud-authoritative fishing-location sync.
+ * Pure policy helpers for cloud-authoritative global fishing-location sync.
  * Keeps successful-empty cloud responses from being overwritten by IndexedDB.
  * @module fishingLocationSyncPolicy
  */
 
 /**
- * Local fishing-location row ids for `uid` that must be removed after a successful
- * cloud catalog fetch. Rows whose `supabaseId` is still present in cloud are kept.
- * Local-only rows (no supabaseId) are removed — cloud is authoritative.
+ * Normalize a fishing-location display name for comparison / create.
+ * Trim only — case folding is applied separately for equality checks.
+ * @param {string} name
+ * @returns {string}
+ */
+export function normalizeFishingLocationName(name) {
+  return String(name ?? "").trim();
+}
+
+/**
+ * Case-insensitive equality after trim (matches DB unique index semantics).
+ * @param {string} a
+ * @param {string} b
+ * @returns {boolean}
+ */
+export function fishingLocationNamesMatch(a, b) {
+  return normalizeFishingLocationName(a).toLowerCase() === normalizeFishingLocationName(b).toLowerCase();
+}
+
+/**
+ * Local fishing-location row ids that must be removed after a successful
+ * global cloud catalog fetch. Rows whose `supabaseId` is still present in cloud
+ * are kept. Local-only rows (no supabaseId) are removed — cloud is authoritative.
  *
- * @param {Array<{ id: string, userId: string, supabaseId?: string | null }>} localRows
+ * @param {Array<{ id: string, supabaseId?: string | null }>} localRows
  * @param {Iterable<string>} cloudLocationIds
- * @param {string} uid
  * @returns {string[]}
  */
-export function localFishingLocationIdsToRemove(localRows, cloudLocationIds, uid) {
+export function localFishingLocationIdsToRemove(localRows, cloudLocationIds) {
   const cloudIds = new Set([...cloudLocationIds].map(String));
   return (localRows || [])
-    .filter((r) => r && r.userId === uid && typeof r.id === "string")
+    .filter((r) => r && typeof r.id === "string")
     .filter((r) => !r.supabaseId || !cloudIds.has(String(r.supabaseId)))
     .map((r) => r.id);
 }

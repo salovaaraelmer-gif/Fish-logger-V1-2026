@@ -4,7 +4,7 @@
  * @module creatableMultiSelect
  */
 
-import { formatCatalogItemLabel } from "./sessionMetadataService.js";
+import { formatCatalogItemLabel } from "./catalogLabels.js";
 import {
   filterUnselectedCatalogItems,
   shouldShowCatalogCreateRow,
@@ -237,7 +237,14 @@ export function mountCreatableMultiSelect(opts) {
     const created = await onCreateNew(trimmed);
     if (!created) return;
     if (!items.find((i) => i.id === created.id)) items.push(created);
-    items.sort((a, b) => a.userNumber - b.userNumber || a.name.localeCompare(b.name, "en"));
+    items.sort((a, b) => {
+      const aNum = typeof a.userNumber === "number";
+      const bNum = typeof b.userNumber === "number";
+      if (aNum && bNum) {
+        return a.userNumber - b.userNumber || a.name.localeCompare(b.name, "en");
+      }
+      return a.name.localeCompare(b.name, "en");
+    });
     selected.add(created.id);
     newInput.value = "";
     if (searchInput) searchInput.value = "";

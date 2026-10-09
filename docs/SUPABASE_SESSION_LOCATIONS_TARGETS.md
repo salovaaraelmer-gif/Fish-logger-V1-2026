@@ -1,6 +1,6 @@
 # Session fishing locations, target species, and `started_at`
 
-Run in the **Supabase SQL Editor**. This is **additive** — it does not delete existing sessions, catches, or anglers.
+Run in the **Supabase SQL Editor**. This is **additive** for targets / `started_at` — fishing locations are now a **global** catalog (see migration `supabase/migrations/20261009120000_global_fishing_locations.sql`).
 
 **Prerequisites:** `public.is_session_owner` and `public.is_session_participant` from [`SUPABASE_AUTH_RLS.md`](../SUPABASE_AUTH_RLS.md) §1b.
 
@@ -44,36 +44,37 @@ create policy "sessions_update_participant"
 
 ---
 
-## 3. `user_fishing_locations`
+## 3. `fishing_locations` (global shared catalog)
 
-| Column        | Type        | Notes |
-|---------------|-------------|-------|
-| `id`          | `uuid` PK   | `default gen_random_uuid()` |
-| `user_id`     | `uuid`      | FK → `auth.users` |
-| `name`        | `text`      | `NOT NULL` |
-| `user_number` | `int`       | `NOT NULL`, per-user 1, 2, 3… |
-| `created_at`  | `timestamptz` | `default now()` |
+| Column       | Type          | Notes |
+|--------------|---------------|-------|
+| `id`         | `uuid` PK     | `default gen_random_uuid()` |
+| `name`       | `text`        | `NOT NULL`, human-readable display name |
+| `created_at` | `timestamptz` | `default now()` |
+
+Uniqueness: `unique index` on `lower(trim(name))` so `Inkoo` / `inkoo` / ` INKOO ` collide.
 
 ```sql
-create table if not exists public.user_fishing_locations (
+create table if not exists public.fishing_locations (
   id uuid primary key default gen_random_uuid(),
-  user_id uuid not null references auth.users (id) on delete cascade,
   name text not null,
-  user_number int not null,
   created_at timestamptz not null default now(),
-  constraint user_fishing_locations_user_name_unique unique (user_id, name),
-  constraint user_fishing_locations_user_number_unique unique (user_id, user_number)
+  constraint fishing_locations_name_not_blank check (length(trim(name)) > 0)
 );
 
-create index if not exists user_fishing_locations_user_id_idx
-  on public.user_fishing_locations (user_id);
+create unique index if not exists fishing_locations_name_normalized_uidx
+  on public.fishing_locations (lower(trim(name)));
 ```
+
+Find-or-create helper (handles concurrent inserts): `public.ensure_fishing_location(text)`.
+
+Canonical migration: `supabase/migrations/20261009120000_global_fishing_locations.sql`.
 
 ---
 
 ## 4. `user_target_species`
 
-Same shape as locations.
+Still per-user (unchanged).
 
 ```sql
 create table if not exists public.user_target_species (
@@ -98,7 +99,7 @@ create index if not exists user_target_species_user_id_idx
 create table if not exists public.session_fishing_locations (
   id uuid primary key default gen_random_uuid(),
   session_id uuid not null references public.sessions (id) on delete cascade,
-  location_id uuid not null references public.user_fishing_locations (id) on delete cascade,
+  location_id uuid not null references public.fishing_locations (id) on delete cascade,
   created_at timestamptz not null default now(),
   constraint session_fishing_locations_unique unique (session_id, location_id)
 );
@@ -123,25 +124,20 @@ create index if not exists session_target_species_session_id_idx
 ## 6. Row Level Security
 
 ```sql
-alter table public.user_fishing_locations enable row level security;
+alter table public.fishing_locations enable row level security;
 alter table public.user_target_species enable row level security;
 alter table public.session_fishing_locations enable row level security;
 alter table public.session_target_species enable row level security;
 
--- Catalogs: own rows only
-create policy "user_fishing_locations_select_own"
-  on public.user_fishing_locations for select to authenticated
-  using (auth.uid() = user_id);
-create policy "user_fishing_locations_insert_own"
-  on public.user_fishing_locations for insert to authenticated
-  with check (auth.uid() = user_id);
-create policy "user_fishing_locations_update_own"
-  on public.user_fishing_locations for update to authenticated
-  using (auth.uid() = user_id) with check (auth.uid() = user_id);
-create policy "user_fishing_locations_delete_own"
-  on public.user_fishing_locations for delete to authenticated
-  using (auth.uid() = user_id);
+-- Global locations: all authenticated users can read + create (no update/delete)
+create policy "fishing_locations_select_authenticated"
+  on public.fishing_locations for select to authenticated
+  using (true);
+create policy "fishing_locations_insert_authenticated"
+  on public.fishing_locations for insert to authenticated
+  with check (true);
 
+-- Target species: own rows only
 create policy "user_target_species_select_own"
   on public.user_target_species for select to authenticated
   using (auth.uid() = user_id);
@@ -155,7 +151,7 @@ create policy "user_target_species_delete_own"
   on public.user_target_species for delete to authenticated
   using (auth.uid() = user_id);
 
--- Junctions: roster participants read and manage links (same idea as session title edit)
+-- Junctions: roster participants read and manage links
 create policy "session_fishing_locations_select_participant"
   on public.session_fishing_locations for select to authenticated
   using (public.is_session_participant(session_id) or public.is_session_owner(session_id));
@@ -181,10 +177,10 @@ If policies already exist, `drop policy if exists ...` before recreating.
 
 ---
 
-## 7. GRANTs (PostgREST / supabase-js, May 2026)
+## 7. GRANTs (PostgREST / supabase-js)
 
 ```sql
-grant select, insert, update, delete on public.user_fishing_locations to authenticated;
+grant select, insert on public.fishing_locations to authenticated;
 grant select, insert, update, delete on public.user_target_species to authenticated;
 grant select, insert, delete on public.session_fishing_locations to authenticated;
 grant select, insert, delete on public.session_target_species to authenticated;
@@ -196,10 +192,10 @@ No `anon` grants unless you use the anon key for this app.
 
 ## 8. Verify
 
-As an authenticated user in the SQL editor (or from the app):
+As an authenticated user:
 
 ```sql
-select * from public.user_fishing_locations where user_id = auth.uid() limit 5;
+select * from public.fishing_locations order by name limit 20;
+select * from public.ensure_fishing_location('Inkoo');
+select * from public.ensure_fishing_location(' inkoo '); -- same id
 ```
-
-Insert from the app should succeed after this migration.

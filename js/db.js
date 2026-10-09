@@ -15,7 +15,7 @@ import {
 const DB_NAME_BASE = "FishLoggerV1";
 /** Pre–user-scoping database; removed on startup after login. */
 const LEGACY_DB_NAME = "FishLoggerV1";
-const DB_VERSION = 8;
+const DB_VERSION = 9;
 
 /** @type {string | null} */
 let scopedUserId = null;
@@ -121,7 +121,7 @@ export function clearUserIndexedDb() {
    *   photo_urls: string[],
    * }} CatchRecord
  */
-/** @typedef {{ id: string, userId: string, name: string, userNumber: number, supabaseId?: string | null }} UserFishingLocation */
+/** @typedef {{ id: string, name: string, supabaseId?: string | null }} FishingLocation */
 /** @typedef {{ id: string, userId: string, name: string, userNumber: number, supabaseId?: string | null }} UserTargetSpecies */
 /** @typedef {{ id: string, sessionId: string, locationId: string }} SessionFishingLocationLink */
 /** @typedef {{ id: string, sessionId: string, targetSpeciesId: string }} SessionTargetSpeciesLink */
@@ -335,6 +335,15 @@ function openDb() {
           }
           cursor.continue();
         };
+      }
+
+      if (oldVersion < 9) {
+        if (db.objectStoreNames.contains("userFishingLocations")) {
+          db.deleteObjectStore("userFishingLocations");
+        }
+        if (!db.objectStoreNames.contains("fishingLocations")) {
+          db.createObjectStore("fishingLocations", { keyPath: "id" });
+        }
       }
     };
   });
@@ -692,22 +701,22 @@ export async function findSessionAngler(sessionId, anglerId) {
  * @param {string} sessionId
  * @returns {Promise<void>}
  */
-export async function getAllUserFishingLocations() {
+export async function getAllFishingLocations() {
   const db = await openDb();
   return new Promise((resolve, reject) => {
-    const r = db.transaction("userFishingLocations", "readonly").objectStore("userFishingLocations").getAll();
+    const r = db.transaction("fishingLocations", "readonly").objectStore("fishingLocations").getAll();
     r.onerror = () => reject(r.error);
-    r.onsuccess = () => resolve(/** @type {UserFishingLocation[]} */ (r.result || []));
+    r.onsuccess = () => resolve(/** @type {FishingLocation[]} */ (r.result || []));
   });
 }
 
 /**
- * @param {UserFishingLocation} row
+ * @param {FishingLocation} row
  */
-export async function putUserFishingLocation(row) {
+export async function putFishingLocation(row) {
   const db = await openDb();
   return new Promise((resolve, reject) => {
-    const r = db.transaction("userFishingLocations", "readwrite").objectStore("userFishingLocations").put(row);
+    const r = db.transaction("fishingLocations", "readwrite").objectStore("fishingLocations").put(row);
     r.onerror = () => reject(r.error);
     r.onsuccess = () => resolve();
   });
@@ -717,10 +726,10 @@ export async function putUserFishingLocation(row) {
  * @param {string} id
  * @returns {Promise<void>}
  */
-export async function deleteUserFishingLocation(id) {
+export async function deleteFishingLocation(id) {
   const db = await openDb();
   return new Promise((resolve, reject) => {
-    const r = db.transaction("userFishingLocations", "readwrite").objectStore("userFishingLocations").delete(id);
+    const r = db.transaction("fishingLocations", "readwrite").objectStore("fishingLocations").delete(id);
     r.onerror = () => reject(r.error);
     r.onsuccess = () => resolve();
   });
