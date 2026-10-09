@@ -222,9 +222,11 @@ create policy "catches_select_session_participant"
 
 The app has no public sign-up. New users are invited from **Supabase Dashboard → Authentication → Users → Invite user**, with **Allow new users to sign up** turned off.
 
-- The invite link lands on the Site URL with `#…&type=invite`. The app shows **Set your password** and does not activate until `updateUser({ password })` succeeds.
-- The first password is saved together with `user_metadata.invite_password_set = true`. Invited users (`invited_at` set) without it are sent back to **Set your password** on reload. This is a UX gate only, not authorization.
-- `public.profiles` is created on first activation by `upsertProfileForUser` (same as before). Dashboard invites carry no name metadata, so `username` falls back to the email local part (made unique) and `display_name` to `"User"`.
+- The invite link lands on the Site URL with `#…&type=invite`. The app shows **Set up your account** (first name, last name, username, password, confirm password) and does not activate until setup finishes.
+- **Finish setup** checks the username against `profiles`, then sends one `updateUser({ password, data })` with `first_name`, `last_name`, `full_name`, `username` and `invite_password_set = true`, then upserts `public.profiles` with the entered `username` and `display_name = "First Last"`. The unique index `profiles_username_unique` is the final check; on a duplicate (23505) the user stays in setup with a "username taken" error. The app never picks a different username for them.
+- If the profile write fails after the password is saved, the screen switches to profile-only (no password fields) and the user can retry.
+- An invited user (`invited_at` set) counts as onboarded only when `invite_password_set` is true **and** a `profiles` row exists. Otherwise reload returns to setup (account step or profile-only step). This is a UX gate only, not authorization. Users who were not invited are never checked.
+- Password recovery is unchanged: **New password** / **Save password**, only `{ password }` is sent. For an invited user who has not finished setup, recovery also sets `invite_password_set` and then shows profile completion.
 
 Older accounts created through the former sign-up form have **`user_metadata`** `first_name`, `last_name`, `full_name`, `username`. The UI reads **`full_name`** for display and does not use email as a visible name.
 
