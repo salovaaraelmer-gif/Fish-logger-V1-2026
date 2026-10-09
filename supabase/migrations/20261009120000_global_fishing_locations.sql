@@ -13,7 +13,9 @@ create table public.fishing_locations (
   id uuid primary key default gen_random_uuid(),
   name text not null,
   created_at timestamptz not null default now(),
-  constraint fishing_locations_name_not_blank check (length(trim(name)) > 0)
+  -- Stored name must already be trimmed; reject '' and whitespace-only.
+  constraint fishing_locations_name_trimmed_nonempty
+    check (name = trim(name) and name <> '')
 );
 
 comment on table public.fishing_locations is

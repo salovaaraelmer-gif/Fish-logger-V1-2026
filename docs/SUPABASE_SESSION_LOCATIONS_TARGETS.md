@@ -49,17 +49,19 @@ create policy "sessions_update_participant"
 | Column       | Type          | Notes |
 |--------------|---------------|-------|
 | `id`         | `uuid` PK     | `default gen_random_uuid()` |
-| `name`       | `text`        | `NOT NULL`, human-readable display name |
+| `name`       | `text`        | `NOT NULL`, human-readable; must equal `trim(name)` and be non-empty |
 | `created_at` | `timestamptz` | `default now()` |
 
 Uniqueness: `unique index` on `lower(trim(name))` so `Inkoo` / `inkoo` / ` INKOO ` collide.
+CHECK: `name = trim(name) AND name <> ''`.
 
 ```sql
 create table if not exists public.fishing_locations (
   id uuid primary key default gen_random_uuid(),
   name text not null,
   created_at timestamptz not null default now(),
-  constraint fishing_locations_name_not_blank check (length(trim(name)) > 0)
+  constraint fishing_locations_name_trimmed_nonempty
+    check (name = trim(name) and name <> '')
 );
 
 create unique index if not exists fishing_locations_name_normalized_uidx
