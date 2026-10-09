@@ -1,8 +1,10 @@
 /**
- * Auth V1 — email/password only; display name from user_metadata.full_name.
+ * Auth V1 — email/password only, invite-only accounts (Supabase Dashboard → Invite user);
+ * display name from user_metadata.full_name.
  * @module auth
  */
 
+import { INVITE_PASSWORD_SET_KEY } from "./authPasswordFlow.js";
 import { SUPABASE_ANON_KEY, SUPABASE_URL, supabase } from "./supabase.js";
 
 /** Fallback when `getUser()` is slow or session persistence lags after REST login. */
@@ -139,33 +141,6 @@ export function getDisplayNameFromUser(user) {
 /**
  * @param {string} email
  * @param {string} password
- * @param {string} firstName
- * @param {string} lastName
- * @param {string} [username] — stored in metadata; app upserts `public.profiles.username` on login
- */
-export async function signUpWithProfile(email, password, firstName, lastName, username) {
-  const fn = (firstName || "").trim();
-  const ln = (lastName || "").trim();
-  const full = [fn, ln].filter(Boolean).join(" ").trim() || fn || ln;
-  const rawU = typeof username === "string" ? username.trim().toLowerCase() : "";
-  const u = rawU.replace(/[^a-z0-9_]/g, "").replace(/_+/g, "_").replace(/^_|_$/g, "");
-  return supabase.auth.signUp({
-    email: email.trim(),
-    password,
-    options: {
-      data: {
-        first_name: fn,
-        last_name: ln,
-        full_name: full,
-        ...(u.length >= 2 ? { username: u } : {}),
-      },
-    },
-  });
-}
-
-/**
- * @param {string} email
- * @param {string} password
  */
 export async function signInWithEmail(email, password) {
   // REST-first: network logs show token endpoint is healthy while SDK signIn can hang.
@@ -198,8 +173,15 @@ export function sendPasswordResetEmail(email) {
 
 /**
  * @param {string} newPassword
+ * @param {{ markInvitePasswordSet?: boolean }} [options] — invited users: also record that the invite step is done
  */
-export function updatePassword(newPassword) {
+export function updatePassword(newPassword, options = {}) {
+  if (options.markInvitePasswordSet) {
+    return supabase.auth.updateUser({
+      password: newPassword,
+      data: { [INVITE_PASSWORD_SET_KEY]: true },
+    });
+  }
   return supabase.auth.updateUser({ password: newPassword });
 }
 

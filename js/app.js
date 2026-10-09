@@ -94,11 +94,18 @@ import {
   setCachedAuthUserId,
   clearCachedAuthUserId,
   signInWithEmail,
-  signUpWithProfile,
   sendPasswordResetEmail,
   updatePassword,
   formatAuthErrorForUi,
 } from "./auth.js";
+import {
+  PASSWORD_FLOW_INVITE,
+  PASSWORD_FLOW_RECOVERY,
+  mergePasswordFlow,
+  passwordFlowFromCallbackUrl,
+  passwordPanelCopy,
+  userNeedsInvitePassword,
+} from "./authPasswordFlow.js";
 import {
   upsertProfileForUser,
   fetchProfileDisplayNames,
@@ -4240,13 +4247,17 @@ function setAuthMessage(msg) {
 /** Last user id used for IndexedDB scope; detects account switch without full reload. */
 let lastIndexedDbUserId = /** @type {string | null} */ (null);
 
-/** True while user must set a new password (email recovery link). Blocks normal SIGNED_IN activation. */
-let passwordRecoveryPending = false;
+/**
+ * Password step that blocks normal activation until it succeeds:
+ * "recovery" (reset link) or "invite" (Dashboard invite, first password). Null = normal session.
+ * @type {import("./authPasswordFlow.js").PasswordFlow | null}
+ */
+let pendingPasswordFlow = null;
 
-const AUTH_PANEL_IDS = ["auth-login", "auth-signup", "auth-forgot", "auth-reset-password"];
+const AUTH_PANEL_IDS = ["auth-login", "auth-forgot", "auth-reset-password"];
 
 /**
- * @param {"auth-login" | "auth-signup" | "auth-forgot" | "auth-reset-password"} panelId
+ * @param {"auth-login" | "auth-forgot" | "auth-reset-password"} panelId
  */
 function showAuthPanel(panelId) {
   for (const id of AUTH_PANEL_IDS) {
@@ -4287,8 +4298,34 @@ function sessionIsPasswordRecovery(session) {
   }
 }
 
-function showPasswordRecoveryUi() {
-  passwordRecoveryPending = true;
+/**
+ * Which password step (if any) this session must complete before the app activates.
+ * @param {import("@supabase/supabase-js").Session | null} session
+ * @returns {import("./authPasswordFlow.js").PasswordFlow | null}
+ */
+function passwordFlowForSession(session) {
+  let flow = pendingPasswordFlow;
+  if (session && sessionIsPasswordRecovery(session)) {
+    flow = mergePasswordFlow(flow, PASSWORD_FLOW_RECOVERY);
+  }
+  if (userNeedsInvitePassword(session?.user)) {
+    flow = mergePasswordFlow(flow, PASSWORD_FLOW_INVITE);
+  }
+  return flow;
+}
+
+/**
+ * @param {import("./authPasswordFlow.js").PasswordFlow} flow
+ */
+function showPasswordSetupUi(flow) {
+  pendingPasswordFlow = mergePasswordFlow(pendingPasswordFlow, flow);
+  const copy = passwordPanelCopy(pendingPasswordFlow || flow);
+  const title = document.getElementById("auth-reset-title");
+  const text = document.getElementById("auth-reset-text");
+  const btn = document.getElementById("auth-reset-submit");
+  if (title) title.textContent = copy.title;
+  if (text) text.textContent = copy.text;
+  if (btn) btn.textContent = copy.button;
   showAuthGate();
   showAuthPanel("auth-reset-password");
   setAuthMessage("");
@@ -4304,7 +4341,8 @@ function consumeAuthHashErrors() {
   if (!err && !code) return;
   let msg = "This link is invalid or has expired.";
   if (code === "otp_expired") {
-    msg = "The password reset link has expired. Request a new link (Forgot password?).";
+    msg =
+      "This link has expired. To reset your password, request a new link (Forgot password?). If you were invited, ask for a new invitation.";
   } else {
     const desc = params.get("error_description");
     if (desc) {
@@ -4515,6 +4553,14 @@ async function prepareSignedInUserData(user) {
  */
 async function activateSignedInUser(user) {
   const uid = user.id;
+  const blockingFlow = mergePasswordFlow(
+    pendingPasswordFlow,
+    userNeedsInvitePassword(user) ? PASSWORD_FLOW_INVITE : null
+  );
+  if (blockingFlow) {
+    showPasswordSetupUi(blockingFlow);
+    return;
+  }
   if (activateInFlight && activateInFlightUserId === uid) {
     return activateInFlight;
   }
@@ -4577,14 +4623,6 @@ function wireAuthUi() {
     void refreshAuthDebugOutput();
   });
 
-  document.getElementById("auth-go-signup")?.addEventListener("click", () => {
-    showAuthPanel("auth-signup");
-    setAuthMessage("");
-  });
-  document.getElementById("auth-go-login")?.addEventListener("click", () => {
-    showAuthLoginPanel();
-    setAuthMessage("");
-  });
   document.getElementById("auth-go-forgot")?.addEventListener("click", () => {
     showAuthPanel("auth-forgot");
     setAuthMessage("");
@@ -4625,12 +4663,17 @@ function wireAuthUi() {
       setAuthMessage("Passwords do not match.");
       return;
     }
-    const { error } = await updatePassword(a);
+    const {
+      data: { session: currentSession },
+    } = await supabase.auth.getSession();
+    const markInvitePasswordSet =
+      pendingPasswordFlow === PASSWORD_FLOW_INVITE || userNeedsInvitePassword(currentSession?.user);
+    const { error } = await updatePassword(a, { markInvitePasswordSet });
     if (error) {
       setAuthMessage(formatAuthErrorForUi(error));
       return;
     }
-    passwordRecoveryPending = false;
+    pendingPasswordFlow = null;
     if (p1) p1.value = "";
     if (p2) p2.value = "";
     const {
@@ -4735,46 +4778,6 @@ function wireAuthUi() {
     }
   });
 
-  document.getElementById("auth-signup-submit")?.addEventListener("click", async () => {
-    const fnEl = /** @type {HTMLInputElement | null} */ (document.getElementById("auth-signup-first"));
-    const lnEl = /** @type {HTMLInputElement | null} */ (document.getElementById("auth-signup-last"));
-    const unEl = /** @type {HTMLInputElement | null} */ (document.getElementById("auth-signup-username"));
-    const emailEl = /** @type {HTMLInputElement | null} */ (document.getElementById("auth-signup-email"));
-    const passEl = /** @type {HTMLInputElement | null} */ (document.getElementById("auth-signup-password"));
-    const pass2El = /** @type {HTMLInputElement | null} */ (document.getElementById("auth-signup-password2"));
-    const fn = fnEl?.value?.trim() ?? "";
-    const ln = lnEl?.value?.trim() ?? "";
-    const usernameRaw = unEl?.value?.trim() ?? "";
-    const email = emailEl?.value?.trim() ?? "";
-    const password = passEl?.value ?? "";
-    const password2 = pass2El?.value ?? "";
-    setAuthMessage("");
-    if (!fn || !ln) {
-      setAuthMessage("Enter first and last name.");
-      return;
-    }
-    if (!email || !password) {
-      setAuthMessage("Enter email and password.");
-      return;
-    }
-    if (password.length < 6) {
-      setAuthMessage("Password must be at least 6 characters.");
-      return;
-    }
-    if (password !== password2) {
-      setAuthMessage("Passwords do not match.");
-      return;
-    }
-    const { data, error } = await signUpWithProfile(email, password, fn, ln, usernameRaw);
-    if (error) {
-      setAuthMessage(formatAuthErrorForUi(error));
-      return;
-    }
-    if (data?.user && !data.session) {
-      setAuthMessage("Check your email and confirm the account if confirmation is enabled.");
-    }
-  });
-
 }
 
 async function bootstrap() {
@@ -4784,11 +4787,9 @@ async function bootstrap() {
     purgeLegacyLocalStorageKeysOnce();
     const initialHash = window.location.hash || "";
     const initialSearch = window.location.search || "";
-    const looksLikeRecovery =
-      /type=recovery|type%3Drecovery/i.test(initialHash) ||
-      /type=recovery|type%3Drecovery/i.test(initialSearch);
-    if (looksLikeRecovery) {
-      passwordRecoveryPending = true;
+    const callbackFlow = passwordFlowFromCallbackUrl(initialHash, initialSearch);
+    if (callbackFlow) {
+      pendingPasswordFlow = mergePasswordFlow(pendingPasswordFlow, callbackFlow);
     }
 
     consumeAuthHashErrors();
@@ -4809,17 +4810,17 @@ async function bootstrap() {
       console.warn("[Auth] bootstrap getSession timed out — showing login gate");
       setAuthDebugStep("bootstrap_get_session_timeout");
       showAuthGate();
-      if (passwordRecoveryPending) {
-        showAuthPanel("auth-reset-password");
-        setAuthMessage("");
+      if (pendingPasswordFlow) {
+        showPasswordSetupUi(pendingPasswordFlow);
       }
       return;
     }
     if (session?.user) {
       setAuthDebugStep("bootstrap_session_found");
       console.log("[Auth] bootstrap session found — user id:", session.user.id);
-      if (passwordRecoveryPending || sessionIsPasswordRecovery(session)) {
-        showPasswordRecoveryUi();
+      const flow = passwordFlowForSession(session);
+      if (flow) {
+        showPasswordSetupUi(flow);
       } else {
         try {
           await activateSignedInUser(session.user);
@@ -4833,9 +4834,8 @@ async function bootstrap() {
       setAuthDebugStep("bootstrap_no_session");
       console.log("[Auth] bootstrap — no existing session");
       showAuthGate();
-      if (passwordRecoveryPending) {
-        showAuthPanel("auth-reset-password");
-        setAuthMessage("");
+      if (pendingPasswordFlow) {
+        showPasswordSetupUi(pendingPasswordFlow);
       }
     }
   } finally {
@@ -4853,18 +4853,20 @@ async function handleAuthStateChange(event, session) {
     email: session?.user?.email ?? null,
   });
   if (event === "INITIAL_SESSION") {
-    if (session && sessionIsPasswordRecovery(session)) {
-      showPasswordRecoveryUi();
+    const flow = session ? passwordFlowForSession(session) : null;
+    if (flow) {
+      showPasswordSetupUi(flow);
     }
     return;
   }
   if (event === "PASSWORD_RECOVERY") {
-    showPasswordRecoveryUi();
+    showPasswordSetupUi(PASSWORD_FLOW_RECOVERY);
     return;
   }
   if (event === "SIGNED_IN" && session?.user) {
-    if (passwordRecoveryPending || sessionIsPasswordRecovery(session)) {
-      showPasswordRecoveryUi();
+    const flow = passwordFlowForSession(session);
+    if (flow) {
+      showPasswordSetupUi(flow);
       return;
     }
     try {
@@ -4874,7 +4876,7 @@ async function handleAuthStateChange(event, session) {
     }
   }
   if (event === "SIGNED_OUT") {
-    passwordRecoveryPending = false;
+    pendingPasswordFlow = null;
     showAuthGate();
     showAuthLoginPanel();
     updateUserDisplayName(null);

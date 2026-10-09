@@ -218,15 +218,15 @@ create policy "catches_select_session_participant"
   using (public.is_session_participant(session_id));
 ```
 
-## 4. Sign-up metadata
+## 4. Accounts are invite-only
 
-The client sets **`user_metadata`** on sign-up:
+The app has no public sign-up. New users are invited from **Supabase Dashboard → Authentication → Users → Invite user**, with **Allow new users to sign up** turned off.
 
-- `first_name`
-- `last_name`
-- `full_name` (e.g. `"First Last"`)
+- The invite link lands on the Site URL with `#…&type=invite`. The app shows **Set your password** and does not activate until `updateUser({ password })` succeeds.
+- The first password is saved together with `user_metadata.invite_password_set = true`. Invited users (`invited_at` set) without it are sent back to **Set your password** on reload. This is a UX gate only, not authorization.
+- `public.profiles` is created on first activation by `upsertProfileForUser` (same as before). Dashboard invites carry no name metadata, so `username` falls back to the email local part (made unique) and `display_name` to `"User"`.
 
-The UI reads **`full_name`** for display and does not use email as a visible name.
+Older accounts created through the former sign-up form have **`user_metadata`** `first_name`, `last_name`, `full_name`, `username`. The UI reads **`full_name`** for display and does not use email as a visible name.
 
 ## 5. Deletes from the app
 

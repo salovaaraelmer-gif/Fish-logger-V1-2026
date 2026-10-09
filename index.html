@@ -27,7 +27,6 @@
           </div>
           <button type="button" class="btn btn-primary" id="auth-login-submit">Log in</button>
           <button type="button" class="btn btn-ghost" id="auth-go-forgot">Forgot password?</button>
-          <button type="button" class="btn btn-ghost" id="auth-go-signup">Create account</button>
         </div>
 
         <div id="auth-forgot" class="auth-panel stack hidden">
@@ -42,8 +41,8 @@
         </div>
 
         <div id="auth-reset-password" class="auth-panel stack hidden">
-          <h2>New password</h2>
-          <p class="meta">Enter a new password for your account.</p>
+          <h2 id="auth-reset-title">New password</h2>
+          <p class="meta" id="auth-reset-text">Enter a new password for your account.</p>
           <div class="field-block">
             <div class="field-label">New password</div>
             <input type="password" id="auth-reset-pass" autocomplete="new-password" />
@@ -53,44 +52,6 @@
             <input type="password" id="auth-reset-pass2" autocomplete="new-password" />
           </div>
           <button type="button" class="btn btn-primary" id="auth-reset-submit">Save password</button>
-        </div>
-
-        <div id="auth-signup" class="auth-panel stack hidden">
-          <h2>Create account</h2>
-          <div class="field-block">
-            <div class="field-label">First name</div>
-            <input type="text" id="auth-signup-first" autocomplete="given-name" />
-          </div>
-          <div class="field-block">
-            <div class="field-label">Last name</div>
-            <input type="text" id="auth-signup-last" autocomplete="family-name" />
-          </div>
-          <div class="field-block">
-            <div class="field-label">Username (profile)</div>
-            <input
-              type="text"
-              id="auth-signup-username"
-              autocomplete="username"
-              inputmode="text"
-              autocapitalize="none"
-              spellcheck="false"
-              placeholder="letters, numbers, and _ only"
-            />
-          </div>
-          <div class="field-block">
-            <div class="field-label">Email</div>
-            <input type="email" id="auth-signup-email" autocomplete="email" />
-          </div>
-          <div class="field-block">
-            <div class="field-label">Password</div>
-            <input type="password" id="auth-signup-password" autocomplete="new-password" />
-          </div>
-          <div class="field-block">
-            <div class="field-label">Confirm password</div>
-            <input type="password" id="auth-signup-password2" autocomplete="new-password" />
-          </div>
-          <button type="button" class="btn btn-primary" id="auth-signup-submit">Sign up</button>
-          <button type="button" class="btn btn-ghost" id="auth-go-login">Already have an account? Log in</button>
         </div>
 
         <p id="auth-message" class="meta auth-message" role="status" hidden></p>
