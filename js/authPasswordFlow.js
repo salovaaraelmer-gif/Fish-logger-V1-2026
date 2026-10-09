@@ -51,7 +51,7 @@ export function passwordFlowFromCallbackUrl(hash, search) {
  * @returns {boolean}
  */
 export function userNeedsInvitePassword(user) {
-  if (!user || !user.invited_at) return false;
+  if (!isInvitedUser(user)) return false;
   const m = user.user_metadata || {};
   return m[INVITE_PASSWORD_SET_KEY] !== true;
 }
@@ -70,20 +70,39 @@ export function mergePasswordFlow(current, incoming) {
 }
 
 /**
- * @param {PasswordFlow} flow
- * @returns {{ title: string, text: string, button: string }}
+ * Created through Supabase Dashboard → Invite user. Self-signup accounts have no `invited_at`.
+ * @param {{ invited_at?: string | null } | null | undefined} user
+ * @returns {boolean}
  */
-export function passwordPanelCopy(flow) {
+export function isInvitedUser(user) {
+  return Boolean(user && user.invited_at);
+}
+
+/**
+ * @param {PasswordFlow} flow
+ * @param {"account" | "profile"} [inviteStep] — "profile" when the password is already saved
+ * @returns {{ title: string, text: string, button: string, passwordLabel: string, showInviteFields: boolean, showPasswordFields: boolean }}
+ */
+export function passwordPanelCopy(flow, inviteStep = "account") {
   if (flow === PASSWORD_FLOW_INVITE) {
+    const needsPassword = inviteStep !== "profile";
     return {
-      title: "Set your password",
-      text: "Create a password to finish setting up your account.",
-      button: "Set password",
+      title: "Set up your account",
+      text: needsPassword
+        ? "Create your profile and password to finish setting up your account."
+        : "Create your profile to finish setting up your account.",
+      button: "Finish setup",
+      passwordLabel: "Password",
+      showInviteFields: true,
+      showPasswordFields: needsPassword,
     };
   }
   return {
     title: "New password",
     text: "Enter a new password for your account.",
     button: "Save password",
+    passwordLabel: "New password",
+    showInviteFields: false,
+    showPasswordFields: true,
   };
 }

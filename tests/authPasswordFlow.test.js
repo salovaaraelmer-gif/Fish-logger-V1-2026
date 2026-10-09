@@ -6,6 +6,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   INVITE_PASSWORD_SET_KEY,
+  isInvitedUser,
   mergePasswordFlow,
   passwordFlowFromCallbackUrl,
   passwordPanelCopy,
@@ -80,19 +81,42 @@ describe("mergePasswordFlow", () => {
 });
 
 describe("passwordPanelCopy", () => {
-  it("uses invite wording without mentioning reset", () => {
-    const c = passwordPanelCopy("invite");
-    assert.equal(c.title, "Set your password");
-    assert.equal(c.text, "Create a password to finish setting up your account.");
-    assert.equal(c.button, "Set password");
+  it("invite account step shows profile + password fields, without reset wording", () => {
+    const c = passwordPanelCopy("invite", "account");
+    assert.equal(c.title, "Set up your account");
+    assert.equal(c.text, "Create your profile and password to finish setting up your account.");
+    assert.equal(c.button, "Finish setup");
+    assert.equal(c.passwordLabel, "Password");
+    assert.equal(c.showInviteFields, true);
+    assert.equal(c.showPasswordFields, true);
     assert.doesNotMatch(`${c.title} ${c.text} ${c.button}`, /reset/i);
   });
 
-  it("keeps the existing recovery wording", () => {
+  it("invite profile step hides password fields (password already saved)", () => {
+    const c = passwordPanelCopy("invite", "profile");
+    assert.equal(c.title, "Set up your account");
+    assert.equal(c.text, "Create your profile to finish setting up your account.");
+    assert.equal(c.button, "Finish setup");
+    assert.equal(c.showInviteFields, true);
+    assert.equal(c.showPasswordFields, false);
+  });
+
+  it("keeps the existing recovery wording and hides profile fields", () => {
     assert.deepEqual(passwordPanelCopy("recovery"), {
       title: "New password",
       text: "Enter a new password for your account.",
       button: "Save password",
+      passwordLabel: "New password",
+      showInviteFields: false,
+      showPasswordFields: true,
     });
+  });
+});
+
+describe("isInvitedUser", () => {
+  it("only matches users with invited_at", () => {
+    assert.equal(isInvitedUser({ invited_at: "2026-10-09T08:00:00Z" }), true);
+    assert.equal(isInvitedUser({ invited_at: null }), false);
+    assert.equal(isInvitedUser(null), false);
   });
 });

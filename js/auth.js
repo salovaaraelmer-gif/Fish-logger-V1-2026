@@ -186,6 +186,24 @@ export function updatePassword(newPassword, options = {}) {
 }
 
 /**
+ * Invited users: one `PUT /auth/v1/user` with the optional first password and the same
+ * metadata the former sign-up form stored, plus the invite step marker.
+ * @param {{ firstName: string, lastName: string, fullName: string, username: string, password: string | null }} values
+ */
+export function saveInviteAccountSetup(values) {
+  return supabase.auth.updateUser({
+    ...(values.password ? { password: values.password } : {}),
+    data: {
+      first_name: values.firstName,
+      last_name: values.lastName,
+      full_name: values.fullName,
+      username: values.username,
+      [INVITE_PASSWORD_SET_KEY]: true,
+    },
+  });
+}
+
+/**
  * @returns {Promise<string | null>}
  */
 export async function getAuthUserId() {

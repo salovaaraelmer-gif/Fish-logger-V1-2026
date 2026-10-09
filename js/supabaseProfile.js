@@ -6,6 +6,7 @@
 import { getDisplayNameFromUser } from "./auth.js";
 import { supabase } from "./supabase.js";
 import { uniqueProfilesById } from "./uniqueProfilesById.js";
+import { USERNAME_MIN_LENGTH, normalizeUsername } from "./usernameRules.js";
 
 /**
  * Reads the signed-in user's row from `public.profiles` (RLS: own row only).
@@ -184,16 +185,8 @@ export async function upsertProfileForUser(user) {
     .maybeSingle();
 
   const m = user.user_metadata || {};
-  let desired =
-    typeof m.username === "string" && m.username.trim()
-      ? m.username
-          .trim()
-          .toLowerCase()
-          .replace(/[^a-z0-9_]/g, "")
-          .replace(/_+/g, "_")
-          .replace(/^_|_$/g, "")
-      : "";
-  if (desired.length < 2) desired = "";
+  let desired = normalizeUsername(typeof m.username === "string" ? m.username : "");
+  if (desired.length < USERNAME_MIN_LENGTH) desired = "";
 
   let username =
     typeof existing?.username === "string" && existing.username.trim()
@@ -218,6 +211,40 @@ export async function upsertProfileForUser(user) {
     return { ok: false, error: error.message };
   }
   return { ok: true };
+}
+
+/**
+ * Pre-check only; `profiles_username_unique` stays the final authority.
+ * @param {string} username — already normalized
+ * @param {string} userId — the caller; their own row does not count as taken
+ * @returns {Promise<{ taken: boolean, error: string | null }>}
+ */
+export async function isUsernameTakenByOther(username, userId) {
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("id")
+    .eq("username", username)
+    .limit(1);
+  if (error) return { taken: false, error: error.message };
+  const row = Array.isArray(data) ? data[0] : null;
+  return { taken: Boolean(row && row.id !== userId), error: null };
+}
+
+/**
+ * Creates/updates the caller's profile with exactly this username (no automatic alternative).
+ * @param {string} userId
+ * @param {string} username — already normalized
+ * @param {string} displayName
+ * @returns {Promise<{ ok: true } | { ok: false, usernameTaken: boolean, error: string }>}
+ */
+export async function saveProfileWithUsername(userId, username, displayName) {
+  const { error } = await supabase
+    .from("profiles")
+    .upsert({ id: userId, username, display_name: displayName }, { onConflict: "id" });
+  if (!error) return { ok: true };
+  const usernameTaken =
+    error.code === "23505" || /profiles_username_unique|duplicate key/i.test(error.message || "");
+  return { ok: false, usernameTaken, error: error.message || "Profile save failed." };
 }
 
 export const AVATAR_BUCKET = "avatars";

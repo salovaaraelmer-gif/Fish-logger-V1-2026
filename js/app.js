@@ -96,17 +96,29 @@ import {
   signInWithEmail,
   sendPasswordResetEmail,
   updatePassword,
+  saveInviteAccountSetup,
   formatAuthErrorForUi,
 } from "./auth.js";
 import {
   PASSWORD_FLOW_INVITE,
   PASSWORD_FLOW_RECOVERY,
+  isInvitedUser,
   mergePasswordFlow,
   passwordFlowFromCallbackUrl,
   passwordPanelCopy,
   userNeedsInvitePassword,
 } from "./authPasswordFlow.js";
 import {
+  INVITE_STEP_ACCOUNT,
+  INVITE_STEP_PROFILE,
+  passwordValidationError,
+  runInviteSetup,
+  validateInviteSetup,
+} from "./inviteSetup.js";
+import {
+  fetchProfileForUser,
+  isUsernameTakenByOther,
+  saveProfileWithUsername,
   upsertProfileForUser,
   fetchProfileDisplayNames,
   fetchProfilesByIds,
@@ -4304,31 +4316,124 @@ function sessionIsPasswordRecovery(session) {
  * @returns {import("./authPasswordFlow.js").PasswordFlow | null}
  */
 function passwordFlowForSession(session) {
-  let flow = pendingPasswordFlow;
+  const user = session?.user;
+  let flow = pendingPasswordFlow === PASSWORD_FLOW_RECOVERY ? PASSWORD_FLOW_RECOVERY : null;
+  // With a user, invite state comes from the user record (see inviteSetupStepForUser), not the URL.
+  if (pendingPasswordFlow === PASSWORD_FLOW_INVITE && !user) {
+    flow = PASSWORD_FLOW_INVITE;
+  }
   if (session && sessionIsPasswordRecovery(session)) {
     flow = mergePasswordFlow(flow, PASSWORD_FLOW_RECOVERY);
   }
-  if (userNeedsInvitePassword(session?.user)) {
+  if (userNeedsInvitePassword(user)) {
     flow = mergePasswordFlow(flow, PASSWORD_FLOW_INVITE);
   }
   return flow;
 }
 
+/** Current invite step shown in the shared password panel. */
+let inviteSetupStep = /** @type {import("./inviteSetup.js").InviteSetupStep} */ (INVITE_STEP_ACCOUNT);
+
+const INVITE_ONBOARDED_KEY_PREFIX = "anglrlog_invite_onboarded_v1:";
+
+/** @param {string} userId */
+function rememberInviteOnboarded(userId) {
+  try {
+    localStorage.setItem(INVITE_ONBOARDED_KEY_PREFIX + userId, "1");
+  } catch {
+    /* ignore */
+  }
+}
+
+/** @param {string} userId */
+function wasInviteOnboarded(userId) {
+  try {
+    return localStorage.getItem(INVITE_ONBOARDED_KEY_PREFIX + userId) === "1";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Invited users are onboarded once the password step is recorded and their profile row exists.
+ * Users without `invited_at` are never checked.
+ * @param {{ id: string, invited_at?: string | null, user_metadata?: Record<string, unknown> }} user
+ * @returns {Promise<{ step: import("./inviteSetup.js").InviteSetupStep, message?: string } | null>}
+ */
+async function inviteSetupStepForUser(user) {
+  if (!isInvitedUser(user)) return null;
+  if (userNeedsInvitePassword(user)) return { step: INVITE_STEP_ACCOUNT };
+  const { profile, error } = await fetchProfileForUser(user.id);
+  if (error) {
+    // Offline after a confirmed setup on this device: do not lock the user out.
+    if (wasInviteOnboarded(user.id)) return null;
+    return {
+      step: INVITE_STEP_PROFILE,
+      message: "Could not check your account setup. Check your connection and try again.",
+    };
+  }
+  if (profile) {
+    rememberInviteOnboarded(user.id);
+    return null;
+  }
+  return { step: INVITE_STEP_PROFILE };
+}
+
+/** @param {{ user_metadata?: Record<string, unknown> } | null | undefined} user */
+function prefillInviteFields(user) {
+  const m = user?.user_metadata || {};
+  /** @type {[string, unknown][]} */
+  const pairs = [
+    ["auth-invite-first", m.first_name],
+    ["auth-invite-last", m.last_name],
+    ["auth-invite-username", m.username],
+  ];
+  for (const [id, value] of pairs) {
+    const el = /** @type {HTMLInputElement | null} */ (document.getElementById(id));
+    if (el && !el.value && typeof value === "string") el.value = value;
+  }
+}
+
+function clearPasswordInputs() {
+  for (const id of ["auth-reset-pass", "auth-reset-pass2"]) {
+    const el = /** @type {HTMLInputElement | null} */ (document.getElementById(id));
+    if (el) el.value = "";
+  }
+}
+
 /**
  * @param {import("./authPasswordFlow.js").PasswordFlow} flow
+ * @param {{ user?: { user_metadata?: Record<string, unknown>, invited_at?: string | null } | null, inviteStep?: import("./inviteSetup.js").InviteSetupStep, message?: string }} [options]
  */
-function showPasswordSetupUi(flow) {
+function showPasswordSetupUi(flow, options = {}) {
   pendingPasswordFlow = mergePasswordFlow(pendingPasswordFlow, flow);
-  const copy = passwordPanelCopy(pendingPasswordFlow || flow);
+  const activeFlow = pendingPasswordFlow || flow;
+  if (activeFlow === PASSWORD_FLOW_INVITE) {
+    if (options.inviteStep) {
+      inviteSetupStep = options.inviteStep;
+    } else if (options.user) {
+      inviteSetupStep = userNeedsInvitePassword(options.user) ? INVITE_STEP_ACCOUNT : INVITE_STEP_PROFILE;
+    }
+    prefillInviteFields(options.user);
+  }
+  const copy = passwordPanelCopy(activeFlow, inviteSetupStep);
   const title = document.getElementById("auth-reset-title");
   const text = document.getElementById("auth-reset-text");
   const btn = document.getElementById("auth-reset-submit");
+  const passLabel = document.getElementById("auth-reset-pass-label");
   if (title) title.textContent = copy.title;
   if (text) text.textContent = copy.text;
   if (btn) btn.textContent = copy.button;
+  if (passLabel) passLabel.textContent = copy.passwordLabel;
+  for (const el of document.querySelectorAll("#auth-reset-password .auth-invite-field")) {
+    el.classList.toggle("hidden", !copy.showInviteFields);
+  }
+  for (const el of document.querySelectorAll("#auth-reset-password .auth-password-field")) {
+    el.classList.toggle("hidden", !copy.showPasswordFields);
+  }
   showAuthGate();
   showAuthPanel("auth-reset-password");
-  setAuthMessage("");
+  setAuthMessage(options.message || "");
 }
 
 /** Supabase puts auth errors in the URL hash (e.g. expired reset link). */
@@ -4553,13 +4658,17 @@ async function prepareSignedInUserData(user) {
  */
 async function activateSignedInUser(user) {
   const uid = user.id;
-  const blockingFlow = mergePasswordFlow(
-    pendingPasswordFlow,
-    userNeedsInvitePassword(user) ? PASSWORD_FLOW_INVITE : null
-  );
-  if (blockingFlow) {
-    showPasswordSetupUi(blockingFlow);
+  if (pendingPasswordFlow === PASSWORD_FLOW_RECOVERY) {
+    showPasswordSetupUi(PASSWORD_FLOW_RECOVERY);
     return;
+  }
+  const invite = await inviteSetupStepForUser(user);
+  if (invite) {
+    showPasswordSetupUi(PASSWORD_FLOW_INVITE, { user, inviteStep: invite.step, message: invite.message });
+    return;
+  }
+  if (pendingPasswordFlow === PASSWORD_FLOW_INVITE) {
+    pendingPasswordFlow = null;
   }
   if (activateInFlight && activateInFlightUserId === uid) {
     return activateInFlight;
@@ -4612,6 +4721,86 @@ async function revealSignedInSessionHome(user) {
   }
 }
 
+let inviteSetupBusy = false;
+
+/** @param {string | undefined} field */
+function focusInviteField(field) {
+  const ids = {
+    first: "auth-invite-first",
+    last: "auth-invite-last",
+    username: "auth-invite-username",
+    password: "auth-reset-pass",
+  };
+  const id = field ? ids[/** @type {keyof typeof ids} */ (field)] : null;
+  if (id) document.getElementById(id)?.focus();
+}
+
+/** Invite "Finish setup": the app activates only after Auth and `profiles` are both saved. */
+async function submitInviteSetup() {
+  if (inviteSetupBusy) return;
+  const value = (/** @type {string} */ id) =>
+    /** @type {HTMLInputElement | null} */ (document.getElementById(id))?.value ?? "";
+  setAuthMessage("");
+  const step = inviteSetupStep;
+  const v = validateInviteSetup(
+    {
+      firstName: value("auth-invite-first"),
+      lastName: value("auth-invite-last"),
+      username: value("auth-invite-username"),
+      password: value("auth-reset-pass"),
+      confirm: value("auth-reset-pass2"),
+    },
+    step
+  );
+  if (!v.ok) {
+    setAuthMessage(v.error);
+    focusInviteField(v.field);
+    return;
+  }
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  const uid = session?.user?.id;
+  if (!uid) {
+    setAuthMessage("Your invitation link is no longer valid. Ask for a new invitation.");
+    return;
+  }
+  const btn = /** @type {HTMLButtonElement | null} */ (document.getElementById("auth-reset-submit"));
+  inviteSetupBusy = true;
+  if (btn) btn.disabled = true;
+  let result;
+  try {
+    result = await runInviteSetup(v.values, step, {
+      isUsernameTaken: (username) => isUsernameTakenByOther(username, uid),
+      updateAuthUser: (values) => saveInviteAccountSetup(values),
+      saveProfile: (username, displayName) => saveProfileWithUsername(uid, username, displayName),
+    });
+  } catch (err) {
+    result = { ok: false, error: formatAuthErrorForUi(/** @type {any} */ (err)), step };
+  } finally {
+    inviteSetupBusy = false;
+    if (btn) btn.disabled = false;
+  }
+  if (!result.ok) {
+    if (result.step !== inviteSetupStep) {
+      clearPasswordInputs();
+      showPasswordSetupUi(PASSWORD_FLOW_INVITE, { inviteStep: result.step });
+    }
+    setAuthMessage(result.error);
+    focusInviteField(result.field);
+    return;
+  }
+  rememberInviteOnboarded(uid);
+  pendingPasswordFlow = null;
+  clearPasswordInputs();
+  setAuthMessage("");
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  const nextUser = user ?? (await supabase.auth.getSession()).data.session?.user ?? null;
+  if (nextUser) await activateSignedInUser(nextUser);
+}
+
 function wireAuthUi() {
   document.addEventListener("keydown", (e) => {
     if (e.ctrlKey && e.altKey && e.key.toLowerCase() === "d") {
@@ -4650,24 +4839,24 @@ function wireAuthUi() {
     showAuthLoginPanel();
   });
   document.getElementById("auth-reset-submit")?.addEventListener("click", async () => {
+    if (pendingPasswordFlow === PASSWORD_FLOW_INVITE) {
+      await submitInviteSetup();
+      return;
+    }
     const p1 = /** @type {HTMLInputElement | null} */ (document.getElementById("auth-reset-pass"));
     const p2 = /** @type {HTMLInputElement | null} */ (document.getElementById("auth-reset-pass2"));
     const a = p1?.value ?? "";
     const b = p2?.value ?? "";
     setAuthMessage("");
-    if (a.length < 6) {
-      setAuthMessage("Password must be at least 6 characters.");
-      return;
-    }
-    if (a !== b) {
-      setAuthMessage("Passwords do not match.");
+    const pwError = passwordValidationError(a, b);
+    if (pwError) {
+      setAuthMessage(pwError);
       return;
     }
     const {
       data: { session: currentSession },
     } = await supabase.auth.getSession();
-    const markInvitePasswordSet =
-      pendingPasswordFlow === PASSWORD_FLOW_INVITE || userNeedsInvitePassword(currentSession?.user);
+    const markInvitePasswordSet = userNeedsInvitePassword(currentSession?.user);
     const { error } = await updatePassword(a, { markInvitePasswordSet });
     if (error) {
       setAuthMessage(formatAuthErrorForUi(error));
@@ -4820,7 +5009,7 @@ async function bootstrap() {
       console.log("[Auth] bootstrap session found — user id:", session.user.id);
       const flow = passwordFlowForSession(session);
       if (flow) {
-        showPasswordSetupUi(flow);
+        showPasswordSetupUi(flow, { user: session.user });
       } else {
         try {
           await activateSignedInUser(session.user);
@@ -4855,7 +5044,7 @@ async function handleAuthStateChange(event, session) {
   if (event === "INITIAL_SESSION") {
     const flow = session ? passwordFlowForSession(session) : null;
     if (flow) {
-      showPasswordSetupUi(flow);
+      showPasswordSetupUi(flow, { user: session?.user });
     }
     return;
   }
@@ -4866,7 +5055,7 @@ async function handleAuthStateChange(event, session) {
   if (event === "SIGNED_IN" && session?.user) {
     const flow = passwordFlowForSession(session);
     if (flow) {
-      showPasswordSetupUi(flow);
+      showPasswordSetupUi(flow, { user: session.user });
       return;
     }
     try {
@@ -4877,6 +5066,12 @@ async function handleAuthStateChange(event, session) {
   }
   if (event === "SIGNED_OUT") {
     pendingPasswordFlow = null;
+    inviteSetupStep = INVITE_STEP_ACCOUNT;
+    for (const id of ["auth-invite-first", "auth-invite-last", "auth-invite-username"]) {
+      const el = /** @type {HTMLInputElement | null} */ (document.getElementById(id));
+      if (el) el.value = "";
+    }
+    clearPasswordInputs();
     showAuthGate();
     showAuthLoginPanel();
     updateUserDisplayName(null);

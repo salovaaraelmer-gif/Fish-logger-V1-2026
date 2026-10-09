@@ -43,11 +43,31 @@
         <div id="auth-reset-password" class="auth-panel stack hidden">
           <h2 id="auth-reset-title">New password</h2>
           <p class="meta" id="auth-reset-text">Enter a new password for your account.</p>
-          <div class="field-block">
-            <div class="field-label">New password</div>
+          <div class="field-block auth-invite-field hidden">
+            <div class="field-label">First name</div>
+            <input type="text" id="auth-invite-first" autocomplete="given-name" />
+          </div>
+          <div class="field-block auth-invite-field hidden">
+            <div class="field-label">Last name</div>
+            <input type="text" id="auth-invite-last" autocomplete="family-name" />
+          </div>
+          <div class="field-block auth-invite-field hidden">
+            <div class="field-label">Username</div>
+            <input
+              type="text"
+              id="auth-invite-username"
+              autocomplete="username"
+              inputmode="text"
+              autocapitalize="none"
+              spellcheck="false"
+              placeholder="letters, numbers, and _ only"
+            />
+          </div>
+          <div class="field-block auth-password-field">
+            <div class="field-label" id="auth-reset-pass-label">New password</div>
             <input type="password" id="auth-reset-pass" autocomplete="new-password" />
           </div>
-          <div class="field-block">
+          <div class="field-block auth-password-field">
             <div class="field-label">Confirm password</div>
             <input type="password" id="auth-reset-pass2" autocomplete="new-password" />
           </div>
