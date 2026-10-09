@@ -28,7 +28,7 @@ create unique index fishing_locations_name_normalized_uidx
 -- 4) Session links point at the global catalog
 alter table public.session_fishing_locations
   add constraint session_fishing_locations_location_id_fkey
-  foreign key (location_id) references public.fishing_locations (id) on delete cascade;
+  foreign key (location_id) references public.fishing_locations (id) on delete restrict;
 
 -- 5) RLS: authenticated can read all + create; no update/delete for normal users
 alter table public.fishing_locations enable row level security;
